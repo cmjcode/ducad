@@ -1775,6 +1775,7 @@ dependencies = [
  "ducad-sim",
  "ducad-sketch",
  "glam",
+ "i_overlay",
  "log",
  "resvg",
  "schemars",
@@ -1833,10 +1834,13 @@ dependencies = [
  "ducad-kernel",
  "ducad-sketch",
  "glam",
+ "log",
  "miniz_oxide",
  "proptest",
  "serde",
  "serde_json",
+ "usvg",
+ "zip",
 ]
 
 [[package]]

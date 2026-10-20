@@ -1,6 +1,6 @@
 use ducad_core::Command;
 
-use crate::constraint::solver::{involved_entities, solve};
+use crate::constraint::solver::{involved_entities, refresh_driven_values, solve};
 use crate::constraint::types::Constraint;
 use crate::entity::{Entity, EntityId};
 use crate::sketch::Sketch;
@@ -32,6 +32,7 @@ impl Command<Sketch> for AddConstraint {
         sketch.constraints.push(self.constraint.clone());
         let snapshot = sketch.constraints.clone();
         solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         sketch.constraints.pop();
@@ -69,6 +70,7 @@ impl Command<Sketch> for AddConstraints {
         sketch.constraints.extend(self.constraints.iter().cloned());
         let snapshot = sketch.constraints.clone();
         solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         let keep = sketch.constraints.len().saturating_sub(self.constraints.len());
@@ -114,6 +116,7 @@ impl Command<Sketch> for RemoveConstraint {
         self.removed = Some(sketch.constraints.remove(self.index));
         let snapshot = sketch.constraints.clone();
         solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         if let Some(c) = self.removed.take() {
@@ -164,6 +167,7 @@ impl Command<Sketch> for UpdateConstraint {
         sketch.constraints[self.index] = self.new_constraint.clone();
         let snapshot = sketch.constraints.clone();
         solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         if let Some(old) = self.old_constraint.take() {

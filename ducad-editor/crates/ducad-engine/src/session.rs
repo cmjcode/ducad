@@ -18,13 +18,17 @@ use crate::model::{
     AddMultipleSolidsCommand, AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind,
     DeleteBodyCommand, ModelDoc, ReplaceGeometryCommand, SetBodyMechanicalCommand,
 };
-use crate::ops::sketch::{build_sketch, resolve_plane, ResolvedPlane};
+use crate::ops::sketch::{build_sketch, resolve_plane_in, ResolvedPlane};
 use crate::ops::{
     eval, eval_arr, is_valid_op_id, AxisSpec, BodyMode, BoolKind, ExtrudeDir, HelixSection,
-    HoleKindSpec, HoleSpecRef, MaterialSel, MirrorPlane, Num, Op, OutlineSpec, Params, PatternKind,
+    HoleKindSpec, HoleSpecRef, MaterialSel, MirrorPlane, Num, Op, OutlineSpec, Params, PatternAxis,
+    PatternKind,
     PrimitiveSpec, ProfileSel, SplitKeep, SweepPath,
 };
 use crate::plane::PlaneFrame;
+
+mod direct;
+mod sheet;
 
 /// Isi field `design` di file `.ducad`: sumber kebenaran part parametrik.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +100,8 @@ impl DesignDoc {
         let mut params = self.params.clone();
         if let Some(cfg) = self.active() {
             params.extend(cfg.params.iter().map(|(k, v)| (k.clone(), *v)));
+            // Paritas 4.11: aturan "jika … maka …" konfigurasi aktif.
+            ducad_core::apply_rules(&cfg.rules, &mut params);
         }
         params
     }
@@ -191,6 +197,15 @@ pub struct SessionMeta {
     /// Nama lembar → sidik jari geometri saat terakhir dirender (P21):
     /// berbeda dari sidik jari kini = lembar kedaluwarsa. Tidak disimpan.
     pub drawing_rendered: BTreeMap<String, String>,
+    /// Id op `construct_axis` → sumbu datum (`"axis:<id>"`); dibangun ulang
+    /// saat replay.
+    pub datum_axes: BTreeMap<String, crate::datum::Axis>,
+    /// Id op `construct_point` → titik datum (`"point:<id>"`).
+    pub datum_points: BTreeMap<String, [f64; 3]>,
+    /// Salinan sketch SEBELUM diubah op batch berjalan (`sketch_project`
+    /// menambah entitas ke sketch yang sudah ada). Rollback memulihkannya;
+    /// commit mengosongkannya. Bukan bagian berkas.
+    pub sketch_backups: Vec<(SketchId, Sketch)>,
 }
 
 /// Catatan satu ulir pada body.
@@ -411,6 +426,23 @@ pub struct EditPreview {
     pub report: BatchReport,
     pub diff: Vec<crate::diff::BodyDiff>,
     pub shapes: crate::diff::DiffShapes,
+}
+
+/// Paritas 4.11: pratinjau konfigurasi `name` tanpa mengaktifkannya —
+/// replay di sesi baru lalu diff terhadap `current`.
+pub fn preview_configuration(current: &ModelDoc, base: &DesignDoc, name: &str) -> OpResult<EditPreview> {
+    let mut design = base.clone();
+    design.active_configuration = if name == ducad_core::DEFAULT_CONFIGURATION {
+        None
+    } else if design.configurations.iter().any(|c| c.name == name) {
+        Some(name.to_string())
+    } else {
+        return Err(OpError::new(
+            OpErrorCode::UnknownRef,
+            format!("konfigurasi '{name}' tidak dikenal"),
+        ));
+    };
+    preview_edit(current, &design, None, &[], &[], &[])
 }
 
 /// Uji edit oplog (lihat [`edit_design`]) tanpa menyentuh model pemanggil:
@@ -708,6 +740,7 @@ impl SessionCore<'_> {
         let inspected = failure.is_none().then(|| inspect(self.model));
         if failure.is_some() || dry_run {
             self.model_undo.rollback(self.model);
+            self.restore_sketch_backups(0);
             for sid in new_sketches {
                 self.sketches.remove(sid);
             }
@@ -723,6 +756,7 @@ impl SessionCore<'_> {
         }
 
         self.model_undo.commit();
+        self.meta.sketch_backups.clear();
         let n = ops.len();
         self.meta.design.oplog.extend(ops);
         if n > 0 {
@@ -778,20 +812,32 @@ impl SessionCore<'_> {
             .iter()
             .filter_map(|i| all.iter().find(|e| e.index == *i).cloned())
             .collect();
-        let sides = compute::sheet_metal::match_base_edges(&state.model, &state.frame, &infos)?;
+        let targets = compute::sheet_metal::match_edges(&state.model, &state.frame, &infos)?;
         let mut model = state.model.clone();
         let chain = segments(&model)?;
-        for (n, edge) in sides.iter().enumerate() {
-            model.flanges.push(ducad_core::Flange {
-                id: if n == 0 {
-                    id.to_string()
-                } else {
-                    format!("{id}_{}", n + 1)
-                },
-                edge: *edge,
-                segments: chain.clone(),
-                relief,
-            });
+        let mut n = 0;
+        for target in targets {
+            match target {
+                compute::sheet_metal::EdgeTarget::Base(edge) => {
+                    model.flanges.push(ducad_core::Flange {
+                        id: if n == 0 {
+                            id.to_string()
+                        } else {
+                            format!("{id}_{}", n + 1)
+                        },
+                        edge,
+                        segments: chain.clone(),
+                        relief,
+                    });
+                    n += 1;
+                }
+                // Flange di ujung flange lain: rantai segmennya diperpanjang.
+                compute::sheet_metal::EdgeTarget::Tip(k) => {
+                    if let Some(f) = model.flanges.get_mut(k) {
+                        f.segments.extend(chain.iter().copied());
+                    }
+                }
+            }
         }
         model.validate().map_err(OpError::invalid)?;
         let new_geo = compute::sheet_metal::folded(&model, &state.frame)?;
@@ -824,6 +870,7 @@ impl SessionCore<'_> {
     /// tersentuh.
     pub(crate) fn try_op(&mut self, op: &Op) -> bool {
         let saved_meta = self.meta.clone();
+        let backup_mark = self.meta.sketch_backups.len();
         let mut temp = UndoStack::default();
         std::mem::swap(self.model_undo, &mut temp);
         self.model_undo.begin("verifikasi");
@@ -831,11 +878,24 @@ impl SessionCore<'_> {
         let ok = self.apply(op, 0, &mut new_sketches).is_ok();
         self.model_undo.rollback(self.model);
         std::mem::swap(self.model_undo, &mut temp);
+        self.restore_sketch_backups(backup_mark);
         for sid in new_sketches {
             self.sketches.remove(sid);
         }
         *self.meta = saved_meta;
         ok
+    }
+
+    /// Kembalikan isi sketch yang diubah sejak cadangan ke-`from` (urutan
+    /// terbalik, sehingga cadangan tertua — keadaan asli — dipulihkan terakhir).
+    fn restore_sketch_backups(&mut self, from: usize) {
+        let from = from.min(self.meta.sketch_backups.len());
+        let taken: Vec<(SketchId, Sketch)> = self.meta.sketch_backups.drain(from..).collect();
+        for (sid, sketch) in taken.into_iter().rev() {
+            if let Some(slot) = self.sketches.sketch_mut(sid) {
+                *slot = sketch;
+            }
+        }
     }
 
     fn exec(&mut self, cmd: Box<dyn ducad_core::Command<ModelDoc>>) {
@@ -844,6 +904,21 @@ impl SessionCore<'_> {
 
     fn body_shape_clone(&self, name: &str) -> OpResult<KernelShape> {
         clone_shape(&self.body(name)?.1.shape)
+    }
+
+    /// Konteks resolusi datum (Fase 1): param, pencari body, sumbu & titik
+    /// datum yang sudah dibuat.
+    fn datum_ctx<'c>(
+        &'c self,
+        params: &'c Params,
+        lookup: &'c dyn Fn(&str) -> OpResult<KernelShape>,
+    ) -> crate::compute::datum::DatumCtx<'c> {
+        crate::compute::datum::DatumCtx {
+            params,
+            body_shape: lookup,
+            axes: &self.meta.datum_axes,
+            points: &self.meta.datum_points,
+        }
     }
 
     fn apply(
@@ -872,7 +947,7 @@ impl SessionCore<'_> {
             } => {
                 let resolved = {
                     let lookup = |name: &str| self.body_shape_clone(name);
-                    resolve_plane(plane, &params, &lookup)?
+                    resolve_plane_in(plane, &self.datum_ctx(&params, &lookup))?
                 };
                 let built = build_sketch(entities, constraints, &params)?;
                 let (frame, plane_ref) = match resolved {
@@ -900,6 +975,23 @@ impl SessionCore<'_> {
                     "closed_regions": built.closed_regions,
                     "dof": built.dof.dof,
                 });
+            }
+            Op::ConstructAxis { id, by } => {
+                let axis = {
+                    let lookup = |name: &str| self.body_shape_clone(name);
+                    crate::compute::datum::construct_axis(by, &self.datum_ctx(&params, &lookup))?
+                };
+                out.detail = serde_json::json!({ "axis": format!("axis:{id}"), "origin": axis.origin, "dir": axis.dir });
+                self.meta.datum_axes.insert(id.clone(), axis);
+            }
+            Op::ConstructPoint { id, by } => {
+                let (p, warnings) = {
+                    let lookup = |name: &str| self.body_shape_clone(name);
+                    crate::compute::datum::construct_point(by, &self.datum_ctx(&params, &lookup))?
+                };
+                out.warnings.extend(warnings);
+                out.detail = serde_json::json!({ "point": format!("point:{id}"), "at": p.to_array() });
+                self.meta.datum_points.insert(id.clone(), p.to_array());
             }
             Op::Extrude {
                 id,
@@ -1028,9 +1120,19 @@ impl SessionCore<'_> {
                     AxisSpec::Named(n) => match n.to_ascii_lowercase().as_str() {
                         "u" => (DVec2::ZERO, DVec2::X),
                         "v" => (DVec2::ZERO, DVec2::Y),
+                        _ if crate::select::parse_datum_ref(n).is_some() => {
+                            // Sumbu datum 3D → garis (u, v) di bidang sketch.
+                            let lookup = |name: &str| self.body_shape_clone(name);
+                            let ax = crate::compute::datum::axis_by_ref(
+                                n,
+                                &self.datum_ctx(&params, &lookup),
+                            )?;
+                            let (_, frame) = self.sketch(sketch)?;
+                            crate::datum::axis_in_plane(&ax, frame)?
+                        }
                         _ => {
                             return Err(OpError::invalid(format!(
-                                "sumbu revolve '{n}' tidak dikenal (pakai \"u\" atau \"v\")"
+                                "sumbu revolve '{n}' tidak dikenal (pakai \"u\", \"v\", atau \"axis:<id>\")"
                             )))
                         }
                     },
@@ -1069,6 +1171,10 @@ impl SessionCore<'_> {
                         r1: eval(r1, &params)?,
                         r2: eval(r2, &params)?,
                         h: eval(h, &params)?,
+                    },
+                    PrimitiveSpec::Torus { major, minor } => PrimitiveShape::Torus {
+                        major: eval(major, &params)?,
+                        minor: eval(minor, &params)?,
                     },
                 };
                 let geo = compute::primitive(&shape, eval_arr(at, &params)?)?;
@@ -1232,16 +1338,48 @@ impl SessionCore<'_> {
                         axis,
                         count,
                         angle_deg,
-                    } => (
-                        compute::circular_pattern(
-                            &geo.shape,
-                            eval_arr(pivot, &params)?,
-                            eval_arr(axis, &params)?,
-                            *count as usize,
-                            eval(angle_deg, &params)?,
-                        )?,
-                        "Circular Pattern 3D",
-                    ),
+                    } => {
+                        let (pivot, axis) = match axis {
+                            PatternAxis::Dir(d) => (eval_arr(pivot, &params)?, eval_arr(d, &params)?),
+                            PatternAxis::Datum(src) => {
+                                let p = eval_arr(pivot, &params)?;
+                                if p.iter().any(|c| *c != 0.0) {
+                                    return Err(OpError::invalid(
+                                        "pivot tidak dipakai bersama sumbu datum (sumbu datum sudah memuat titiknya)",
+                                    )
+                                    .with_hint("hapus field pivot, atau pakai axis berupa arah [x,y,z]"));
+                                }
+                                let lookup = |name: &str| self.body_shape_clone(name);
+                                let ax = crate::compute::datum::axis_by_ref(
+                                    src,
+                                    &self.datum_ctx(&params, &lookup),
+                                )?;
+                                (ax.origin, ax.dir)
+                            }
+                        };
+                        (
+                            compute::circular_pattern(
+                                &geo.shape,
+                                pivot,
+                                axis,
+                                *count as usize,
+                                eval(angle_deg, &params)?,
+                            )?,
+                            "Circular Pattern 3D",
+                        )
+                    }
+                    PatternKind::Path { path, count, align } => {
+                        let segs = self.path_segments(path, &params)?;
+                        (
+                            compute::direct::path_pattern(
+                                &geo.shape,
+                                &segs,
+                                *count as usize,
+                                *align,
+                            )?,
+                            "Pattern on Path",
+                        )
+                    }
                 };
                 if copies.is_empty() {
                     return Err(OpError::invalid(
@@ -1337,9 +1475,11 @@ impl SessionCore<'_> {
                         profiles.len()
                     )));
                 }
-                let outline = compute::sheet_metal::outline_from_profile(&profiles.remove(0))?;
+                let (outline, cutouts) =
+                    compute::sheet_metal::base_from_profile(&profiles.remove(0))?;
                 let model = ducad_core::SheetMetalModel {
                     outline,
+                    cutouts,
                     thickness: t,
                     default_radius: radius,
                     k_factor: k_factor.unwrap_or(ducad_core::DEFAULT_K_FACTOR),
@@ -1510,6 +1650,9 @@ impl SessionCore<'_> {
                     })).collect::<Vec<_>>(),
                 });
             }
+            Op::Perforate { .. } | Op::ConvertToSheet { .. } => {
+                self.apply_sheet_extra(op, &params, &mut out)?
+            }
             Op::StandardPart {
                 id,
                 standard,
@@ -1611,6 +1754,100 @@ impl SessionCore<'_> {
                     cosmetic: *cosmetic,
                 });
                 out.detail = serde_json::json!({ "designation": designation, "cosmetic": cosmetic });
+            }
+            Op::SketchProject {
+                id,
+                sketch,
+                body,
+                edges,
+                faces,
+                mode,
+                construction,
+            } => {
+                let frame = *self.sketch(sketch)?.1;
+                let sid = self.meta.sketch_ids.get(sketch).copied().ok_or_else(|| {
+                    OpError::new(OpErrorCode::UnknownRef, format!("sketch '{sketch}' tidak dikenal"))
+                })?;
+                let (_, geo) = self.body(body)?;
+                let projected = match mode {
+                    crate::ops::ProjectMode::Project => {
+                        if edges.is_none() && faces.is_none() {
+                            return Err(OpError::invalid(
+                                "sketch_project mode project butuh `edges` dan/atau `faces`",
+                            )
+                            .with_hint("contoh: \"faces\": \">Z\" atau \"edges\": \"of(>Z)\""));
+                        }
+                        let mut idx = Vec::new();
+                        if let Some(sel) = edges {
+                            idx.extend(crate::select::select_edges(&geo.shape, sel)?);
+                        }
+                        if let Some(sel) = faces {
+                            let picked = crate::select::select_faces(&geo.shape, sel)?;
+                            let infos = ducad_kernel::enumerate_faces(&geo.shape);
+                            idx.extend(compute::project::edges_of_faces(&infos, &picked));
+                        }
+                        idx.sort_unstable();
+                        idx.dedup();
+                        compute::project::project_edges(&geo.shape, &idx, &frame)
+                    }
+                    crate::ops::ProjectMode::Intersect => {
+                        if edges.is_some() || faces.is_some() {
+                            return Err(OpError::invalid(
+                                "sketch_project mode intersect tidak memakai `edges`/`faces`",
+                            )
+                            .with_hint("hapus `edges`/`faces`, atau pakai mode project"));
+                        }
+                        compute::project::intersect_mesh(&geo.mesh, &frame)
+                    }
+                };
+                if projected.entities.is_empty() {
+                    return Err(OpError::new(
+                        OpErrorCode::EmptyResult,
+                        format!("sketch_project '{id}' tidak menghasilkan entitas pada bidang sketch '{sketch}'"),
+                    )
+                    .with_context(serde_json::json!({ "warnings": projected.warnings })));
+                }
+                let existing: HashSet<String> = self
+                    .sketches
+                    .sketch(sid)
+                    .map(|sk| sk.entity_names.values().cloned().collect())
+                    .unwrap_or_default();
+                let names: Vec<String> = (1..=projected.entities.len())
+                    .map(|n| format!("{id}.{n}"))
+                    .collect();
+                if let Some(dup) = names.iter().find(|n| existing.contains(*n)) {
+                    return Err(OpError::new(
+                        OpErrorCode::DuplicateId,
+                        format!("nama entitas '{dup}' sudah ada di sketch '{sketch}'"),
+                    ));
+                }
+                let Some(original) = self.sketches.sketch(sid).cloned() else {
+                    return Err(OpError::new(
+                        OpErrorCode::UnknownRef,
+                        format!("slot sketch '{sketch}' hilang"),
+                    ));
+                };
+                // Cadangkan dulu supaya rollback batch/verifikasi memulihkannya.
+                self.meta.sketch_backups.push((sid, original));
+                let count = projected.entities.len();
+                if let Some(sk) = self.sketches.sketch_mut(sid) {
+                    for (entity, name) in projected.entities.into_iter().zip(names) {
+                        let eid = sk.entities.insert(entity.with_construction(*construction));
+                        sk.entity_names.insert(eid, name);
+                        sk.touch(eid);
+                    }
+                }
+                let closed_regions = self
+                    .sketches
+                    .sketch(sid)
+                    .map(|sk| ducad_sketch::find_closed_regions(sk).len())
+                    .unwrap_or(0);
+                out.warnings.extend(projected.warnings);
+                out.detail = serde_json::json!({
+                    "sketch": sketch,
+                    "entities": count,
+                    "closed_regions": closed_regions,
+                });
             }
             Op::Study {
                 id: _,
@@ -1741,6 +1978,18 @@ impl SessionCore<'_> {
                     &mut out,
                 )?;
             }
+            Op::OffsetFace { .. }
+            | Op::DeleteFace { .. }
+            | Op::ReplaceFace { .. }
+            | Op::SplitFace { .. }
+            | Op::Pipe { .. }
+            | Op::Web { .. }
+            | Op::Emboss { .. }
+            | Op::Align { .. }
+            | Op::BoundaryFill { .. }
+            | Op::BoundingSolid { .. }
+            | Op::Surface { .. }
+            | Op::Plastic { .. } => self.apply_direct(op, &params, &mut out)?,
             Op::Draft {
                 body,
                 faces,

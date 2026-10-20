@@ -10,8 +10,11 @@
 //! 4. Fix tidak pernah diterapkan otomatis.
 
 mod boolean;
+mod datum;
+mod direct;
 mod hole;
 mod profile;
+mod project;
 mod round;
 mod shell;
 mod sketch;
@@ -34,6 +37,22 @@ pub fn diagnose(core: &mut SessionCore, op: &Op, err: OpError, batch: &[Op]) -> 
         Op::Shell { .. } => shell::diagnose(core, op, err),
         Op::Extrude { .. } | Op::Revolve { .. } => profile::diagnose(core, op, err, batch),
         Op::Sketch { .. } => sketch::diagnose(core, op, err),
+        Op::ConstructAxis { .. } | Op::ConstructPoint { .. } => datum::diagnose(op, err),
+        Op::SketchProject { .. } => project::diagnose(core, op, err),
+        Op::OffsetFace { .. }
+        | Op::DeleteFace { .. }
+        | Op::ReplaceFace { .. }
+        | Op::SplitFace { .. }
+        | Op::Pipe { .. }
+        | Op::Web { .. }
+        | Op::Emboss { .. }
+        | Op::Align { .. }
+        | Op::BoundaryFill { .. }
+        | Op::BoundingSolid { .. }
+        | Op::Surface { .. }
+        | Op::Plastic { .. }
+        | Op::Perforate { .. }
+        | Op::ConvertToSheet { .. } => direct::diagnose(op, err),
         _ => err,
     }
 }

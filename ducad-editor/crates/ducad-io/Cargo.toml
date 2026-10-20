@@ -14,10 +14,15 @@ glam = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+log = { workspace = true }
 base64 = { workspace = true }
 # Deflate murni-Rust (MIT/Zlib/Apache-2.0) untuk gambar raster di PDF/PNG lembar;
 # sudah ada di Cargo.lock lewat `png`/`flate2`.
 miniz_oxide = "0.8"
+# Parser SVG (sudah dipakai ducad-app/ducad-engine) untuk Insert SVG (Paritas 1.19).
+usvg = { version = "0.48", default-features = false }
+# Kontainer zip 3MF (Paritas 3.9/3.10).
+zip = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

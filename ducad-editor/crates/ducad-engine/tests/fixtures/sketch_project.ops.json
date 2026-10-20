@@ -1,0 +1,12 @@
+{ "params": { "w": 40, "d": 30, "t": 10 },
+  "ops": [
+    {"op":"primitive","id":"block","shape":{"box":{"size":["$w","$d","$t"]}}},
+    {"op":"sketch","id":"s_top","plane":{"base":"XY","offset":20},"entities":[
+      {"circle":{"center":[20,15],"r":3,"name":"pin"}}]},
+    {"op":"sketch_project","id":"outline","sketch":"s_top","body":"block","faces":">Z"},
+    {"op":"extrude","id":"cap","sketch":"s_top","profile":{"at":[5,5]},"distance":5},
+    {"op":"sketch","id":"s_side","plane":{"base":"YZ","offset":20},"entities":[
+      {"line":{"from":[0,0],"to":[5,0],"name":"ref","construction":true}}]},
+    {"op":"sketch_project","id":"cut","sketch":"s_side","body":"block","mode":"intersect"},
+    {"op":"extrude","id":"slice","sketch":"s_side","profile":{"at":[15,5]},"distance":2,"direction":"symmetric"}
+  ] }

@@ -7,7 +7,7 @@ use crate::history_drawer::{ActivityItemInfo, ActivityKindUi};
 use crate::theme::{
     card_frame, glass_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
-use ducad_core::parametric::{FeatureId, FeatureNode, FeaturePayload, FeatureStatus};
+use ducad_core::parametric::{FeatureGroup, FeatureId, FeatureNode, FeaturePayload, FeatureStatus};
 use ducad_i18n::t;
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
@@ -16,8 +16,23 @@ use egui_icons::icons::{
     ICON_AUTO_MODE, ICON_CATEGORY, ICON_CHECK_CIRCLE, ICON_CLEAR, ICON_CLOSE, ICON_DELETE,
     ICON_EDIT, ICON_ERROR, ICON_GRID_4X4, ICON_HISTORY, ICON_HORIZONTAL_RULE, ICON_LAYERS,
     ICON_POWER_SETTINGS_NEW, ICON_REFRESH, ICON_SEARCH, ICON_TIMELINE, ICON_VISIBILITY,
-    ICON_VISIBILITY_OFF,
+    ICON_VISIBILITY_OFF, ICON_CHEVRON_RIGHT, ICON_EXPAND_MORE, ICON_FLAG, ICON_FOLDER,
+    ICON_FOLDER_OFF,
 };
+
+/// Info timeline Feature Tree (Paritas 3.1–3.6) yang disediakan app.
+#[derive(Debug, Clone, Default)]
+pub struct TimelineInfo<'a> {
+    /// Indeks roll-to marker (fitur sesudahnya tidak dievaluasi).
+    pub marker: Option<usize>,
+    pub groups: &'a [FeatureGroup],
+    /// Turunan (bergantung pada) fitur terpilih.
+    pub dependents: &'a [FeatureId],
+    /// Induk fitur terpilih.
+    pub parents: &'a [FeatureId],
+    /// Ada fitur di clipboard fitur.
+    pub can_paste: bool,
+}
 
 #[derive(Debug, Clone)]
 pub enum FeatureTreeEvent {
@@ -47,6 +62,24 @@ pub enum FeatureTreeEvent {
     BranchFromHistory { id: i64 },
     /// Tutup panel Feature Tree & Riwayat.
     Close,
+    /// Paritas 3.1: pindahkan fitur ke indeks `to` (drag / naik / turun).
+    MoveFeature { id: FeatureId, to: usize },
+    /// Paritas 3.2: ganti nama fitur.
+    RenameFeature { id: FeatureId, name: String },
+    /// Paritas 3.4: salin fitur ke clipboard fitur.
+    CopyFeature(FeatureId),
+    /// Paritas 3.4: tempel clipboard fitur setelah fitur ini (`None` = akhir).
+    PasteFeature { after: Option<FeatureId> },
+    /// Paritas 3.6: pasang roll-to marker setelah fitur ini (`None` = lepas).
+    RollTo(Option<FeatureId>),
+    /// Paritas 3.3: masukkan fitur ke folder baru.
+    NewGroup(FeatureId),
+    /// Paritas 3.3: masukkan fitur ke folder yang ada.
+    AddToGroup { group: u64, id: FeatureId },
+    /// Paritas 3.3: bubarkan folder.
+    Ungroup(u64),
+    /// Paritas 3.3: buka/tutup folder.
+    ToggleGroup(u64),
 }
 
 #[derive(Default)]
@@ -58,6 +91,10 @@ pub struct FeatureTreeDrawer {
     pub edit_input_val2: String,
     /// Filter cabang histori; `None` = semua cabang.
     pub branch_filter: Option<String>,
+    /// Fitur terpilih (sumber highlight dependensi, Paritas 3.5).
+    pub selected_feature: Option<FeatureId>,
+    /// Ganti nama in-line: (fitur, teks).
+    pub renaming: Option<(FeatureId, String)>,
 }
 
 impl FeatureTreeDrawer {
@@ -127,6 +164,7 @@ impl FeatureTreeDrawer {
         needs_regen: bool,
         max_height: f32,
         _anchor_bottom_y: f32,
+        timeline: &TimelineInfo<'_>,
     ) -> Option<FeatureTreeEvent> {
         let mut event = None;
 
@@ -381,7 +419,52 @@ impl FeatureTreeDrawer {
                             });
                         } else {
                             for node in &filtered_nodes {
+                                let pos = nodes.iter().position(|n| n.id == node.id).unwrap_or(0);
+                                let group = timeline.groups.iter().find(|g| g.members.contains(&node.id));
+                                // Header folder sebelum anggota pertamanya (urutan timeline).
+                                if let Some(g) = group.filter(|_| query.is_empty()) {
+                                    let first = nodes.iter().position(|n| g.members.contains(&n.id));
+                                    if first == Some(pos) {
+                                        ui.push_id(("group", g.id), |ui| {
+                                            ui.horizontal(|ui| {
+                                                let chevron = if g.collapsed { ICON_CHEVRON_RIGHT } else { ICON_EXPAND_MORE };
+                                                if ui
+                                                    .add(egui::Button::new(RichText::new(chevron.codepoint).size(11.0)).frame(false))
+                                                    .clicked()
+                                                {
+                                                    event = Some(FeatureTreeEvent::ToggleGroup(g.id));
+                                                }
+                                                ui.label(RichText::new(ICON_FOLDER.codepoint).size(11.0).color(ACCENT_ORANGE));
+                                                ui.label(
+                                                    RichText::new(format!("{} ({})", g.name, g.members.len()))
+                                                        .size(10.0)
+                                                        .strong()
+                                                        .color(TEXT_PRIMARY),
+                                                );
+                                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                                    if ui
+                                                        .add(egui::Button::new(RichText::new(ICON_FOLDER_OFF.codepoint).size(10.0)).frame(false))
+                                                        .on_hover_text(t!("feature-tree-ungroup"))
+                                                        .clicked()
+                                                    {
+                                                        event = Some(FeatureTreeEvent::Ungroup(g.id));
+                                                    }
+                                                });
+                                            });
+                                        });
+                                    }
+                                    if g.collapsed {
+                                        continue;
+                                    }
+                                }
+                                let rolled_back = timeline.marker.is_some_and(|m| pos > m);
+                                let is_dependent = timeline.dependents.contains(&node.id);
+                                let is_parent = timeline.parents.contains(&node.id);
+                                let is_selected = self.selected_feature == Some(node.id);
                                 ui.push_id(node.id, |ui| {
+                                    if rolled_back {
+                                        ui.set_opacity(0.45);
+                                    }
                                     let mut edit_clicked = false;
                                     let mut suppress_clicked = false;
                                     let mut delete_clicked = false;
@@ -390,8 +473,12 @@ impl FeatureTreeDrawer {
                                     let is_dirty = node.status == FeatureStatus::NeedsRegeneration || node.status == FeatureStatus::Stale;
                                     let is_err = matches!(node.status, FeatureStatus::Error(_));
 
-                                    let border_color = if is_editing {
+                                    let border_color = if is_editing || is_selected {
                                         ACCENT_BLUE
+                                    } else if is_dependent {
+                                        Color32::from_rgb(48, 209, 88)
+                                    } else if is_parent {
+                                        Color32::from_rgb(191, 90, 242)
                                     } else if is_err {
                                         Color32::from_rgb(255, 69, 58)
                                     } else if is_dirty {
@@ -419,7 +506,7 @@ impl FeatureTreeDrawer {
                                         stroke: Stroke::new(0.5, border_color),
                                     };
 
-                                    let _card_resp = row_frame.show(ui, |ui| {
+                                    let card_resp = row_frame.show(ui, |ui| {
                                         ui.set_width(ui.available_width());
 
                                         let icon_str = match node.payload.icon_name() {
@@ -475,16 +562,36 @@ impl FeatureTreeDrawer {
                                                     },
                                                 ));
 
-                                                ui.label(
-                                                    RichText::new(&node.name)
-                                                        .strong()
-                                                        .size(10.5)
-                                                        .color(if node.is_suppressed {
-                                                            TEXT_MUTED
-                                                        } else {
-                                                            TEXT_PRIMARY
-                                                        }),
-                                                );
+                                                match &mut self.renaming {
+                                                    Some((rid, text)) if *rid == node.id => {
+                                                        let r = ui.add(
+                                                            egui::TextEdit::singleline(text)
+                                                                .desired_width(110.0)
+                                                                .font(egui::FontId::proportional(10.5)),
+                                                        );
+                                                        r.request_focus();
+                                                        if r.lost_focus() {
+                                                            let name = text.clone();
+                                                            let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                                                            self.renaming = None;
+                                                            if !cancel {
+                                                                event = Some(FeatureTreeEvent::RenameFeature { id: node.id, name });
+                                                            }
+                                                        }
+                                                    }
+                                                    _ => {
+                                                        ui.label(
+                                                            RichText::new(&node.name)
+                                                                .strong()
+                                                                .size(10.5)
+                                                                .color(if node.is_suppressed {
+                                                                    TEXT_MUTED
+                                                                } else {
+                                                                    TEXT_PRIMARY
+                                                                }),
+                                                        );
+                                                    }
+                                                }
 
                                                 Frame {
                                                     inner_margin: Margin::symmetric(3, 0),
@@ -523,9 +630,62 @@ impl FeatureTreeDrawer {
                                             })
                                             .response;
 
-                                        if title_resp.interact(egui::Sense::click()).clicked() {
+                                        let title_resp = title_resp.interact(egui::Sense::click_and_drag());
+                                        if title_resp.double_clicked() {
+                                            self.renaming = Some((node.id, node.name.clone()));
+                                        } else if title_resp.clicked() {
+                                            self.selected_feature =
+                                                if is_selected { None } else { Some(node.id) };
                                             event = Some(FeatureTreeEvent::SelectFeature(node.id));
                                         }
+                                        // Paritas 3.1: seret judul fitur untuk mengubah urutan.
+                                        title_resp.dnd_set_drag_payload(node.id);
+                                        title_resp.context_menu(|ui| {
+                                            if ui.button(t!("feature-tree-move-up")).clicked() {
+                                                event = Some(FeatureTreeEvent::MoveFeature { id: node.id, to: pos.saturating_sub(1) });
+                                                ui.close();
+                                            }
+                                            if ui.button(t!("feature-tree-move-down")).clicked() {
+                                                event = Some(FeatureTreeEvent::MoveFeature { id: node.id, to: pos + 1 });
+                                                ui.close();
+                                            }
+                                            if ui.button(t!("feature-tree-rename")).clicked() {
+                                                self.renaming = Some((node.id, node.name.clone()));
+                                                ui.close();
+                                            }
+                                            ui.separator();
+                                            if ui.button(t!("feature-tree-copy")).clicked() {
+                                                event = Some(FeatureTreeEvent::CopyFeature(node.id));
+                                                ui.close();
+                                            }
+                                            if ui
+                                                .add_enabled(timeline.can_paste, egui::Button::new(t!("feature-tree-paste-after")))
+                                                .clicked()
+                                            {
+                                                event = Some(FeatureTreeEvent::PasteFeature { after: Some(node.id) });
+                                                ui.close();
+                                            }
+                                            ui.separator();
+                                            if ui.button(t!("feature-tree-roll-here")).clicked() {
+                                                event = Some(FeatureTreeEvent::RollTo(Some(node.id)));
+                                                ui.close();
+                                            }
+                                            if timeline.marker.is_some() && ui.button(t!("feature-tree-roll-end")).clicked() {
+                                                event = Some(FeatureTreeEvent::RollTo(None));
+                                                ui.close();
+                                            }
+                                            ui.separator();
+                                            if ui.button(t!("feature-tree-new-folder")).clicked() {
+                                                event = Some(FeatureTreeEvent::NewGroup(node.id));
+                                                ui.close();
+                                            }
+                                            for g in timeline.groups.iter().filter(|g| !g.members.contains(&node.id)) {
+                                                if ui.button(t!("feature-tree-add-to-folder", name = g.name.as_str())).clicked() {
+                                                    event = Some(FeatureTreeEvent::AddToGroup { group: g.id, id: node.id });
+                                                    ui.close();
+                                                }
+                                            }
+                                        });
 
                                         // Baris bawah: Ringkasan parameter + Tombol Aksi (Edit, Suppress, Delete)
                                         ui.horizontal(|ui| {
@@ -833,6 +993,19 @@ impl FeatureTreeDrawer {
                                         ui.add_space(2.0);
                                     }
 
+                                    // Lepas fitur yang diseret di atas baris ini → pindah ke posisinya.
+                                    let row = card_resp.response;
+                                    if let Some(dragged) = row.dnd_hover_payload::<FeatureId>() {
+                                        if *dragged != node.id {
+                                            let r = row.rect;
+                                            ui.painter().hline(r.x_range(), r.top() - 1.0, Stroke::new(2.0, ACCENT_BLUE));
+                                        }
+                                    }
+                                    if let Some(dragged) = row.dnd_release_payload::<FeatureId>() {
+                                        if *dragged != node.id {
+                                            event = Some(FeatureTreeEvent::MoveFeature { id: *dragged, to: pos });
+                                        }
+                                    }
                                     if edit_clicked {
                                         self.start_editing(node);
                                     } else if suppress_clicked {
@@ -841,6 +1014,30 @@ impl FeatureTreeDrawer {
                                         event = Some(FeatureTreeEvent::DeleteFeature(node.id));
                                     }
                                 });
+                                // Paritas 3.6: garis roll-to marker sesudah fitur ini.
+                                if timeline.marker == Some(pos) {
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(ICON_FLAG.codepoint).size(11.0).color(ACCENT_ORANGE));
+                                        ui.label(
+                                            RichText::new(t!("feature-tree-marker"))
+                                                .size(9.0)
+                                                .strong()
+                                                .color(ACCENT_ORANGE),
+                                        );
+                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                            if ui
+                                                .add(egui::Button::new(RichText::new(ICON_CLOSE.codepoint).size(10.0)).frame(false))
+                                                .on_hover_text(t!("feature-tree-roll-end"))
+                                                .clicked()
+                                            {
+                                                event = Some(FeatureTreeEvent::RollTo(None));
+                                            }
+                                        });
+                                    });
+                                }
+                            }
+                            if timeline.can_paste && ui.small_button(t!("feature-tree-paste-end")).clicked() {
+                                event = Some(FeatureTreeEvent::PasteFeature { after: None });
                             }
                         }
 

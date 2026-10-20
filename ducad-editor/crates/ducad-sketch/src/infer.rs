@@ -324,6 +324,7 @@ fn new_positions(sketch: &Sketch, new_ids: &[EntityId]) -> Vec<DVec2> {
     for id in new_ids {
         match sketch.entities.get(*id) {
             Some(Entity::Line { start, end, .. }) => out.extend([*start, *end]),
+            Some(Entity::Point { pos, .. }) => out.push(*pos),
             Some(Entity::Circle { center, .. })
             | Some(Entity::Arc { center, .. })
             | Some(Entity::Ellipse { center, .. }) => out.push(*center),

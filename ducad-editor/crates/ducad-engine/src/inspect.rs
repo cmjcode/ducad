@@ -39,6 +39,12 @@ pub struct Summary {
     /// Lembar gambar tersimpan (P21.6).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drawings: Vec<DrawingReport>,
+    /// Sumbu datum (`construct_axis`): id → `{origin, dir}`; rujuk `"axis:<id>"`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub datum_axes: BTreeMap<String, crate::datum::Axis>,
+    /// Titik datum (`construct_point`): id → `[x,y,z]`; rujuk `"point:<id>"`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub datum_points: BTreeMap<String, [f64; 3]>,
 }
 
 /// Satu lembar gambar tersimpan di ringkasan.
@@ -80,6 +86,9 @@ pub struct BodyReport {
     pub centroid: [f64; 3],
     pub faces: usize,
     pub edges: usize,
+    /// Body permukaan terbuka (sheet, Paritas 6.8): tanpa volume.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sheet: bool,
     /// Massa (gram) = volume × densitas preset material; kosong bila
     /// densitas preset tidak diketahui.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -419,6 +428,7 @@ pub(crate) fn body_report(
         centroid: r3(ducad_kernel::compute_mesh_centroid(&geo.mesh)),
         faces: n_faces,
         edges: n_edges,
+        sheet: geo.shape.is_sheet(),
         mass_g: density.map(|d| round4(mp.volume_mm3 / 1000.0 * d)),
         material: Some(MaterialReport::from_material(&body.material)),
         center_of_mass: solid.then(|| r3(mp.centroid)),
@@ -502,6 +512,7 @@ pub(crate) fn summarize_state(
                     ducad_sketch::Entity::Ellipse { .. } => "ellipse",
                     ducad_sketch::Entity::Spline { .. } => "spline",
                     ducad_sketch::Entity::Path { .. } => "path",
+                    ducad_sketch::Entity::Point { .. } => "point",
                 };
                 *entity_kinds.entry(kind.to_string()).or_default() += 1;
             }
@@ -555,6 +566,8 @@ pub(crate) fn summarize_state(
         oplog_len: meta.design.oplog.len(),
         warnings: meta.warnings.clone(),
         assembly,
+        datum_axes: meta.datum_axes.clone(),
+        datum_points: meta.datum_points.clone(),
     }
 }
 

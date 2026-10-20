@@ -22,7 +22,7 @@ pub use ink::{
 };
 pub use plane::{PlaneKind, SketchPlane};
 pub use scene::{
-    BodyInstance, BodyVertex, DraftConfig, InstanceRaw, MeshSource, MeshVertex, SceneRenderer,
+    BodyInstance, BodyVertex, CurvatureConfig, DraftConfig, InstanceRaw, MeshSource, MeshVertex, SceneRenderer,
     StudioConfig, StudioPreset, ZebraConfig,
 };
 pub use vector::{

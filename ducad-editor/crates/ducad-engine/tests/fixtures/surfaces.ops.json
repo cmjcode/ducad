@@ -1,0 +1,14 @@
+{ "params": { "h": 20, "t": 2 },
+  "ops": [
+    {"op":"sketch","id":"prof","plane":"XZ","entities":[
+      {"line":{"from":[10,0],"to":[10,15],"name":"wall"}},
+      {"arc":{"center":[15,15],"r":5,"start_deg":180,"end_deg":90,"name":"lip"}}]},
+    {"op":"surface","id":"cup","make":{"revolve":{"sketch":"prof","axis":"v","angle_deg":360}}},
+    {"op":"sketch","id":"strip","plane":"XY","entities":[
+      {"line":{"from":[40,0],"to":[60,0],"name":"base"}}]},
+    {"op":"surface","id":"wall","make":{"extrude":{"sketch":"strip","end":"$h"}}},
+    {"op":"surface","id":"wall_x","make":{"extend":{"body":"wall","edges":">Z","distance":5}}},
+    {"op":"surface","id":"wall_t","make":{"thicken":{"body":"wall","thickness":"$t"}}},
+    {"op":"surface","id":"net","make":{"boundary":{"u":[[[0,40,0],[20,40,0]],[[0,60,4],[20,60,4]]]}}},
+    {"op":"surface","id":"lid","make":{"copy_faces":{"body":"wall","faces":">Y"}}}
+  ] }

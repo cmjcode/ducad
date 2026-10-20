@@ -307,7 +307,8 @@ pub(crate) fn constraint_entities(c: &Constraint) -> Vec<EntityId> {
     match c {
         Constraint::Coincident { a, b }
         | Constraint::HorizontalPoints { a, b }
-        | Constraint::VerticalPoints { a, b } => vec![a.entity_id(), b.entity_id()],
+        | Constraint::VerticalPoints { a, b }
+        | Constraint::Curvature { a, b } => vec![a.entity_id(), b.entity_id()],
         Constraint::Horizontal { line } | Constraint::Vertical { line } => vec![*line],
         Constraint::Parallel { a, b }
         | Constraint::Perpendicular { a, b }

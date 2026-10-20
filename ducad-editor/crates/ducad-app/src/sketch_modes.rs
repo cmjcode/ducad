@@ -1,5 +1,8 @@
-//! Mode gambar tambahan (Paritas 0.6): Busur dari titik pusat dan Persegi
-//! dari titik pusat. Dipilih lewat HUD atas saat tool Arc/Rectangle aktif.
+//! Mode gambar tambahan (Paritas 0.6 + Fase 1B 1.7–1.12): Busur dari titik
+//! pusat/tangen, Persegi dari pusat/3 titik/sudut bulat, Lingkaran 2 titik/3
+//! titik/2-tangen/3-tangen, Garis titik-tengah/tak hingga. Dipilih lewat HUD
+//! atas saat tool terkait aktif; logika klik/preview ada di
+//! `sketch_modes_fase1.rs`.
 
 use ducad_sketch::{arc_from_center, arc_from_three_points, rect_opposite_corner_from_center, Entity};
 use ducad_ui::CanvasHud;
@@ -15,6 +18,8 @@ pub enum ArcDrawMode {
     ThreePoint,
     /// Pusat, awal (radius), akhir (sudut).
     Center,
+    /// Awal menempel ujung Line/Arc, busur menyinggungnya (Paritas 1.8).
+    Tangent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -24,14 +29,80 @@ pub enum RectDrawMode {
     Corner,
     /// Pusat lalu satu sudut.
     Center,
+    /// Sisi p0→p1 lalu lebar (boleh miring) (Paritas 1.9).
+    ThreePoint,
+    /// Dua sudut + radius sudut dari HUD; 4 garis + 4 busur (Paritas 1.9).
+    Rounded,
 }
 
-#[derive(Default)]
+/// Mode tool Lingkaran (Paritas 1.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CircleDrawMode {
+    /// Pusat lalu radius.
+    #[default]
+    CenterRadius,
+    /// Dua ujung diameter.
+    TwoPoint,
+    /// Tiga titik pada keliling.
+    ThreePoint,
+    /// Klik dua kurva (garis/lingkaran/busur), lalu kursor menentukan radius.
+    TwoTangent,
+    /// Klik tiga kurva; lingkaran menyinggung ketiganya (constraint Tangent ×3).
+    ThreeTangent,
+}
+
+/// Mode tool Garis (Paritas 1.12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineDrawMode {
+    /// Garis berantai biasa.
+    #[default]
+    Chain,
+    /// Klik pertama = titik tengah, klik kedua = salah satu ujung.
+    Midpoint,
+    /// Garis konstruksi tak hingga lewat dua titik.
+    Infinite,
+}
+
+/// Salinan mode aktif agar HUD bisa memanggil `&mut self` tanpa konflik pinjam.
+struct DrawModeSnapshot {
+    arc: ArcDrawMode,
+    rect: RectDrawMode,
+    circle: CircleDrawMode,
+    line: LineDrawMode,
+}
+
+impl DrawModeSnapshot {
+    fn of(m: &SketchModes) -> Self {
+        Self { arc: m.arc, rect: m.rect, circle: m.circle, line: m.line }
+    }
+}
+
 pub struct SketchModes {
     pub arc: ArcDrawMode,
     pub rect: RectDrawMode,
+    pub circle: CircleDrawMode,
+    pub line: LineDrawMode,
+    /// Radius sudut persegi bulat (mm).
+    pub corner_radius: f64,
+    /// Toleransi pilih (satuan dunia) dari klik terakhir — dipakai mode
+    /// tangen untuk mencari kurva/ujung yang diklik.
+    pub pick_tol: f64,
     /// Jarak kedua chamfer 2D; `None` = sama dengan jarak pertama (Paritas 0.7).
     pub chamfer_d2: Option<f64>,
+}
+
+impl Default for SketchModes {
+    fn default() -> Self {
+        Self {
+            arc: ArcDrawMode::default(),
+            rect: RectDrawMode::default(),
+            circle: CircleDrawMode::default(),
+            line: LineDrawMode::default(),
+            corner_radius: 2.0,
+            pick_tol: 1.0,
+            chamfer_d2: None,
+        }
+    }
 }
 
 /// Input dinamis chamfer: `"5"` (simetris) atau `"5,3"` / `"5x3"` / `"5;3"`
@@ -56,7 +127,7 @@ impl DuCADApp {
     /// Corner, atau cerminan `second` terhadap pusat di mode Center.
     pub fn rect_first_corner(&self, first: DVec2, second: DVec2) -> DVec2 {
         match self.sketch_modes.rect {
-            RectDrawMode::Corner => first,
+            RectDrawMode::Corner | RectDrawMode::ThreePoint | RectDrawMode::Rounded => first,
             RectDrawMode::Center => rect_opposite_corner_from_center(first, second),
         }
     }
@@ -66,24 +137,48 @@ impl DuCADApp {
         match self.sketch_modes.arc {
             ArcDrawMode::ThreePoint => arc_from_three_points(p0, p1, p2),
             ArcDrawMode::Center => arc_from_center(p0, p1, p2),
+            // Busur tangen hanya 2 klik — lihat `finish_mode_multipoint`.
+            ArcDrawMode::Tangent => None,
         }
     }
 
-    /// HUD pilihan mode untuk tool Arc/Rectangle. `true` bila HUD tampil.
+    /// HUD pilihan mode untuk tool Arc/Rectangle/Circle/Line. `true` bila HUD tampil.
     pub fn render_draw_mode_hud(&mut self, ui: &mut egui::Ui, rect: egui::Rect) -> bool {
-        let (title, options): (String, [(String, bool); 2]) = match self.tool {
+        let m = DrawModeSnapshot::of(&self.sketch_modes);
+        let (title, options): (String, Vec<(String, bool)>) = match self.tool {
             ToolKind::Arc => (
                 ducad_i18n::t!("hud-arc-mode"),
-                [
-                    (ducad_i18n::t!("hud-arc-three-point"), self.sketch_modes.arc == ArcDrawMode::ThreePoint),
-                    (ducad_i18n::t!("hud-arc-center"), self.sketch_modes.arc == ArcDrawMode::Center),
+                vec![
+                    (ducad_i18n::t!("hud-arc-three-point"), m.arc == ArcDrawMode::ThreePoint),
+                    (ducad_i18n::t!("hud-arc-center"), m.arc == ArcDrawMode::Center),
+                    (ducad_i18n::t!("hud-arc-tangent"), m.arc == ArcDrawMode::Tangent),
                 ],
             ),
             ToolKind::Rectangle => (
                 ducad_i18n::t!("hud-rect-mode"),
-                [
-                    (ducad_i18n::t!("hud-rect-corner"), self.sketch_modes.rect == RectDrawMode::Corner),
-                    (ducad_i18n::t!("hud-rect-center"), self.sketch_modes.rect == RectDrawMode::Center),
+                vec![
+                    (ducad_i18n::t!("hud-rect-corner"), m.rect == RectDrawMode::Corner),
+                    (ducad_i18n::t!("hud-rect-center"), m.rect == RectDrawMode::Center),
+                    (ducad_i18n::t!("hud-rect-three-point"), m.rect == RectDrawMode::ThreePoint),
+                    (ducad_i18n::t!("hud-rect-rounded"), m.rect == RectDrawMode::Rounded),
+                ],
+            ),
+            ToolKind::Circle => (
+                ducad_i18n::t!("hud-circle-mode"),
+                vec![
+                    (ducad_i18n::t!("hud-circle-center"), m.circle == CircleDrawMode::CenterRadius),
+                    (ducad_i18n::t!("hud-circle-two-point"), m.circle == CircleDrawMode::TwoPoint),
+                    (ducad_i18n::t!("hud-circle-three-point"), m.circle == CircleDrawMode::ThreePoint),
+                    (ducad_i18n::t!("hud-circle-two-tangent"), m.circle == CircleDrawMode::TwoTangent),
+                    (ducad_i18n::t!("hud-circle-three-tangent"), m.circle == CircleDrawMode::ThreeTangent),
+                ],
+            ),
+            ToolKind::Line => (
+                ducad_i18n::t!("hud-line-mode"),
+                vec![
+                    (ducad_i18n::t!("hud-line-chain"), m.line == LineDrawMode::Chain),
+                    (ducad_i18n::t!("hud-line-midpoint"), m.line == LineDrawMode::Midpoint),
+                    (ducad_i18n::t!("hud-line-infinite"), m.line == LineDrawMode::Infinite),
                 ],
             ),
             ToolKind::Chamfer2D => {
@@ -92,7 +187,10 @@ impl DuCADApp {
             }
             _ => return false,
         };
-        let picked = CanvasHud::render_header_hud_container(ui, rect, 420.0, true, "ducad-hud-draw-mode", |ui| {
+        let show_radius = self.tool == ToolKind::Rectangle && m.rect == RectDrawMode::Rounded;
+        let mut radius = self.sketch_modes.corner_radius;
+        let width = 160.0 + 110.0 * options.len() as f32 + if show_radius { 150.0 } else { 0.0 };
+        let picked = CanvasHud::render_header_hud_container(ui, rect, width, true, "ducad-hud-draw-mode", |ui| {
             CanvasHud::hud_title(ui, &title, true);
             ui.separator();
             let mut picked = None;
@@ -101,19 +199,60 @@ impl DuCADApp {
                     picked = Some(i);
                 }
             }
+            if show_radius {
+                ui.separator();
+                ui.label(ducad_i18n::t!("hud-rect-corner-radius"));
+                ui.add(egui::DragValue::new(&mut radius).speed(0.1).range(0.01..=10_000.0));
+            }
             picked
         });
+        if radius.is_finite() && radius > 0.0 {
+            self.sketch_modes.corner_radius = radius;
+        }
         if let Some(i) = picked {
-            // Ganti mode membuang titik tertunda supaya klik lama tidak ditafsir ulang.
-            self.pending_points.clear();
-            match self.tool {
-                ToolKind::Arc => {
-                    self.sketch_modes.arc = if i == 0 { ArcDrawMode::ThreePoint } else { ArcDrawMode::Center }
-                }
-                _ => self.sketch_modes.rect = if i == 0 { RectDrawMode::Corner } else { RectDrawMode::Center },
-            }
+            self.set_draw_mode_index(i);
         }
         true
+    }
+
+    /// Pilih mode ke-`i` dari HUD tool aktif. Ganti mode membuang titik
+    /// tertunda supaya klik lama tidak ditafsir ulang.
+    pub fn set_draw_mode_index(&mut self, i: usize) {
+        self.cancel_pending_points();
+        let m = &mut self.sketch_modes;
+        match self.tool {
+            ToolKind::Arc => {
+                m.arc = [ArcDrawMode::ThreePoint, ArcDrawMode::Center, ArcDrawMode::Tangent]
+                    .get(i)
+                    .copied()
+                    .unwrap_or_default()
+            }
+            ToolKind::Rectangle => {
+                m.rect = [RectDrawMode::Corner, RectDrawMode::Center, RectDrawMode::ThreePoint, RectDrawMode::Rounded]
+                    .get(i)
+                    .copied()
+                    .unwrap_or_default()
+            }
+            ToolKind::Circle => {
+                m.circle = [
+                    CircleDrawMode::CenterRadius,
+                    CircleDrawMode::TwoPoint,
+                    CircleDrawMode::ThreePoint,
+                    CircleDrawMode::TwoTangent,
+                    CircleDrawMode::ThreeTangent,
+                ]
+                .get(i)
+                .copied()
+                .unwrap_or_default()
+            }
+            ToolKind::Line => {
+                m.line = [LineDrawMode::Chain, LineDrawMode::Midpoint, LineDrawMode::Infinite]
+                    .get(i)
+                    .copied()
+                    .unwrap_or_default()
+            }
+            _ => {}
+        }
     }
 }
 

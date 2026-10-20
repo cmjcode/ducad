@@ -1,0 +1,21 @@
+{ "params": { "bore_r": 10, "boss_r": 15, "boss_h": 30, "pcd": 30 },
+  "ops": [
+    {"op":"primitive","id":"plate","shape":{"box":{"size":[80,80,10],"centered":true}},"at":[0,0,5]},
+    {"op":"construct_axis","id":"center_ax","by":{"normal_to_face":{"body":"plate","face":">Z"}}},
+    {"op":"sketch","id":"boss_profile",
+     "plane":{"midplane":[{"body":"plate","face":">Y"},{"body":"plate","face":"<Y"}]},
+     "entities":[{"rect":{"corner":["$bore_r",-25],"w":"$boss_r - $bore_r","h":22,"name":"wall"}}]},
+    {"op":"revolve","id":"boss","sketch":"boss_profile","axis":"axis:center_ax","mode":"add","target":"plate"},
+    {"op":"construct_axis","id":"z_ax","by":{"two_planes":{"a":"XZ","b":"YZ"}}},
+    {"op":"primitive","id":"bolt","shape":{"cylinder":{"r":3,"h":10}},"at":["$pcd",0,0]},
+    {"op":"pattern","id":"bolts","body":"bolt","merge":true,
+     "kind":{"circular":{"axis":"axis:z_ax","count":4,"angle_deg":360}}},
+    {"op":"boolean","id":"part","kind":"subtract","a":"plate","b":"bolt"},
+    {"op":"construct_point","id":"hole_c","by":{"center":{"body":"part","edge":"all[kind=circle][r=3][z=10][x>20]"}}},
+    {"op":"construct_point","id":"origin_pt","by":{"three_planes":{"a":{"base":"XY","offset":10},"b":"XZ","c":"YZ"}}},
+    {"op":"construct_axis","id":"hole_ax","by":{"two_points":{"a":"point:origin_pt","b":"point:hole_c"}}}
+  ],
+  "checks": [
+    {"check":"body_count","expect":1},
+    {"check":"bbox_size","body":"part","expect":[80,80,30],"tol":0.1}
+  ] }

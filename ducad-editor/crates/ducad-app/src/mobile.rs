@@ -112,6 +112,7 @@ pub fn newest_matching_file(dir: &Path, extensions: &[&str]) -> Option<PathBuf> 
 
 /// Hapus berkas autosave (dokumen sudah tersimpan eksplisit).
 pub fn clear_autosave() {
+    crate::recovery::discard_in(&crate::recovery::dir(), crate::recovery::session_key());
     let _ = std::fs::remove_file(crate::platform::autosave_path());
     let _ = std::fs::remove_file(crate::platform::autosave_origin_path());
 }
@@ -161,18 +162,20 @@ impl DuCADApp {
         if self.mobile.last_autosave_stamp == Some(stamp) && !dirty {
             return false;
         }
-        let path = crate::platform::autosave_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        // Paritas 3.7: satu entri pemulihan per sesi (`recovery.rs`).
+        let rdir = crate::recovery::dir();
+        let _ = std::fs::create_dir_all(&rdir);
+        let path = crate::recovery::file_in(&rdir, crate::recovery::session_key());
         let body_exports = self.native_export_bodies();
         let ordered = self.plane_ordered_sketches();
-        match ducad_io::native::save_multi_plane_detailed_with_design_and_ink(
+        let datums = self.native_datums();
+        match ducad_io::native::save_full(
             &path,
             &ordered,
             &body_exports,
             self.design.as_ref(),
             Some(&self.ink),
+            Some(&datums),
         ) {
             Ok(_) => {
                 let origin = self
@@ -180,7 +183,7 @@ impl DuCADApp {
                     .as_ref()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                let _ = std::fs::write(crate::platform::autosave_origin_path(), origin);
+                let _ = crate::recovery::write_meta(&rdir, crate::recovery::session_key(), &origin);
                 self.mobile.last_autosave_stamp = Some(stamp);
                 true
             }
@@ -196,24 +199,17 @@ impl DuCADApp {
     /// `on_exit` menghapusnya saat keluar normal, jadi berkas yang tersisa
     /// berarti sesi sebelumnya crash (ADR 0009: pekerjaan tidak boleh hilang).
     pub fn restore_autosave(&mut self) {
-        let path = crate::platform::autosave_path();
-        if !path.is_file() {
-            return;
+        // Paritas 3.7: tidak lagi dibuka otomatis — entri tersisa (sesi crash
+        // / dimatikan OS) ditawarkan di dialog Pulihkan / Buang.
+        crate::recovery::migrate_legacy(
+            &crate::recovery::dir(),
+            &crate::platform::autosave_path(),
+            &crate::platform::autosave_origin_path(),
+        );
+        self.refresh_recovery(false);
+        if !self.recovery.entries.is_empty() {
+            self.file_status = Some(ducad_i18n::t!("recovery-found", count = self.recovery.entries.len()));
         }
-        self.open_native_path(path);
-        let origin = std::fs::read_to_string(crate::platform::autosave_origin_path())
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .map(PathBuf::from)
-            .filter(|p| p.is_file());
-        self.current_file_path = origin;
-        self.file_status = Some(if crate::platform::is_mobile() {
-            ducad_i18n::t!("file-restored-autosave")
-        } else {
-            ducad_i18n::t!("file-restored-autosave-desktop")
-        });
-        self.mobile.restored_from_autosave = true;
     }
 
     /// Dipanggil di awal tiap frame.

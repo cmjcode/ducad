@@ -94,6 +94,18 @@ impl BendTable {
         Ok(Self { rows })
     }
 
+    /// Kebalikan [`BendTable::from_csv`]: header + satu baris per entri.
+    pub fn to_csv(&self) -> String {
+        let mut out = String::from("thickness,radius,angle_deg,deduction\n");
+        for r in &self.rows {
+            out.push_str(&format!(
+                "{},{},{},{}\n",
+                r.thickness, r.radius, r.angle_deg, r.deduction
+            ));
+        }
+        out
+    }
+
     /// Bend allowance dari tabel untuk kombinasi yang cocok (toleransi
     /// 1e-6); `None` → pemanggil memakai rumus k-factor.
     pub fn allowance(&self, thickness: f64, radius: f64, angle_deg: f64) -> Option<f64> {
@@ -140,6 +152,47 @@ pub struct Flange {
     pub relief: ReliefKind,
 }
 
+/// Lubang/potongan tembus pada pelat dasar (koordinat bidang sketsa).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Cutout {
+    Circle { center: [f64; 2], radius: f64 },
+    /// Poligon tertutup (busur sketsa sudah dicacah).
+    Polygon { points: Vec<[f64; 2]> },
+}
+
+/// Jumlah ruas cacahan lingkaran untuk pola datar/validasi.
+const CIRCLE_SEGMENTS: usize = 48;
+
+impl Cutout {
+    /// Poligon berlawanan arah jarum jam (lingkaran dicacah).
+    pub fn polygon(&self) -> Vec<[f64; 2]> {
+        match self {
+            Cutout::Circle { center, radius } => (0..CIRCLE_SEGMENTS)
+                .map(|i| {
+                    let a = i as f64 / CIRCLE_SEGMENTS as f64 * std::f64::consts::TAU;
+                    [center[0] + radius * a.cos(), center[1] + radius * a.sin()]
+                })
+                .collect(),
+            Cutout::Polygon { points } => {
+                let mut pts = points.clone();
+                if signed_area(&pts) < 0.0 {
+                    pts.reverse();
+                }
+                pts
+            }
+        }
+    }
+
+    /// Luas (lingkaran eksak).
+    pub fn area(&self) -> f64 {
+        match self {
+            Cutout::Circle { radius, .. } => std::f64::consts::PI * radius * radius,
+            Cutout::Polygon { points } => signed_area(points).abs(),
+        }
+    }
+}
+
 /// Model lengkap satu part pelat lipat.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SheetMetalModel {
@@ -151,6 +204,9 @@ pub struct SheetMetalModel {
     pub flanges: Vec<Flange>,
     #[serde(default)]
     pub bend_table: BendTable,
+    /// Lubang tembus pada pelat dasar (lubang sketsa, perforasi).
+    #[serde(default)]
+    pub cutouts: Vec<Cutout>,
 }
 
 /// Segmen batas penampang flange di koordinat `(s, h)`: `s` keluar dari
@@ -306,7 +362,178 @@ impl SheetMetalModel {
                 }
             }
         }
+        self.validate_cutouts()
+    }
+
+    /// Setiap cutout harus berukuran, sepenuhnya di dalam pelat dasar, dan
+    /// tidak saling menimpa.
+    fn validate_cutouts(&self) -> Result<(), String> {
+        let n = self.outline.len();
+        let polys: Vec<Vec<[f64; 2]>> = self.cutouts.iter().map(Cutout::polygon).collect();
+        let bbox = |p: &[[f64; 2]]| {
+            p.iter().fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |b, q| {
+                [b[0].min(q[0]), b[1].min(q[1]), b[2].max(q[0]), b[3].max(q[1])]
+            })
+        };
+        let boxes: Vec<[f64; 4]> = polys.iter().map(|p| bbox(p)).collect();
+        for (k, (c, poly)) in self.cutouts.iter().zip(&polys).enumerate() {
+            let ok = match c {
+                Cutout::Circle { center, radius } => {
+                    center.iter().all(|v| v.is_finite()) && radius.is_finite() && *radius > 1e-6
+                }
+                Cutout::Polygon { points } => {
+                    points.len() >= 3
+                        && points.iter().flatten().all(|v| v.is_finite())
+                        && signed_area(points).abs() > 1e-9
+                }
+            };
+            if !ok {
+                return Err(format!("cutout #{k}: ukuran/titik tidak sah"));
+            }
+            let inside = poly.iter().all(|p| point_strictly_inside(*p, &self.outline))
+                && (0..poly.len()).all(|i| {
+                    (0..n).all(|j| {
+                        !segments_cross(
+                            poly[i],
+                            poly[(i + 1) % poly.len()],
+                            self.outline[j],
+                            self.outline[(j + 1) % n],
+                        )
+                    })
+                });
+            if !inside {
+                return Err(format!(
+                    "cutout #{k} keluar dari / menyentuh batas pelat dasar"
+                ));
+            }
+            for m in 0..k {
+                let (a, b) = (boxes[k], boxes[m]);
+                let apart = a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1];
+                if !apart && polygons_overlap(poly, &polys[m]) {
+                    return Err(format!("cutout #{k} menimpa cutout #{m}"));
+                }
+            }
+        }
         Ok(())
+    }
+
+    /// Titik `(s, h)` ujung rantai flange: (tepi bawah, tepi atas) muka
+    /// ujung — tempat flange berikutnya (flange-di-atas-flange) menempel.
+    pub fn section_tip(&self, flange: &Flange) -> ([f64; 2], [f64; 2]) {
+        let t = self.thickness;
+        let normal = |phi: f64| rot([0.0, 1.0], phi);
+        let (mut p, mut phi) = ([0.0, 0.0], 0.0_f64);
+        for seg in &flange.segments {
+            let theta = seg.angle_deg.to_radians();
+            let n0 = normal(phi);
+            let (center, r_bottom) = if theta > 0.0 {
+                (add(p, n0, t + seg.radius), t + seg.radius)
+            } else {
+                (add(p, n0, -seg.radius), seg.radius)
+            };
+            let side = if theta > 0.0 { -1.0 } else { 1.0 };
+            p = add(center, normal(phi + theta), side * r_bottom);
+            phi += theta;
+            p = add(p, rot([1.0, 0.0], phi), seg.length);
+        }
+        (p, add(p, normal(phi), t))
+    }
+
+    /// Ukuran relief satu flange: (lebar sepanjang sisi, kedalaman ke dalam
+    /// pelat dasar, panjang zona tekuk pertama di pola datar).
+    pub fn relief_size(&self, flange: &Flange) -> Option<(f64, f64, f64)> {
+        if flange.relief == ReliefKind::None {
+            return None;
+        }
+        let first = flange.segments.first()?;
+        let (a, b, _) = self.edge_frame(flange.edge)?;
+        let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        let width = self.thickness.min(len / 3.0);
+        Some((width, first.radius + self.thickness, self.allowance(first)))
+    }
+
+    /// Takik relief di kedua ujung tiap flange (koordinat pola datar):
+    /// memotong pelat dasar sedalam `R + t` dan zona tekuk pertama.
+    pub fn relief_polygons(&self) -> Vec<Vec<[f64; 2]>> {
+        self.flanges
+            .iter()
+            .flat_map(|f| self.relief_polys(f, true))
+            .collect()
+    }
+
+    /// Bagian takik relief di dalam pelat dasar saja (`s ≤ 0`), untuk solid
+    /// terlipat; zona tekuk dipotong terpisah dengan [`Self::first_bend_box`].
+    /// Isi: (indeks flange, poligon CCW).
+    pub fn relief_base_notches(&self) -> Vec<(usize, Vec<[f64; 2]>)> {
+        self.flanges
+            .iter()
+            .enumerate()
+            .flat_map(|(k, f)| self.relief_polys(f, false).into_iter().map(move |p| (k, p)))
+            .collect()
+    }
+
+    /// Kotak `(s_min, h_min, s_max, h_max)` yang membungkus zona tekuk
+    /// pertama flange (kedua busur), di koordinat penampang.
+    pub fn first_bend_box(&self, flange: &Flange) -> Option<[f64; 4]> {
+        let seg = flange.segments.first()?;
+        let t = self.thickness;
+        let theta = seg.angle_deg.to_radians();
+        let normal = |phi: f64| rot([0.0, 1.0], phi);
+        let (center, r_bottom, r_top) = if theta > 0.0 {
+            ([0.0, t + seg.radius], t + seg.radius, seg.radius)
+        } else {
+            ([0.0, -seg.radius], seg.radius, t + seg.radius)
+        };
+        let side = if theta > 0.0 { -1.0 } else { 1.0 };
+        let mut bb = [0.0, 0.0, 0.0, t];
+        for r in [r_bottom, r_top] {
+            for i in 0..=32 {
+                let p = add(center, normal(theta * i as f64 / 32.0), side * r);
+                bb = [bb[0].min(p[0]), bb[1].min(p[1]), bb[2].max(p[0]), bb[3].max(p[1])];
+            }
+        }
+        Some(bb)
+    }
+
+    /// Luas sektor zona tekuk pertama (penampang).
+    fn first_bend_area(&self, flange: &Flange) -> f64 {
+        flange.segments.first().map_or(0.0, |s| {
+            let t = self.thickness;
+            s.angle_deg.abs().to_radians() / 2.0 * ((s.radius + t).powi(2) - s.radius.powi(2))
+        })
+    }
+
+    /// Dua takik relief satu flange; `flat` = sampai ujung zona tekuk
+    /// (pola datar), selain itu berhenti di sisi pelat (`s = 0`).
+    fn relief_polys(&self, f: &Flange, flat: bool) -> Vec<Vec<[f64; 2]>> {
+        let mut out = Vec::new();
+        let (Some((w, d, ba)), Some((a, b, o))) = (self.relief_size(f), self.edge_frame(f.edge))
+        else {
+            return out;
+        };
+        let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        let dir = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+        let at = |along: f64, s: f64| add(add(a, dir, along), o, s);
+        let top = if flat { ba } else { 0.0 };
+        for start in [0.0, len - w] {
+            let mut poly = vec![at(start, top)];
+            if f.relief == ReliefKind::Obround {
+                // Ujung dalam setengah lingkaran (diameter = lebar).
+                let r = w / 2.0;
+                for i in 0..=12 {
+                    let ang = std::f64::consts::PI * (1.0 + i as f64 / 12.0);
+                    poly.push(at(start + r + r * ang.cos(), -d + r + r * ang.sin()));
+                }
+            } else {
+                poly.extend([at(start, -d), at(start + w, -d)]);
+            }
+            poly.push(at(start + w, top));
+            if signed_area(&poly) < 0.0 {
+                poly.reverse();
+            }
+            out.push(poly);
+        }
+        out
     }
 
     /// Titik awal/akhir sisi `edge` dan arah satuan keluar poligon.
@@ -420,7 +647,8 @@ impl SheetMetalModel {
 
     /// Volume solid terlipat secara analitik (pelat dasar + semua flange).
     pub fn folded_volume(&self) -> f64 {
-        let base = signed_area(&self.outline) * self.thickness;
+        let holes: f64 = self.cutouts.iter().map(Cutout::area).sum();
+        let base = (signed_area(&self.outline) - holes) * self.thickness;
         let flanges: f64 = self
             .flanges
             .iter()
@@ -430,7 +658,17 @@ impl SheetMetalModel {
                 Some(self.cross_section_area(f) * len)
             })
             .sum();
-        base + flanges
+        // Relief: takik di pelat dasar + potongan zona tekuk pertama.
+        let reliefs: f64 = self
+            .relief_base_notches()
+            .iter()
+            .map(|(k, p)| {
+                let f = &self.flanges[*k];
+                let w = self.relief_size(f).map_or(0.0, |r| r.0);
+                signed_area(p).abs() * self.thickness + w * self.first_bend_area(f)
+            })
+            .sum();
+        base + flanges - reliefs
     }
 
     /// Pola bentangan. `Err` bila strip flange saling tumpang-tindih atau
@@ -470,6 +708,16 @@ impl SheetMetalModel {
                 at += ba + seg.length;
             }
         }
+        // Lubang dan takik relief ikut dipotong laser: loop tertutup.
+        for poly in self
+            .cutouts
+            .iter()
+            .map(Cutout::polygon)
+            .chain(self.relief_polygons())
+        {
+            let m = poly.len();
+            outline.extend((0..m).map(|k| (poly[k], poly[(k + 1) % m])));
+        }
         for i in 1..polygons.len() {
             for j in (i + 1)..polygons.len() {
                 if polygons_overlap(&polygons[i], &polygons[j]) {
@@ -505,7 +753,13 @@ impl SheetMetalModel {
                 Some(len * self.developed_length(f))
             })
             .sum();
-        signed_area(&self.outline) + strips
+        let holes: f64 = self.cutouts.iter().map(Cutout::area).sum();
+        let reliefs: f64 = self
+            .relief_polygons()
+            .iter()
+            .map(|p| signed_area(p).abs())
+            .sum();
+        signed_area(&self.outline) + strips - holes - reliefs
     }
 
     /// Rasio radius dalam terkecil terhadap tebal (`None` = tanpa tekukan).
@@ -550,6 +804,7 @@ mod tests {
                 })
                 .collect(),
             bend_table: BendTable::default(),
+            cutouts: Vec::new(),
         }
     }
 
@@ -725,6 +980,7 @@ mod tests {
                 })
                 .collect(),
             bend_table: BendTable::default(),
+            cutouts: Vec::new(),
         };
         let e = m.flat_pattern().unwrap_err();
         assert!(e.contains("berpotongan sendiri"), "{e}");
@@ -755,5 +1011,46 @@ mod tests {
         assert!(BendTable::from_csv("thickness,radius,angle_deg,deduction\n2,2,x,1\n").is_err());
         assert_eq!(box_model(7.0, 90.0).min_flange_length(), Some(7.0));
         assert_eq!(box_model(7.0, 90.0).min_bend_ratio(), Some(1.0));
+    }
+
+    #[test]
+    fn sheet_metal_cutouts_relief_tip_and_csv() {
+        let mut m = box_model(20.0, 90.0);
+        let base_area = m.flat_area();
+        m.cutouts.push(Cutout::Circle {
+            center: [50.0, 30.0],
+            radius: 5.0,
+        });
+        m.validate().unwrap();
+        let flat = m.flat_pattern().unwrap();
+        assert!((base_area - m.flat_area() - std::f64::consts::PI * 25.0).abs() < 1e-9);
+        assert!(flat.outline.len() >= 4 * 3 + 48);
+        // Cutout keluar batas / bertumpuk / ukuran tak sah ditolak.
+        for bad in [
+            Cutout::Circle { center: [2.0, 30.0], radius: 5.0 },
+            Cutout::Circle { center: [52.0, 30.0], radius: 5.0 },
+            Cutout::Circle { center: [20.0, 30.0], radius: f64::NAN },
+            Cutout::Polygon { points: vec![[10.0, 10.0], [11.0, 10.0]] },
+        ] {
+            let mut x = m.clone();
+            x.cutouts.push(bad.clone());
+            assert!(x.validate().is_err(), "{bad:?}");
+        }
+        // Ujung rantai: flange 90° R=2 t=2 panjang 20 → s = R+t, h = R+t+20.
+        let (bottom, top) = m.section_tip(&m.flanges[0]);
+        assert!((bottom[0] - 4.0).abs() < 1e-9 && (bottom[1] - 24.0).abs() < 1e-9, "{bottom:?}");
+        assert!((top[0] - 2.0).abs() < 1e-9 && (top[1] - 24.0).abs() < 1e-9, "{top:?}");
+        // Relief: dua takik per flange, luas rect = w·(d + BA).
+        m.flanges[0].relief = ReliefKind::Rect;
+        let r = m.relief_polygons();
+        assert_eq!(r.len(), 2);
+        let (w, d, ba) = m.relief_size(&m.flanges[0]).unwrap();
+        assert!((signed_area(&r[0]) - w * (d + ba)).abs() < 1e-9);
+        m.flanges[0].relief = ReliefKind::Obround;
+        let o = m.relief_polygons();
+        assert!(signed_area(&o[0]) < w * (d + ba) && signed_area(&o[0]) > 0.0);
+        // CSV bolak-balik.
+        let t = BendTable::from_csv("thickness,radius,angle_deg,deduction\n2,2,90,3.5\n").unwrap();
+        assert_eq!(BendTable::from_csv(&t.to_csv()).unwrap(), t);
     }
 }

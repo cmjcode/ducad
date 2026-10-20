@@ -108,6 +108,23 @@ impl KernelShape {
 
     /// Apakah shape ini valid: shell tertutup dan berorientasi konsisten,
     /// semua face ter-mesh, volume positif (`Body::validity` SolidCraft).
+    /// Body permukaan terbuka (sheet, Paritas 6.A): semua shell terbuka
+    /// tapi berorientasi rapi — bukan solid rusak.
+    pub fn is_sheet(&self) -> bool {
+        let Some(b) = &self.body else { return false };
+        match solidcraft_kernel::guard("validity", || Ok(b.validity())) {
+            Ok(issues) => {
+                issues.iter().any(|i| i.contains("not closed"))
+                    && issues.iter().all(|i| {
+                        (i.contains("not closed") && !i.contains("Irregular"))
+                            || i.starts_with("volume")
+                            || i.starts_with("no measure")
+                    })
+            }
+            Err(_) => false,
+        }
+    }
+
     pub fn is_valid(&self) -> bool {
         *self.cache.valid.get_or_init(|| match &self.body {
             None => true,

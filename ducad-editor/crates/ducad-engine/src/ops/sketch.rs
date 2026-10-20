@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use ducad_kernel::{KernelShape, SurfaceKind};
+use ducad_kernel::SurfaceKind;
 use ducad_sketch::constraint::{Constraint, DofReport, PointRef};
 use ducad_sketch::entity::{PathSeg, Subpath};
 use ducad_sketch::layer::Layer;
@@ -28,7 +28,6 @@ pub(crate) enum ResolvedPlane {
 }
 
 impl ResolvedPlane {
-    #[cfg(test)]
     pub fn frame(&self) -> PlaneFrame {
         match self {
             ResolvedPlane::Standard(f, _) | ResolvedPlane::Datum(f) => *f,
@@ -48,12 +47,36 @@ fn named_plane(name: &str) -> OpResult<(PlaneFrame, PlaneRef)> {
 }
 
 /// Resolusi `PlaneSpec`. `body_shape` mencari shape body berdasarkan nama
-/// (dipakai `OnFace`).
+/// (dipakai `OnFace`). Tanpa datum axis/point (referensi `axis:`/`point:`
+/// → `unknown_ref`); `Session` memakai [`resolve_plane_in`].
+#[cfg(test)]
 pub(crate) fn resolve_plane(
     spec: &PlaneSpec,
     params: &Params,
-    body_shape: &dyn Fn(&str) -> OpResult<KernelShape>,
+    body_shape: &dyn Fn(&str) -> OpResult<ducad_kernel::KernelShape>,
 ) -> OpResult<ResolvedPlane> {
+    let (axes, points) = (Default::default(), Default::default());
+    resolve_plane_in(
+        spec,
+        &crate::compute::datum::DatumCtx {
+            params,
+            body_shape,
+            axes: &axes,
+            points: &points,
+        },
+    )
+}
+
+/// Resolusi `PlaneSpec` lengkap, termasuk bidang konstruksi (Midplane,
+/// Perpendicular, Tangent, AlongPath, TwoEdges) yang bisa merujuk datum.
+pub(crate) fn resolve_plane_in(
+    spec: &PlaneSpec,
+    ctx: &crate::compute::datum::DatumCtx,
+) -> OpResult<ResolvedPlane> {
+    let (params, body_shape) = (ctx.params, ctx.body_shape);
+    if let Some(f) = crate::compute::datum::construct_plane(spec, ctx)? {
+        return Ok(ResolvedPlane::Datum(f));
+    }
     match spec {
         PlaneSpec::Named(name) => {
             let (f, r) = named_plane(name)?;
@@ -87,6 +110,12 @@ pub(crate) fn resolve_plane(
                 f.centroid, f.normal,
             )))
         }
+        // Sudah diurus `construct_plane` di atas.
+        PlaneSpec::Midplane { .. }
+        | PlaneSpec::Perpendicular { .. }
+        | PlaneSpec::Tangent { .. }
+        | PlaneSpec::AlongPath { .. }
+        | PlaneSpec::TwoEdges { .. } => Err(OpError::invalid("varian bidang konstruksi tidak teresolusi")),
     }
 }
 
@@ -319,6 +348,11 @@ fn expand_geom(spec: &EntitySpec, params: &Params) -> OpResult<ExpandedGeom> {
                 .collect::<OpResult<Vec<_>>>()?;
             (single(Entity::spline(pts)), name, *construction)
         }
+        EntitySpec::Point {
+            at,
+            name,
+            construction,
+        } => (single(Entity::point(p2(at, params)?)), name, *construction),
         EntitySpec::Path { .. } => unreachable!("Path ditangani oleh expand"),
     };
     Ok((items, name.clone(), construction))
@@ -562,6 +596,12 @@ fn entity(name: &str, names: &HashMap<String, EntityId>) -> OpResult<EntityId> {
 
 /// `"<nama>.start|.end|.center"` atau `"<nama>.s<subpath>.n<node>"` (untuk path).
 fn point(r: &str, names: &HashMap<String, EntityId>, sketch: &Sketch) -> OpResult<PointRef> {
+    // Titik sketch (Fase 1.1) boleh dirujuk dengan namanya saja.
+    if let Some(&id) = names.get(r) {
+        if matches!(sketch.entities.get(id), Some(Entity::Point { .. })) {
+            return Ok(PointRef::Center(id));
+        }
+    }
     if let Some((rest, n_str)) = r.rsplit_once('.') {
         if let Some(n_digits) = n_str.strip_prefix('n') {
             if let Ok(node) = n_digits.parse::<u32>() {
@@ -603,13 +643,16 @@ fn point(r: &str, names: &HashMap<String, EntityId>, sketch: &Sketch) -> OpResul
         )));
     };
     let id = entity(base, names)?;
-    let is_line = matches!(sketch.entities.get(id), Some(Entity::Line { .. }));
+    let ent = sketch.entities.get(id);
+    let is_line = matches!(ent, Some(Entity::Line { .. }));
+    // Ujung Spline/Arc hanya berarti untuk constraint Curvature (Fase 1.20).
+    let has_ends = is_line || matches!(ent, Some(Entity::Spline { .. } | Entity::Arc { .. }));
     match suffix {
-        "start" if is_line => Ok(PointRef::LineStart(id)),
-        "end" if is_line => Ok(PointRef::LineEnd(id)),
+        "start" if has_ends => Ok(PointRef::LineStart(id)),
+        "end" if has_ends => Ok(PointRef::LineEnd(id)),
         "center" if !is_line => Ok(PointRef::Center(id)),
         _ => Err(OpError::invalid(format!(
-            "rujukan titik '{r}' tidak berlaku: .start/.end hanya untuk garis, .center untuk lingkaran/busur/ellips"
+            "rujukan titik '{r}' tidak berlaku: .start/.end hanya untuk garis/spline/busur, .center untuk lingkaran/busur/ellips/titik"
         ))),
     }
 }
@@ -647,22 +690,34 @@ fn translate_constraint(
             point: p(pt)?,
             target: p2(at, params)?,
         },
-        ConstraintSpec::Distance { a, b, value } => Constraint::Distance {
+        ConstraintSpec::Distance {
+            a,
+            b,
+            value,
+            driven,
+        } => Constraint::Distance {
             a: p(a)?,
             b: p(b)?,
             value: positive("jarak constraint", eval(value, params)?)?,
+            driven: *driven,
         },
-        ConstraintSpec::Radius { entity: ent, value } => Constraint::Radius {
+        ConstraintSpec::Radius {
+            entity: ent,
+            value,
+            driven,
+        } => Constraint::Radius {
             entity: e(ent)?,
             value: positive("radius constraint", eval(value, params)?)?,
+            driven: *driven,
         },
         // `Constraint::Angle.value` dalam RADIAN — diverifikasi di
         // `ducad-sketch/src/constraint/solver.rs` (residual
         // `atan2(cross, dot) - value`). Kontrak JSON memakai derajat.
-        ConstraintSpec::Angle { a, b, deg } => Constraint::Angle {
+        ConstraintSpec::Angle { a, b, deg, driven } => Constraint::Angle {
             a: e(a)?,
             b: e(b)?,
             value: eval(deg, params)?.to_radians(),
+            driven: *driven,
         },
         ConstraintSpec::Tangent(ab) => {
             let (a, b) = pair(ab)?;
@@ -689,6 +744,17 @@ fn translate_constraint(
             b: p(b)?,
             axis: e(axis)?,
         },
+        ConstraintSpec::Curvature { a, b } => {
+            let (a, b) = (p(a)?, p(b)?);
+            if !matches!(a, PointRef::LineStart(_) | PointRef::LineEnd(_))
+                || !matches!(b, PointRef::LineStart(_) | PointRef::LineEnd(_))
+            {
+                return Err(OpError::invalid(
+                    "curvature butuh ujung kurva: '<spline>.start|.end' atau '<busur>.start|.end'",
+                ));
+            }
+            Constraint::Curvature { a, b }
+        }
     })
 }
 
@@ -822,7 +888,7 @@ mod tests {
         )
         .unwrap()
         .shape;
-        let lookup = |name: &str| -> OpResult<KernelShape> {
+        let lookup = |name: &str| -> OpResult<ducad_kernel::KernelShape> {
             assert_eq!(name, "plate");
             ducad_kernel::clone_shape(&shape).map_err(|e| OpError::kernel("clone", e))
         };
@@ -1048,5 +1114,76 @@ mod tests {
             }
             _ => panic!("Expected Constraint::Coincident"),
         }
+    }
+
+    // ---- Paritas Fase 1: titik (1.1), driven (1.16), kelengkungan G2 (1.20) ----
+
+    #[test]
+    fn point_entity_by_bare_name_and_driven_distance() {
+        let (e, c) = specs(
+            r#"{"entities":[{"point":{"at":[1,2],"name":"p"}},
+                            {"point":{"at":[4,6],"name":"q"}}],
+                "constraints":[{"fixed":{"point":"p","at":[0,0]}},
+                               {"distance":{"a":"p","b":"q.center","value":99,"driven":true}}]}"#,
+        );
+        let b = build_sketch(&e, &c, &Params::new()).unwrap();
+        let pos = |n: &str| match b.sketch.entities[b.names[n]] {
+            Entity::Point { pos, .. } => pos,
+            _ => unreachable!(),
+        };
+        assert!((pos("p") - DVec2::ZERO).length() < 1e-6);
+        assert_eq!(pos("q"), DVec2::new(4.0, 6.0), "dimensi driven tidak menggerakkan geometri");
+        match &b.sketch.constraints[1] {
+            Constraint::Distance { value, driven, .. } => {
+                assert!(*driven);
+                assert!((value - 52.0f64.sqrt()).abs() < 1e-6, "nilai driven = terukur: {value}");
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(b.closed_regions, 0, "titik tidak membentuk region");
+    }
+
+    #[test]
+    fn driven_flag_is_optional_in_json() {
+        let c: ConstraintSpec =
+            serde_json::from_str(r#"{"radius":{"entity":"c","value":3}}"#).unwrap();
+        assert!(matches!(c, ConstraintSpec::Radius { driven: false, .. }));
+        let back = serde_json::to_string(&c).unwrap();
+        assert!(!back.contains("driven"), "{back}");
+    }
+
+    #[test]
+    fn curvature_constraint_spline_to_arc() {
+        let (e, c) = specs(
+            r#"{"entities":[
+                 {"spline":{"points":[[-25,-15],[-15,-5],[-5,0]],"name":"s1"}},
+                 {"arc":{"center":[-5,8],"r":8,"start_deg":270,"end_deg":330,"name":"a1"}}],
+                "constraints":[{"curvature":{"a":"s1.end","b":"a1.start"}}]}"#,
+        );
+        let b = build_sketch(&e, &c, &Params::new()).unwrap();
+        assert!(matches!(b.sketch.constraints[0], Constraint::Curvature { .. }));
+    }
+
+    #[test]
+    fn curvature_rejects_center_refs_and_unknown_names() {
+        for bad in [
+            r#"{"curvature":{"a":"s1.center","b":"a1.start"}}"#,
+            r#"{"curvature":{"a":"nope.end","b":"a1.start"}}"#,
+            r#"{"curvature":{"a":"","b":"a1.start"}}"#,
+        ] {
+            let (e, _) = specs(
+                r#"{"entities":[
+                     {"spline":{"points":[[0,0],[1,1],[2,0]],"name":"s1"}},
+                     {"arc":{"center":[0,0],"r":1,"start_deg":0,"end_deg":90,"name":"a1"}}]}"#,
+            );
+            let c: Vec<ConstraintSpec> = vec![serde_json::from_str(bad).unwrap()];
+            assert!(build_sketch(&e, &c, &Params::new()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn hostile_point_spec_does_not_panic() {
+        let (e, _) = specs(r#"{"entities":[{"point":{"at":["$nope",0],"name":"p"}}]}"#);
+        assert!(build_sketch(&e, &[], &Params::new()).is_err());
     }
 }

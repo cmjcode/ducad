@@ -698,7 +698,8 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
                         .to_string(),
                 )
             }
-            None => {}
+            // Titik sketch tidak punya tepi — diabaikan saat merakit profil.
+            Some(Entity::Point { .. }) | None => {}
         }
     }
 
@@ -1116,7 +1117,7 @@ pub fn build_path_from_selection_on_plane(
                     },
                 });
             }
-            Some(Entity::Ellipse { .. }) | None => {}
+            Some(Entity::Ellipse { .. }) | Some(Entity::Point { .. }) | None => {}
         }
     }
 
@@ -1231,6 +1232,12 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
         if let Some(e) = sketch.entities.get(*id) {
             count += 1;
             match e {
+                Entity::Point { pos, .. } => {
+                    min_x = min_x.min(pos.x);
+                    max_x = max_x.max(pos.x);
+                    min_y = min_y.min(pos.y);
+                    max_y = max_y.max(pos.y);
+                }
                 Entity::Line { start, end, .. } => {
                     min_x = min_x.min(start.x.min(end.x));
                     max_x = max_x.max(start.x.max(end.x));
@@ -1292,6 +1299,8 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
 pub fn entity_to_subpaths(entity: &Entity) -> Vec<Subpath> {
     match entity {
         Entity::Path { subpaths, .. } => subpaths.clone(),
+        // Titik sketch tidak punya ruas.
+        Entity::Point { .. } => Vec::new(),
         Entity::Line { start, end, .. } => vec![Subpath {
             start: *start,
             segs: vec![PathSeg::Line { end: *end }],

@@ -29,6 +29,8 @@ struct Globals {
     // Pull direction vector (arah buka cetakan mold):
     // xyz: normalized pull direction (e.g. [0.0, 0.0, 1.0]), w: unused.
     draft_dir: vec4<f32>,
+    // Peta kurvatur (Paritas 5.2): x enabled, y kurvatur maks (1/mm), z blend.
+    curv_params: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -293,6 +295,27 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     }
 
     let standard_color = total_diffuse + total_specular + refl_color + vec3<f32>(glass_rim);
+
+    // Peta kurvatur (Paritas 5.2): |dN| / |dP| per piksel ~ 1/R.
+    if (globals.curv_params.x > 0.5) {
+        let curv = length(fwidth(n)) / max(length(fwidth(in.world)), 1e-6);
+        let t = clamp(curv / max(globals.curv_params.y, 1e-6), 0.0, 1.0);
+        let c_flat = vec3<f32>(0.20, 0.42, 0.95);
+        let c_mid = vec3<f32>(0.20, 0.85, 0.45);
+        let c_high = vec3<f32>(0.98, 0.82, 0.15);
+        let c_max = vec3<f32>(0.92, 0.22, 0.20);
+        var heat: vec3<f32>;
+        if (t < 0.33) {
+            heat = mix(c_flat, c_mid, t / 0.33);
+        } else if (t < 0.66) {
+            heat = mix(c_mid, c_high, (t - 0.33) / 0.33);
+        } else {
+            heat = mix(c_high, c_max, (t - 0.66) / 0.34);
+        }
+        let shaded = heat * (0.70 + 0.30 * ndotl_key);
+        let blend = clamp(globals.curv_params.z, 0.0, 1.0);
+        return vec4<f32>(mix(standard_color, shaded, blend), alpha);
+    }
 
     // Zebra Stripes Reflection Inspection (Fase 3.1)
     if (globals.zebra_params.x > 0.5) {

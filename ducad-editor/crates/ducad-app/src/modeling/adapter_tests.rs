@@ -428,6 +428,7 @@ fn adapter_apply_constraint_commits_or_reports_residual() {
         a: p,
         b: p,
         value: 5.0,
+        driven: false,
     });
     let status = app.constraint_status.clone().expect("harus gagal");
     assert!(

@@ -18,6 +18,8 @@ impl ShapeBuilder {
     pub fn entity_to_subpaths(entity: &Entity) -> Vec<Subpath> {
         match entity {
             Entity::Path { subpaths, .. } => subpaths.clone(),
+            // Titik sketch tidak punya bentuk.
+            Entity::Point { .. } => Vec::new(),
             Entity::Circle { center, radius, .. } => {
                 vec![shape_to_path_circle(*center, *radius)]
             }

@@ -320,12 +320,21 @@ impl DuCADApp {
             return;
         };
         self.sync_assembly_instances();
+        let before: Vec<_> = self
+            .assembly_tree
+            .instances
+            .keys()
+            .filter_map(|id| self.assembly_tree.instance_world_transform(*id).map(|p| (*id, p)))
+            .collect();
         if ducad_kernel::evaluate_motion(&mut self.assembly_tree, &study, t).is_some() {
-            // `evaluate_motion` sudah menyelesaikan tree; yang tersisa adalah
-            // menerapkan pergeseran instance ke B-rep, yang dilakukan
-            // `solve_and_apply_assembly` lewat solve kedua yang kini
-            // konvergen seketika (residual sudah nol).
-            self.solve_and_apply_assembly();
+            // `evaluate_motion` sudah memindah pose instance; geometri B-rep
+            // dipindah dari pose sebelum ke pose sesudahnya (solve berikutnya
+            // tidak melihat delta lagi karena pose awalnya sudah berubah).
+            for (id, from) in before {
+                if let Some(to) = self.assembly_tree.instance_world_transform(id) {
+                    self.move_instance_geometry(id, from, to);
+                }
+            }
         }
     }
 
@@ -529,6 +538,7 @@ mod tests {
                 suppressed: false,
                 limits: Default::default(),
                 joint: None,
+                joint_state: None,
             },
         );
 

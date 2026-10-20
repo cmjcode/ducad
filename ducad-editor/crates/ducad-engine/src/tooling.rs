@@ -1662,6 +1662,17 @@ fn check_detail(kind: &str) -> OpResult<Value> {
     }))
 }
 
+/// Kalimat pertama sebuah deskripsi (sampai `". "` pertama). Ringkasan
+/// `get_schema` hanya memuat kalimat ini supaya ukurannya tetap di bawah
+/// anggaran meski jumlah op terus bertambah; deskripsi lengkap ada di
+/// `get_schema {"op": …}`.
+fn first_sentence(desc: &str) -> &str {
+    match desc.find(". ") {
+        Some(i) => &desc[..=i],
+        None => desc,
+    }
+}
+
 /// Ringkasan murah (±5 KB): tiap op dengan deskripsi + field wajib/opsional,
 /// daftar contoh, cheatsheet selector, dan cara meminta detail.
 fn schema_overview() -> OpResult<Value> {
@@ -1689,7 +1700,7 @@ fn schema_overview() -> OpResult<Value> {
                 .unwrap_or_default();
             json!({
                 "op": kind,
-                "summary": v["description"].as_str().unwrap_or_default(),
+                "summary": first_sentence(v["description"].as_str().unwrap_or_default()),
                 "required": required,
                 "optional": optional,
             })

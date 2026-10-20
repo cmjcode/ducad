@@ -219,21 +219,64 @@ pub enum DatumPlaneMode {
     Offset,
     Angled,
     ThreePoints,
+    /// Paritas 1.4: bidang tengah di antara dua bidang/face datar sejajar.
+    Midplane,
+    /// Paritas 1.4: tegak lurus edge di titik klik pada edge itu.
+    Perpendicular,
+    /// Paritas 1.4: singgung face silinder pada sudut tertentu.
+    Tangent,
+    /// Paritas 1.4: normal terhadap edge pada pecahan panjangnya.
+    AlongPath,
+    /// Paritas 1.4: melalui dua edge lurus sebidang.
+    TwoEdges,
 }
 
 impl DatumPlaneMode {
+    /// Mode yang datang dari Paritas 1.4 (dipilih lewat combo "lainnya").
+    pub const EXTRA: [DatumPlaneMode; 5] = [
+        DatumPlaneMode::Midplane,
+        DatumPlaneMode::Perpendicular,
+        DatumPlaneMode::Tangent,
+        DatumPlaneMode::AlongPath,
+        DatumPlaneMode::TwoEdges,
+    ];
+
     pub fn label(&self) -> String {
         match self {
             Self::Offset => t!("datum-mode-offset"),
             Self::Angled => t!("datum-mode-angled"),
             Self::ThreePoints => t!("datum-mode-3point"),
+            Self::Midplane => t!("datum-mode-midplane"),
+            Self::Perpendicular => t!("datum-mode-perpendicular"),
+            Self::Tangent => t!("datum-mode-tangent"),
+            Self::AlongPath => t!("datum-mode-along-path"),
+            Self::TwoEdges => t!("datum-mode-two-edges"),
         }
     }
+
+    /// Mode berbasis pilihan geometri (`ducad_engine::datum`) — bukan tiga
+    /// mode lama.
+    pub fn is_pick_based(&self) -> bool {
+        Self::EXTRA.contains(self)
+    }
+}
+
+/// Status pilihan untuk mode bidang Paritas 1.4.
+#[derive(Debug, Clone, Default)]
+pub struct DatumPlanePicks<'a> {
+    pub status: &'a str,
+    pub ready: bool,
+    pub has_picks: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DatumPlaneHudAction {
     SetMode(DatumPlaneMode),
+    /// Ganti jenis datum (bidang/sumbu/titik).
+    SwitchKind(crate::datum_hud::DatumKind),
+    /// Tambah bidang standar/datum (indeks gaya lama) sebagai pilihan.
+    AddPlane(usize),
+    SetFraction(f64),
     SetBasePlane(usize),
     SetOffset(f64),
     SetAngle(f64),
@@ -2629,13 +2672,16 @@ impl CanvasHud {
         points_count: usize,
         has_edge: bool,
         has_face: bool,
+        picks: &DatumPlanePicks<'_>,
+        fraction_input: &mut String,
     ) -> Option<DatumPlaneHudAction> {
         let is_ready = match *mode {
             DatumPlaneMode::Offset => true,
             DatumPlaneMode::Angled => true,
             DatumPlaneMode::ThreePoints => points_count >= 3,
+            _ => picks.ready,
         };
-        let banner_w = 690.0;
+        let banner_w = 860.0;
 
         Self::render_header_hud_container(
             ui,
@@ -2646,11 +2692,16 @@ impl CanvasHud {
             |ui| {
                 let mut hud_action = None;
 
-                Self::hud_title(ui, format!("📐 {}", t!("hud-datum-plane-title")), is_ready);
+                // Jenis datum: [Bidang] [Sumbu] [Titik] (Paritas 1.2–1.4).
+                if let Some(k) =
+                    crate::datum_hud::kind_selector(ui, crate::datum_hud::DatumKind::Plane)
+                {
+                    hud_action = Some(DatumPlaneHudAction::SwitchKind(k));
+                }
 
                 ui.separator();
 
-                // Mode Selector: [Offset] [Angled] [3-Point]
+                // Mode Selector: [Offset] [Angled] [3-Point] + combo mode 1.4
                 for m in &[
                     DatumPlaneMode::Offset,
                     DatumPlaneMode::Angled,
@@ -2662,6 +2713,25 @@ impl CanvasHud {
                         hud_action = Some(DatumPlaneHudAction::SetMode(*m));
                     }
                 }
+                let extra_text = if mode.is_pick_based() {
+                    mode.label()
+                } else {
+                    t!("datum-mode-more")
+                };
+                egui::ComboBox::from_id_salt("ducad-datum-plane-extra-mode")
+                    .selected_text(RichText::new(extra_text).size(10.5).color(TEXT_PRIMARY))
+                    .width(110.0)
+                    .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
+                        for m in DatumPlaneMode::EXTRA {
+                            if ui
+                                .selectable_label(*mode == m, RichText::new(m.label()).size(10.5))
+                                .clicked()
+                            {
+                                *mode = m;
+                                hud_action = Some(DatumPlaneHudAction::SetMode(m));
+                            }
+                        }
+                    }));
 
                 ui.separator();
 
@@ -2791,6 +2861,54 @@ impl CanvasHud {
 
                         if points_count > 0 && Self::hud_toggle_btn(ui, "Clear", false).clicked() {
                             hud_action = Some(DatumPlaneHudAction::ClearPoints);
+                        }
+                    }
+                    // Mode Paritas 1.4: status pilihan + parameter per mode.
+                    m => {
+                        if crate::datum_hud::pick_status(ui, picks.status, picks.ready, picks.has_picks) {
+                            hud_action = Some(DatumPlaneHudAction::ClearPoints);
+                        }
+                        match m {
+                            DatumPlaneMode::Midplane => {
+                                if let Some(idx) = crate::datum_hud::add_plane_combo(
+                                    ui,
+                                    "ducad-datum-plane-add-plane",
+                                    plane_names,
+                                ) {
+                                    hud_action = Some(DatumPlaneHudAction::AddPlane(idx));
+                                }
+                            }
+                            DatumPlaneMode::Tangent => {
+                                ui.label(
+                                    RichText::new(format!("{}:", t!("datum-angle")))
+                                        .size(10.0)
+                                        .color(TEXT_SECONDARY),
+                                );
+                                for &ang in &[0.0, 90.0, 180.0, 270.0] {
+                                    let is_active = (angle_val - ang).abs() < 0.05;
+                                    if Self::hud_circle_btn(ui, format!("{}", ang as i32), is_active).clicked() {
+                                        *angle_input = format!("{:.1}", ang);
+                                        hud_action = Some(DatumPlaneHudAction::SetAngle(ang));
+                                    }
+                                }
+                                let resp = ui.add(
+                                    egui::TextEdit::singleline(angle_input)
+                                        .desired_width(40.0)
+                                        .font(egui::FontId::monospace(10.5)),
+                                );
+                                if resp.changed() {
+                                    if let Ok(v) = angle_input.trim().parse::<f64>() {
+                                        hud_action = Some(DatumPlaneHudAction::SetAngle(v));
+                                    }
+                                }
+                                ui.label(RichText::new("°").size(10.0).color(TEXT_SECONDARY));
+                            }
+                            DatumPlaneMode::AlongPath => {
+                                if let Some(f) = crate::datum_hud::fraction_field(ui, fraction_input) {
+                                    hud_action = Some(DatumPlaneHudAction::SetFraction(f));
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -2937,7 +3055,7 @@ impl CanvasHud {
         sides: usize,
         mode: ducad_sketch::PolygonMode,
     ) -> Option<PolygonHudAction> {
-        let banner_w = 490.0;
+        let banner_w = 600.0;
 
         Self::render_header_hud_container(
             ui,
@@ -2988,6 +3106,7 @@ impl CanvasHud {
                 // Mode Selector: Inscribed vs Circumscribed
                 let inscribed_label = t!("hud-polygon-inscribed");
                 let circumscribed_label = t!("hud-polygon-circumscribed");
+                let edge_label = t!("hud-polygon-edge");
                 let modes = [
                     (
                         ducad_sketch::PolygonMode::Inscribed,
@@ -2997,6 +3116,8 @@ impl CanvasHud {
                         ducad_sketch::PolygonMode::Circumscribed,
                         circumscribed_label.as_str(),
                     ),
+                    // Paritas 1.11: poligon dari satu sisi.
+                    (ducad_sketch::PolygonMode::Edge, edge_label.as_str()),
                 ];
 
                 for (m, label) in modes {
@@ -3019,7 +3140,7 @@ impl CanvasHud {
         mode: ducad_sketch::SlotMode,
         width: f64,
     ) -> Option<SlotHudAction> {
-        let banner_w = 580.0;
+        let banner_w = 900.0;
 
         Self::render_header_hud_container(
             ui,
@@ -3030,9 +3151,14 @@ impl CanvasHud {
             |ui| {
                 let mut hud_action = None;
 
-                let step_text = match pending_points_count {
-                    0 => t!("hud-slot-prompt-p1"),
-                    1 => t!("hud-slot-prompt-p2"),
+                let is_arc = matches!(
+                    mode,
+                    ducad_sketch::SlotMode::ArcCenter | ducad_sketch::SlotMode::ArcThreePoint
+                );
+                let step_text = match (pending_points_count, is_arc) {
+                    (0, _) => t!("hud-slot-prompt-p1"),
+                    (1, _) => t!("hud-slot-prompt-p2"),
+                    (2, true) => t!("hud-slot-prompt-arc-end"),
                     _ => t!("hud-slot-prompt-width"),
                 };
 
@@ -3042,9 +3168,16 @@ impl CanvasHud {
                 // Mode Selector: Center-to-Center vs Overall
                 let c2c_label = t!("hud-slot-center-to-center");
                 let overall_label = t!("hud-slot-overall");
+                // Paritas 1.10: slot titik pusat dan slot busur.
+                let center_point_label = t!("hud-slot-center-point");
+                let arc_center_label = t!("hud-slot-arc-center");
+                let arc_3pt_label = t!("hud-slot-arc-three-point");
                 let modes = [
                     (ducad_sketch::SlotMode::CenterToCenter, c2c_label.as_str()),
                     (ducad_sketch::SlotMode::Overall, overall_label.as_str()),
+                    (ducad_sketch::SlotMode::CenterPoint, center_point_label.as_str()),
+                    (ducad_sketch::SlotMode::ArcCenter, arc_center_label.as_str()),
+                    (ducad_sketch::SlotMode::ArcThreePoint, arc_3pt_label.as_str()),
                 ];
 
                 for (m, label) in modes {

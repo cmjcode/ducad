@@ -122,6 +122,27 @@ impl Default for DraftConfig {
     }
 }
 
+/// Peta kurvatur (Paritas 5.2): permukaan diwarnai menurut kurvatur yang
+/// diperkirakan per piksel (perubahan normal / perubahan posisi): biru =
+/// datar, hijau → kuning → merah = makin melengkung, merah penuh pada
+/// `max_curvature` (1/mm, mis. 0.2 = radius 5 mm).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CurvatureConfig {
+    pub enabled: bool,
+    pub max_curvature: f32,
+    pub blend: f32,
+}
+
+impl Default for CurvatureConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_curvature: 0.2,
+            blend: 1.0,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct Globals {
@@ -140,6 +161,8 @@ struct Globals {
     draft_params: [f32; 4],
     /// Pull direction vector — [x, y, z, 0.0].
     draft_dir: [f32; 4],
+    /// Peta kurvatur (Paritas 5.2) — [enabled, max_curvature, blend, 0].
+    curv_params: [f32; 4],
 }
 
 #[repr(C)]
@@ -305,6 +328,7 @@ pub struct SceneRenderer {
     clip_plane: [f32; 4],
     studio_config: StudioConfig,
     zebra_config: ZebraConfig,
+    curvature_config: CurvatureConfig,
     draft_config: DraftConfig,
     current_grid_plane: Option<crate::plane::SketchPlane>,
     current_grid_extent: f32,
@@ -695,6 +719,7 @@ impl SceneRenderer {
             clip_plane: CLIP_PLANE_DISABLED,
             studio_config: StudioConfig::default(),
             zebra_config: ZebraConfig::default(),
+            curvature_config: CurvatureConfig::default(),
             draft_config: DraftConfig::default(),
             current_grid_plane: Some(crate::plane::SketchPlane::top()),
             current_grid_extent: 500.0,
@@ -732,6 +757,11 @@ impl SceneRenderer {
     /// Dapatkan konfigurasi inspeksi garis zebra yang sedang aktif.
     pub fn zebra_config(&self) -> ZebraConfig {
         self.zebra_config
+    }
+
+    /// Peta kurvatur (Paritas 5.2).
+    pub fn set_curvature_config(&mut self, config: CurvatureConfig) {
+        self.curvature_config = config;
     }
 
     /// Konfigurasi inspeksi sudut lepas cetakan (Fase 3.2 Draft Angle Heatmap Inspector).
@@ -1256,6 +1286,12 @@ impl SceneRenderer {
             zebra_params,
             draft_params,
             draft_dir: draft_dir_norm,
+            curv_params: [
+                if self.curvature_config.enabled { 1.0 } else { 0.0 },
+                self.curvature_config.max_curvature.max(1e-6),
+                self.curvature_config.blend.clamp(0.0, 1.0),
+                0.0,
+            ],
         };
         queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
 
@@ -1450,8 +1486,9 @@ mod tests {
         // zebra_params: 16 bytes
         // draft_params: 16 bytes
         // draft_dir: 16 bytes
-        // Total = 224 bytes (multiple of 16)
-        assert_eq!(std::mem::size_of::<Globals>(), 224);
+        // curv_params: 16 bytes
+        // Total = 240 bytes (multiple of 16)
+        assert_eq!(std::mem::size_of::<Globals>(), 240);
         assert_eq!(std::mem::align_of::<Globals>(), 4);
     }
 

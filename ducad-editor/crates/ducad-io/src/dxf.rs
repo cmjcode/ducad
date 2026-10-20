@@ -134,6 +134,59 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
     Ok(())
 }
 
+/// Teks DXF (R12) dari tangkapan vektor viewport (Paritas 3.15): garis
+/// tampak/tersembunyi hasil HLR sudut pandang aktif, satu layer per jenis
+/// garis (VISIBLE, HIDDEN, CENTERLINE, SILHOUETTE, HATCH, SECTION).
+/// Koordinat = piksel viewport dengan sumbu Y dibalik (Y DXF ke atas).
+pub fn vector_snapshot_dxf_string(snapshot: &ducad_kernel::VectorSnapshot) -> String {
+    use ducad_kernel::HlrLineKind as K;
+    let mut out = String::with_capacity(4096 + snapshot.segments.len() * 96);
+    out.push_str("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n");
+    out.push_str("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n70\n3\n");
+    out.push_str("0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n");
+    out.push_str("0\nLTYPE\n2\nHIDDEN\n70\n0\n3\n__ __ __ __ __\n72\n65\n73\n2\n40\n9.525\n49\n6.35\n49\n-3.175\n");
+    out.push_str("0\nLTYPE\n2\nCENTER\n70\n0\n3\n____ _ ____ _ __\n72\n65\n73\n4\n40\n31.75\n49\n19.05\n49\n-3.175\n49\n3.175\n49\n-3.175\n");
+    out.push_str("0\nENDTAB\n0\nTABLE\n2\nLAYER\n70\n6\n");
+    for (name, color, lt) in [
+        ("VISIBLE", 7, "CONTINUOUS"),
+        ("HIDDEN", 1, "HIDDEN"),
+        ("CENTERLINE", 3, "CENTER"),
+        ("SILHOUETTE", 7, "CONTINUOUS"),
+        ("HATCH", 4, "CONTINUOUS"),
+        ("SECTION", 1, "CONTINUOUS"),
+    ] {
+        out.push_str(&format!("0\nLAYER\n2\n{name}\n70\n0\n62\n{color}\n6\n{lt}\n"));
+    }
+    out.push_str("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
+    let h = snapshot.height_px as f64;
+    for seg in &snapshot.segments {
+        let layer = match seg.kind {
+            K::Visible => "VISIBLE",
+            K::Hidden => "HIDDEN",
+            K::Centerline => "CENTERLINE",
+            K::Silhouette => "SILHOUETTE",
+            K::Hatch => "HATCH",
+            K::CuttingPlane => "SECTION",
+        };
+        let [x0, y0] = seg.start.map(f64::from);
+        let [x1, y1] = seg.end.map(f64::from);
+        if [x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+            push_line_layer(&mut out, layer, x0, h - y0, x1, h - y1);
+        }
+    }
+    out.push_str("0\nENDSEC\n0\nEOF\n");
+    out
+}
+
+/// Tulis [`vector_snapshot_dxf_string`] ke berkas.
+pub fn export_vector_snapshot_dxf(
+    snapshot: &ducad_kernel::VectorSnapshot,
+    path: impl AsRef<Path>,
+) -> Result<()> {
+    std::fs::write(path.as_ref(), vector_snapshot_dxf_string(snapshot))
+        .with_context(|| format!("gagal menulis DXF tampak ke {}", path.as_ref().display()))
+}
+
 fn push_line_layer(out: &mut String, layer: &str, x0: f64, y0: f64, x1: f64, y1: f64) {
     out.push_str(&format!(
         "0\nLINE\n8\n{layer}\n10\n{x0}\n20\n{y0}\n30\n0.0\n11\n{x1}\n21\n{y1}\n31\n0.0\n"
@@ -165,6 +218,7 @@ pub fn export(sketch: &Sketch, path: impl AsRef<Path>) -> Result<usize> {
     for (_, entity) in sketch.entities.iter() {
         match entity {
             Entity::Line { start, end, .. } => push_line(&mut out, *start, *end),
+            Entity::Point { pos, .. } => push_point(&mut out, *pos),
             Entity::Circle { center, radius, .. } => push_circle(&mut out, *center, *radius),
             Entity::Arc {
                 center,
@@ -188,6 +242,14 @@ fn push_line(out: &mut String, start: DVec2, end: DVec2) {
     out.push_str(&format!(
         "0\nLINE\n8\n0\n10\n{}\n20\n{}\n30\n0.0\n11\n{}\n21\n{}\n31\n0.0\n",
         start.x, start.y, end.x, end.y
+    ));
+}
+
+/// Titik sketch (Fase 1.1) → entitas DXF `POINT`.
+fn push_point(out: &mut String, pos: DVec2) {
+    out.push_str(&format!(
+        "0\nPOINT\n8\n0\n10\n{}\n20\n{}\n30\n0.0\n",
+        pos.x, pos.y
     ));
 }
 
@@ -514,6 +576,24 @@ pub fn import_str(text: &str) -> Result<ImportResult> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn snapshot_dxf_layers_and_flip() {
+        use ducad_kernel::{HlrLineKind, HlrSegment2D, VectorSnapshot};
+        let snap = VectorSnapshot {
+            segments: vec![
+                HlrSegment2D { start: [0.0, 0.0], end: [10.0, 0.0], kind: HlrLineKind::Visible },
+                HlrSegment2D { start: [0.0, 5.0], end: [0.0, f32::NAN], kind: HlrLineKind::Hidden },
+                HlrSegment2D { start: [1.0, 2.0], end: [3.0, 4.0], kind: HlrLineKind::Hidden },
+            ],
+            width_px: 100.0,
+            height_px: 50.0,
+        };
+        let t = super::vector_snapshot_dxf_string(&snap);
+        assert_eq!(t.matches("\nLINE\n").count(), 2, "segmen NaN dilewati");
+        assert!(t.contains("8\nHIDDEN\n10\n1\n20\n48"));
+        assert!(t.ends_with("0\nEOF\n"));
+    }
+
     use super::*;
     use std::f64::consts::PI;
 

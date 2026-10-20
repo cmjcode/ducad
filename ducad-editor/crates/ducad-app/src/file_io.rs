@@ -70,12 +70,15 @@ impl DuCADApp {
         }
         let body_exports = self.native_export_bodies();
         let ordered = self.plane_ordered_sketches();
-        match ducad_io::native::save_multi_plane_detailed_with_design_and_ink(
+        // Datum (bidang + sketsanya, sumbu, titik) ikut tersimpan (Paritas 1.5).
+        let datums = self.native_datums();
+        match ducad_io::native::save_full(
             &path,
             &ordered,
             &body_exports,
             self.design.as_ref(),
             Some(&self.ink),
+            Some(&datums),
         ) {
             Ok(_) => {
                 let name = path
@@ -145,7 +148,7 @@ impl DuCADApp {
             Ok((loaded, geos))
         });
         match prepared {
-            Ok((loaded, geos)) => {
+            Ok((mut loaded, geos)) => {
                 self.load_standard_plane_sketches(
                     loaded.sketch,
                     loaded.front_sketch,
@@ -153,6 +156,8 @@ impl DuCADApp {
                 );
                 self.datum_planes.clear();
                 self.datum_plane_counter = 0;
+                let assembly_json = loaded.datums.assembly.take();
+                self.load_native_datums(std::mem::take(&mut loaded.datums));
                 self.selected.clear();
                 self.hovered = None;
                 self.pending_points.clear();
@@ -193,6 +198,8 @@ impl DuCADApp {
                 }
                 self.model = new_model;
                 self.model_undo = ducad_core::UndoStack::default();
+                // Paritas Fase 4: perakitan tersimpan (body lewat UUID).
+                self.assembly_from_json(assembly_json);
                 self.ink = loaded.ink.unwrap_or_default();
                 self.ink_undo = ducad_core::UndoStack::default();
                 self.selected_bodies.clear();
@@ -541,6 +548,8 @@ impl DuCADApp {
         let plane = &self.active_plane;
         for (_, entity) in &self.sketch().entities {
             match entity {
+                // Titik sketch tidak punya ruas untuk digambar.
+                ducad_sketch::Entity::Point { .. } => {}
                 ducad_sketch::Entity::Line { start, end, .. } => {
                     let p1 = plane.to_world(*start, 0.0);
                     let p2 = plane.to_world(*end, 0.0);
@@ -1226,55 +1235,13 @@ impl DuCADApp {
     /// dengan perspektif, pergeseran explode, dan bidang potong Section View —
     /// dalam koordinat piksel viewport.
     pub fn export_vector_snapshot(&mut self) {
-        let camera = self.snapshot_camera();
-        let sketch_segments = self.sketch_world_segments();
-
-        // Body terlihat beserta penempatannya. `edge_lines` sudah dihitung
-        // sekali saat body dibangun, jadi di sini tidak ada kerja kernel lagi.
-        let bodies: Vec<(glam::Mat4, &BodyGeometry)> = self
-            .model
-            .geometry
-            .iter()
-            .filter_map(|(id, geo)| {
-                let body = self.model.doc.bodies.get(id)?;
-                if !body.visible {
-                    return None;
-                }
-                Some((
-                    glam::Mat4::from_translation(self.explode_display_offset(id)),
-                    geo,
-                ))
-            })
-            .collect();
-
-        if bodies.is_empty() && sketch_segments.is_empty() {
-            self.file_status = Some(ducad_i18n::t!("file-snapshot-empty"));
-            return;
-        }
-
-        let snapshot_bodies: Vec<ducad_kernel::SnapshotBody<'_>> = bodies
-            .iter()
-            .map(|(model, geo)| {
-                ducad_kernel::SnapshotBody::with_model(&geo.edge_lines, geo.mesh.as_ref(), *model)
-            })
-            .collect();
-
-        let options = ducad_kernel::SnapshotOptions {
-            clip_plane: self.section_clip_plane(),
-            ..Default::default()
+        let snapshot = match self.capture_view_snapshot() {
+            Ok(s) => s,
+            Err(msg) => {
+                self.file_status = Some(msg);
+                return;
+            }
         };
-        let snapshot = ducad_kernel::extract_vector_snapshot(
-            &camera,
-            &snapshot_bodies,
-            &sketch_segments,
-            &options,
-        );
-
-        if snapshot.is_empty() {
-            // Geometri ada, tapi tidak ada yang jatuh di dalam bingkai kamera.
-            self.file_status = Some(ducad_i18n::t!("file-snapshot-offscreen"));
-            return;
-        }
 
         let filter_name = ducad_i18n::t!("file-drawing-svg-filter");
         let default_name = self
@@ -1310,6 +1277,60 @@ impl DuCADApp {
                 ));
             }
         }
+    }
+
+    /// Tangkapan vektor (HLR) sudut pandang viewport saat ini; `Err` berisi
+    /// pesan status bila kosong / di luar bingkai.
+    pub fn capture_view_snapshot(&self) -> Result<ducad_kernel::VectorSnapshot, String> {
+        let camera = self.snapshot_camera();
+        let sketch_segments = self.sketch_world_segments();
+
+        // Body terlihat beserta penempatannya. `edge_lines` sudah dihitung
+        // sekali saat body dibangun, jadi di sini tidak ada kerja kernel lagi.
+        let bodies: Vec<(glam::Mat4, &BodyGeometry)> = self
+            .model
+            .geometry
+            .iter()
+            .filter_map(|(id, geo)| {
+                let body = self.model.doc.bodies.get(id)?;
+                if !body.visible {
+                    return None;
+                }
+                Some((
+                    glam::Mat4::from_translation(self.explode_display_offset(id)),
+                    geo,
+                ))
+            })
+            .collect();
+
+        if bodies.is_empty() && sketch_segments.is_empty() {
+            return Err(ducad_i18n::t!("file-snapshot-empty"));
+        }
+
+        let snapshot_bodies: Vec<ducad_kernel::SnapshotBody<'_>> = bodies
+            .iter()
+            .map(|(model, geo)| {
+                ducad_kernel::SnapshotBody::with_model(&geo.edge_lines, geo.mesh.as_ref(), *model)
+            })
+            .collect();
+
+        let options = ducad_kernel::SnapshotOptions {
+            clip_plane: self.section_clip_plane(),
+            ..Default::default()
+        };
+        let snapshot = ducad_kernel::extract_vector_snapshot(
+            &camera,
+            &snapshot_bodies,
+            &sketch_segments,
+            &options,
+        );
+
+        if snapshot.is_empty() {
+            // Geometri ada, tapi tidak ada yang jatuh di dalam bingkai kamera.
+            return Err(ducad_i18n::t!("file-snapshot-offscreen"));
+        }
+        Ok(snapshot)
+
     }
 
     /// Susun parameter kamera tangkapan dari kamera orbit viewport.

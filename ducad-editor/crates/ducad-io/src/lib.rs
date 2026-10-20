@@ -18,12 +18,14 @@ pub mod dxf;
 pub mod flat_dxf;
 pub mod glb;
 pub mod mesh_export;
+pub mod mesh_formats;
 pub mod external;
 pub mod native;
 pub mod pdf;
 pub mod pdf_import;
 pub mod step_io;
 pub mod svg;
+pub mod svg_import;
 
 pub use drawing::{
     BomItem, BomTable, CalloutBalloon, DimensionAnnotation, DrawingSheet, PaperSize,
@@ -41,6 +43,7 @@ pub use svg::{
     SvgSnapshotOptions,
 };
 pub use native::needs_v3;
+pub use svg_import::{import_svg_entities, SvgImport, SvgImportOptions};
 
 /// Lock test SATU-SATUNYA untuk seluruh binary test crate ini — dipakai
 /// tes yang membangun B-rep sungguhan (`native`, `step_io`, `external`,

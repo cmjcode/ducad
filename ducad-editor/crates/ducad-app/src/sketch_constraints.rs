@@ -24,13 +24,53 @@ fn is_round(sk: &Sketch, id: EntityId) -> bool {
     matches!(sk.entities.get(id), Some(Entity::Circle { .. } | Entity::Arc { .. }))
 }
 
+fn is_point(sk: &Sketch, id: EntityId) -> bool {
+    matches!(sk.entities.get(id), Some(Entity::Point { .. }))
+}
+
+fn is_spline(sk: &Sketch, id: EntityId) -> bool {
+    matches!(sk.entities.get(id), Some(Entity::Spline { points, .. }) if points.len() >= 2)
+}
+
+fn is_arc(sk: &Sketch, id: EntityId) -> bool {
+    matches!(sk.entities.get(id), Some(Entity::Arc { .. }))
+}
+
+/// Ujung kurva (Start/End) untuk constraint Curvature: Spline atau Arc.
+fn curve_ends(sk: &Sketch, id: EntityId) -> Vec<PointRef> {
+    if is_spline(sk, id) || is_arc(sk, id) {
+        vec![PointRef::LineStart(id), PointRef::LineEnd(id)]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Constraint G2 (Paritas 1.20) untuk dua kurva: pilih pasangan ujung yang
+/// saat ini paling berdekatan. Syarat: minimal satu Spline, sisanya Spline/Arc.
+pub fn curvature_constraint(sk: &Sketch, a: EntityId, b: EntityId) -> Option<Constraint> {
+    if a == b || !(is_spline(sk, a) || is_spline(sk, b)) {
+        return None;
+    }
+    let mut best: Option<(f64, PointRef, PointRef)> = None;
+    for pa in curve_ends(sk, a) {
+        for pb in curve_ends(sk, b) {
+            let (Some(x), Some(y)) = (pos(sk, &pa), pos(sk, &pb)) else { continue };
+            let d = (x - y).length();
+            if d.is_finite() && best.as_ref().is_none_or(|(bd, _, _)| d < *bd) {
+                best = Some((d, pa, pb));
+            }
+        }
+    }
+    best.map(|(_, a, b)| Constraint::Curvature { a, b })
+}
+
 /// Titik yang bisa dirujuk constraint pada entitas `id`.
 fn points(sk: &Sketch, id: EntityId) -> Vec<PointRef> {
     match sk.entities.get(id) {
         Some(Entity::Line { .. }) => vec![PointRef::LineStart(id), PointRef::LineEnd(id)],
-        Some(Entity::Circle { .. } | Entity::Arc { .. } | Entity::Ellipse { .. }) => {
-            vec![PointRef::Center(id)]
-        }
+        Some(
+            Entity::Circle { .. } | Entity::Arc { .. } | Entity::Ellipse { .. } | Entity::Point { .. },
+        ) => vec![PointRef::Center(id)],
         _ => Vec::new(),
     }
 }
@@ -87,7 +127,7 @@ fn best_point_target(
 /// Constraint yang berlaku untuk seleksi `sel` (urutan bebas).
 pub fn valid_actions(sk: &Sketch, sel: &[EntityId]) -> Vec<ConstraintAction> {
     use ConstraintAction as A;
-    let mut out = vec![A::AutoConstrain];
+    let mut out = vec![A::AutoConstrain, A::ToggleGlyphs];
     match sel {
         [] => {}
         [a] => {
@@ -119,6 +159,21 @@ pub fn valid_actions(sk: &Sketch, sel: &[EntityId]) -> Vec<ConstraintAction> {
             if (la && rb) || (ra && lb) {
                 out.extend([A::ApplyTangent, A::ApplyMidpoint, A::ApplyPointOnCurve]);
             }
+            // Titik sketch (Paritas 1.1): ke garis → tengah/menempel; ke
+            // lingkaran → menempel; titik–titik → jarak.
+            let (pa, pb) = (is_point(sk, *a), is_point(sk, *b));
+            if (pa && lb) || (pb && la) {
+                out.extend([A::ApplyMidpoint, A::ApplyPointOnCurve]);
+            }
+            if (pa && rb) || (pb && ra) {
+                out.push(A::ApplyPointOnCurve);
+            }
+            if pa && pb {
+                out.extend([A::ApplyDistance, A::ApplyHorizontal, A::ApplyVertical]);
+            }
+            if curvature_constraint(sk, *a, *b).is_some() {
+                out.push(A::ApplyCurvature);
+            }
         }
         _ => {
             if sel.iter().all(|id| is_line(sk, *id)) {
@@ -139,6 +194,17 @@ pub fn build_constraints(sk: &Sketch, sel: &[EntityId], action: ConstraintAction
     };
     let one = |c: Option<Constraint>| c.into_iter().collect::<Vec<_>>();
     match action {
+        // Dua titik sketch: sejajarkan horizontal/vertikal.
+        A::ApplyHorizontal | A::ApplyVertical
+            if matches!(sel, [a, b] if is_point(sk, *a) && is_point(sk, *b)) =>
+        {
+            let (a, b) = (PointRef::Center(sel[0]), PointRef::Center(sel[1]));
+            vec![if action == A::ApplyHorizontal {
+                Constraint::HorizontalPoints { a, b }
+            } else {
+                Constraint::VerticalPoints { a, b }
+            }]
+        }
         A::ApplyHorizontal | A::ApplyVertical => sel
             .iter()
             .filter(|id| is_line(sk, **id))
@@ -156,11 +222,25 @@ pub fn build_constraints(sk: &Sketch, sel: &[EntityId], action: ConstraintAction
                     a: PointRef::LineStart(*id),
                     b: PointRef::LineEnd(*id),
                     value: (*end - *start).length(),
+                    driven: false,
                 }),
                 _ => None,
             },
+            [a, b] if is_point(sk, *a) && is_point(sk, *b) => {
+                let (pa, pb) = (PointRef::Center(*a), PointRef::Center(*b));
+                match (pos(sk, &pa), pos(sk, &pb)) {
+                    (Some(x), Some(y)) if (x - y).length() > 1e-9 => Some(Constraint::Distance {
+                        a: pa,
+                        b: pb,
+                        value: (x - y).length(),
+                        driven: false,
+                    }),
+                    _ => None,
+                }
+            }
             _ => None,
         }),
+        A::ApplyCurvature => one(pair.and_then(|(a, b)| curvature_constraint(sk, a, b))),
         A::ApplyParallel | A::ApplyPerpendicular | A::ApplyEqualLength | A::ApplyCollinear => {
             one(pair.filter(|(a, b)| is_line(sk, *a) && is_line(sk, *b)).map(|(a, b)| match action {
                 A::ApplyParallel => Constraint::Parallel { a, b },
@@ -213,7 +293,7 @@ pub fn build_constraints(sk: &Sketch, sel: &[EntityId], action: ConstraintAction
             )
             .map(|(point, curve)| Constraint::PointOnCurve { point, curve })
         })),
-        A::ApplyFixed | A::ApplySymmetric | A::AutoConstrain => Vec::new(),
+        A::ApplyFixed | A::ApplySymmetric | A::AutoConstrain | A::ToggleGlyphs => Vec::new(),
     }
 }
 
@@ -231,6 +311,7 @@ impl DuCADApp {
             ConstraintAction::ApplyFixed => self.set_tool(ToolKind::FixedPick),
             ConstraintAction::ApplySymmetric => self.set_tool(ToolKind::SymmetricPick),
             ConstraintAction::AutoConstrain => self.auto_constrain(),
+            ConstraintAction::ToggleGlyphs => self.toggle_constraint_glyphs(),
             _ => {
                 let sel = self.sorted_selection();
                 let cs = build_constraints(self.sketch(), &sel, action);

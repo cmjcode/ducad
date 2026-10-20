@@ -116,9 +116,49 @@ pub enum SelExpr {
 pub const FACE_KINDS: [&str; 6] = ["plane", "cylinder", "cone", "sphere", "torus", "other"];
 pub const EDGE_KINDS: [&str; 3] = ["line", "circle", "other"];
 
+/// Referensi datum (Fase 1 butir 1.2/1.3): `axis:<id>` atau `point:<id>`.
+/// BUKAN selector face/edge — dipakai field sumbu/titik op (`revolve.axis`,
+/// `pattern.circular.axis`, `PointRef`, `LineRef`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DatumRef {
+    Axis(String),
+    Point(String),
+}
+
+/// `Some(Ok(..))` bila `src` berbentuk `axis:<id>`/`point:<id>` (prefiks tidak
+/// peka huruf besar, spasi di tepi diabaikan); `Some(Err(..))` bila
+/// prefiksnya cocok tetapi id tidak sah; `None` bila bukan referensi datum.
+pub fn parse_datum_ref(src: &str) -> Option<OpResult<DatumRef>> {
+    let t = src.trim();
+    let (kind, rest) = t.split_once(':')?;
+    let make: fn(String) -> DatumRef = match kind.trim().to_ascii_lowercase().as_str() {
+        "axis" => DatumRef::Axis,
+        "point" => DatumRef::Point,
+        _ => return None,
+    };
+    let id = rest.trim();
+    if !crate::ops::is_valid_op_id(id) {
+        return Some(Err(OpError::new(
+            OpErrorCode::SelectorSyntax,
+            format!("referensi datum \"{src}\" tidak sah: id harus cocok ^[a-z][a-z0-9_]{{0,31}}$"),
+        )
+        .with_hint("contoh: \"axis:ax1\" (dari op construct_axis id ax1), \"point:p1\"")
+        .with_context(serde_json::json!({ "selector": src }))));
+    }
+    Some(Ok(make(id.to_string())))
+}
+
 /// Parse `src` untuk konteks `ctx`. Error → `SelectorSyntax` dengan
 /// `context.pos` = indeks karakter penyebab.
 pub fn parse(src: &str, ctx: SelCtx) -> OpResult<SelExpr> {
+    if parse_datum_ref(src).is_some() {
+        return Err(OpError::new(
+            OpErrorCode::SelectorSyntax,
+            format!("\"{src}\" adalah referensi datum, bukan selector face/edge"),
+        )
+        .with_hint("axis:<id>/point:<id> dipakai di field sumbu/titik (revolve.axis, pattern circular axis, through, two_points); untuk face/edge pakai selector seperti \">Z\" atau \"|Z\"")
+        .with_context(serde_json::json!({ "selector": src, "pos": 0 })));
+    }
     let chars: Vec<char> = src.chars().collect();
     let mut p = Parser {
         src,

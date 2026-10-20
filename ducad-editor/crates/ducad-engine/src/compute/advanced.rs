@@ -181,6 +181,7 @@ fn entity_kind(e: &Entity) -> &'static str {
         Entity::Arc { .. } => "busur",
         Entity::Ellipse { .. } => "elips",
         Entity::Spline { .. } => "spline",
+        Entity::Point { .. } => "titik",
         _ => "path/bentuk tertutup",
     }
 }

@@ -910,15 +910,9 @@ pub fn split_face(
     if plane_normal.length_squared() < 1e-6 {
         bail!("normal bidang pemotong tidak boleh bernilai nol");
     }
-    let body = shape.require_body("Split face")?;
-    let plane = Plane::from_normal(sc(plane_point), sc(plane_normal.normalize()))
-        .ok_or_else(|| anyhow!("normal bidang pemotong tidak valid"))?;
-    let faces: Vec<usize> = (0..body.face_count()).collect();
-    kernel("Split face", || {
-        solidcraft_kernel::split_faces(body, &faces, &SplitTool::Plane(plane))
-    })
-    .context("operasi split face gagal pada kernel truck")
-    .map(KernelShape::from_body)
+    // Hanya face yang benar-benar dilintasi bidang (kernel menolak face
+    // yang tidak terpotong) — lihat `direct::split_faces_by_plane`.
+    super::direct::split_faces_by_plane(shape, &[], plane_point, plane_normal)
 }
 
 // ---------------------------------------------------------------------------

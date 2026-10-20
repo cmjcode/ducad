@@ -16,6 +16,9 @@ mod backend;
 pub mod advanced;
 pub mod assembly_solver;
 pub mod csg;
+pub use backend::direct;
+pub use backend::iges;
+pub use backend::surface;
 pub mod detail;
 pub mod diagnostics;
 pub mod helix;
@@ -134,6 +137,12 @@ pub use picking::{
     EdgePickHit, FaceHit, PickRay, RadialAxis, SurfaceKind, Vec3Raw,
 };
 pub use primitives::{make_box, make_cone, make_cylinder, make_sphere};
+pub use direct::{
+    bounding_box_solid, bounding_cylinder_solid, boundary_fill, delete_faces_by_index, make_torus,
+    seam_continuity, Continuity, SeamContinuity,
+    offset_faces_by_index, point_inside, replace_face_with_plane, split_faces_by_curves,
+    split_faces_by_plane,
+};
 pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use section::{
     generate_iso_hatch_pattern, CuttingLineIndicator, SectionAxis, SectionExtractor, SectionPath,

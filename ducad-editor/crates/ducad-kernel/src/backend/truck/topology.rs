@@ -296,8 +296,37 @@ impl Topology {
                 .flatten()
             })
             .collect();
+        // Garis split (Split Face): face di kedua sisinya tetap terpisah
+        // supaya potongannya bisa dipilih sendiri-sendiri.
+        let split_lines: Vec<Vec<DVec3>> = body
+            .split_lines()
+            .map(|l| l.iter().map(|pl| pl.iter().map(|q| to_dv(*q)).collect()).collect())
+            .unwrap_or_default();
+        let on_split = |e: usize| -> bool {
+            if split_lines.is_empty() {
+                return false;
+            }
+            let Some(pts) = mesh.edges.get(e) else { return false };
+            let Some(mid) = pts.get(pts.len() / 2).map(|q| to_dv(*q)) else { return false };
+            let tol = lin * 100.0;
+            split_lines.iter().any(|pl| {
+                pl.windows(2).any(|w| {
+                    let (a, b) = (w[0], w[1]);
+                    let ab = b - a;
+                    let t = if ab.length_squared() > 0.0 {
+                        ((mid - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    (a + ab * t).distance(mid) <= tol
+                })
+            })
+        };
         let mut fuf = UnionFind::new(nf);
-        for faces in &edge_faces {
+        for (e, faces) in edge_faces.iter().enumerate() {
+            if on_split(e) {
+                continue;
+            }
             if let [a, b] = faces[..] {
                 if let (Some(Some(sa)), Some(Some(sb))) = (surfaces.get(a), surfaces.get(b)) {
                     if same_surface(sa, sb, lin) {

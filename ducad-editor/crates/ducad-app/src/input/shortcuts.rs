@@ -728,6 +728,7 @@ impl DuCADApp {
                 _ => ducad_i18n::t!("status-prompt-slot-2"),
             },
             ToolKind::Text => ducad_i18n::t!("status-prompt-text-0"),
+            ToolKind::Point => ducad_i18n::t!("status-prompt-point"),
             ToolKind::Spline => match self.pending_points.len() {
                 0 => "Klik titik awal kurva Spline, atau tekan lalu geser".to_string(),
                 1 => "Klik titik berikutnya; saat menggeser, tahan diam sejenak untuk menaruh titik".to_string(),
@@ -761,6 +762,7 @@ impl DuCADApp {
             }
             ToolKind::Trim => ducad_i18n::t!("status-prompt-trim"),
             ToolKind::Extend => ducad_i18n::t!("status-prompt-extend"),
+            ToolKind::Break => ducad_i18n::t!("status-prompt-break"),
             ToolKind::Fillet2D => ducad_i18n::t!("status-prompt-fillet-2d"),
             ToolKind::Chamfer2D => ducad_i18n::t!("status-prompt-chamfer-2d"),
             ToolKind::Revolve => {

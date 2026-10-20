@@ -14,6 +14,9 @@
 pub mod advanced;
 pub(crate) mod bridge;
 pub mod csg;
+pub mod direct;
+pub mod iges;
+pub mod surface;
 pub mod helix;
 pub(crate) mod hlr_mesh;
 pub mod modify;

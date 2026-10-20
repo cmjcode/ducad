@@ -13,14 +13,16 @@ pub enum PrimitiveKind {
     Cylinder,
     Sphere,
     Cone,
+    Torus,
 }
 
 impl PrimitiveKind {
-    pub const ALL: [PrimitiveKind; 4] = [
+    pub const ALL: [PrimitiveKind; 5] = [
         PrimitiveKind::Box,
         PrimitiveKind::Cylinder,
         PrimitiveKind::Sphere,
         PrimitiveKind::Cone,
+        PrimitiveKind::Torus,
     ];
 
     pub fn label(self) -> String {
@@ -29,6 +31,7 @@ impl PrimitiveKind {
             PrimitiveKind::Cylinder => t!("prim-cylinder"),
             PrimitiveKind::Sphere => t!("prim-sphere"),
             PrimitiveKind::Cone => t!("prim-cone"),
+            PrimitiveKind::Torus => t!("prim-torus"),
         }
     }
 }
@@ -93,6 +96,8 @@ pub struct PrimitivePopupState {
     pub radius: f64,
     pub height: f64,
     pub radius_top: f64,
+    /// Radius tabung torus (radius besar = `radius`).
+    pub tube_radius: f64,
     pub at: [f64; 3],
 }
 
@@ -105,6 +110,7 @@ impl Default for PrimitivePopupState {
             radius: 10.0,
             height: 20.0,
             radius_top: 0.0,
+            tube_radius: 3.0,
             at: [0.0; 3],
         }
     }
@@ -117,6 +123,7 @@ impl PrimitivePopupState {
             PrimitiveKind::Cylinder => [self.radius, self.height, 0.0],
             PrimitiveKind::Sphere => [self.radius, 0.0, 0.0],
             PrimitiveKind::Cone => [self.radius, self.radius_top, self.height],
+            PrimitiveKind::Torus => [self.radius, self.tube_radius, 0.0],
         }
     }
 }
@@ -226,6 +233,14 @@ impl BodyToolsPopup {
                     ui.end_row();
                     field_label(ui, t!("prim-height"));
                     mm_drag(ui, &mut state.height, 0.01);
+                    ui.end_row();
+                }
+                PrimitiveKind::Torus => {
+                    field_label(ui, t!("prim-torus-major"));
+                    mm_drag(ui, &mut state.radius, 0.01);
+                    ui.end_row();
+                    field_label(ui, t!("prim-torus-minor"));
+                    mm_drag(ui, &mut state.tube_radius, 0.01);
                     ui.end_row();
                 }
             }

@@ -39,6 +39,7 @@ pub fn primitive_shape(kind: PrimitiveKind, dims: [f64; 3], centered: bool) -> c
         PrimitiveKind::Cylinder => compute::PrimitiveShape::Cylinder { r: dims[0], h: dims[1] },
         PrimitiveKind::Sphere => compute::PrimitiveShape::Sphere { r: dims[0] },
         PrimitiveKind::Cone => compute::PrimitiveShape::Cone { r1: dims[0], r2: dims[1], h: dims[2] },
+        PrimitiveKind::Torus => compute::PrimitiveShape::Torus { major: dims[0], minor: dims[1] },
     }
 }
 
@@ -61,6 +62,60 @@ impl DuCADApp {
             ParityCmd::Compare => self.view_tools.compare_open = true,
             ParityCmd::RigidGroup => self.make_rigid_group_from_selection(),
             ParityCmd::DissolveRigidGroup => self.dissolve_rigid_group_of_selection(),
+            ParityCmd::SketchPoint => self.set_tool(crate::types::ToolKind::Point),
+            ParityCmd::ToggleDriven => self.toggle_driven_for_selection(),
+            ParityCmd::ResetDimText => self.reset_dim_text_positions(),
+            ParityCmd::DatumAxis => self.open_datum_tool(ducad_ui::DatumKind::Axis),
+            ParityCmd::DatumPoint => self.open_datum_tool(ducad_ui::DatumKind::Point),
+            ParityCmd::DatumDrawer => self.planes_drawer_open = true,
+            ParityCmd::Direct(t) => self.open_direct_tool(t),
+            ParityCmd::ExportThreeMf => self.export_3mf(),
+            ParityCmd::OpenInSlicer => self.open_in_slicer(0),
+            ParityCmd::ImportMesh => self.import_mesh_file(),
+            ParityCmd::ExportIges => self.export_iges(),
+            ParityCmd::ImportIges => self.import_iges(),
+            ParityCmd::ExportViewDxf => self.export_view_dxf(),
+            ParityCmd::RecoverableDesigns => self.refresh_recovery(true),
+            ParityCmd::NamedViews => self.named_views.open = true,
+            ParityCmd::CrashReports => self.crash_reports.open = true,
+            ParityCmd::Joint(k) => {
+                if self.staged_mate_targets.len() >= 2 {
+                    let as_built = self.assembly_tools.as_built;
+                    self.create_joint(k, as_built);
+                } else {
+                    self.assembly_tools.joint_kind = k;
+                    self.assembly_tools.open = true;
+                    self.model_status = Some(ducad_i18n::t!("asm-joint-need-two"));
+                }
+            }
+            ParityCmd::AssemblyTools => self.assembly_tools.open = true,
+            ParityCmd::MotionTools => self.motion_tools.open = true,
+            ParityCmd::CapturePositions => self.capture_positions(),
+            ParityCmd::RevertPositions => self.revert_positions(),
+            ParityCmd::CopyOccurrence => {
+                let o = self.assembly_tools.occurrence_offset;
+                self.copy_occurrence(o);
+            }
+            ParityCmd::ContactSet => self.add_contact_set_from_selection(),
+            ParityCmd::InspectTools => self.inspect_tools.open = true,
+            ParityCmd::SurfaceTools => self.surface_tools.open = true,
+            ParityCmd::PlasticTools => self.plastic_tools.open = true,
+            ParityCmd::CurvatureMap => {
+                self.inspect_tools.open = true;
+                self.inspect_tools.curvature.enabled = !self.inspect_tools.curvature.enabled;
+            }
+            ParityCmd::SketchBreak
+            | ParityCmd::ProjectEdges
+            | ParityCmd::IntersectBody
+            | ParityCmd::BreakLink
+            | ParityCmd::CopySketch
+            | ParityCmd::CutSketch
+            | ParityCmd::PasteSketch
+            | ParityCmd::ToggleGlyphs
+            | ParityCmd::InsertSvg => self.run_parity_cmd_1b(cmd, ctx),
+            ParityCmd::CurvatureG2 => {
+                self.apply_sketch_strip_action(ducad_ui::ConstraintAction::ApplyCurvature)
+            }
         }
     }
 

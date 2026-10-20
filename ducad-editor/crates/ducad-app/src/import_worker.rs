@@ -91,6 +91,25 @@ fn import_one(path: &std::path::Path) -> Result<(KernelShape, KernelMesh), Strin
         let mesh = ducad_io::read_stl(path).map_err(|e| e.to_string())?;
         let shape = ducad_kernel::KernelShape::empty();
         Ok((shape, mesh))
+    } else if matches!(ext.as_str(), "3mf" | "obj" | "gltf" | "glb") {
+        // Paritas 3.10: mesh (tanpa B-rep); beberapa objek digabung jadi satu.
+        let meshes = ducad_io::mesh_formats::read_mesh_file(path).map_err(|e| e.to_string())?;
+        let refs: Vec<&KernelMesh> = meshes.iter().map(|m| &m.mesh).collect();
+        Ok((ducad_kernel::KernelShape::empty(), KernelMesh::merge(&refs)))
+    } else if matches!(ext.as_str(), "igs" | "iges") {
+        // Paritas 3.11: IGES → B-rep lewat penerjemah SolidCraft.
+        let (shapes, warnings) = ducad_kernel::iges::read_iges(path).map_err(|e| e.to_string())?;
+        for w in warnings {
+            log::warn!("IGES: {w}");
+        }
+        let shape = if shapes.len() == 1 {
+            shapes.into_iter().next().map(|(_, s)| s).ok_or("IGES kosong")?
+        } else {
+            let refs: Vec<&ducad_kernel::KernelShape> = shapes.iter().map(|(_, s)| s).collect();
+            ducad_kernel::make_compound(&refs).map_err(|e| e.to_string())?
+        };
+        let mesh = shape.tessellate();
+        Ok((shape, mesh))
     } else {
         let shape = ducad_kernel::KernelShape::read_step(path).map_err(|e| e.to_string())?;
         let mesh = shape.tessellate();

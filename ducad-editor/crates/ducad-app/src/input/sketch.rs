@@ -534,11 +534,15 @@ impl DuCADApp {
     }
 
     pub fn on_click_point(&mut self, p: DVec2) {
+        // Mode tangen (Paritas 1.7/1.8): klik harus mengenai kurva/ujung.
+        if !self.accept_mode_click(p) {
+            return;
+        }
         self.pending_points.push(p);
         if self.pending_points.len() == 1 {
             self.dynamic_focus_pending = true;
         }
-        if self.pending_points.len() >= required_points(self.tool) {
+        if self.pending_points.len() >= self.required_points_now() {
             self.finish_multipoint();
         }
     }
@@ -634,6 +638,10 @@ impl DuCADApp {
 
     pub fn finish_multipoint(&mut self) {
         let pts = std::mem::take(&mut self.pending_points);
+        // Mode gambar Fase 1B (sketch_modes_fase1.rs) menangani sendiri.
+        if self.finish_mode_multipoint(&pts) {
+            return;
+        }
         let cmd: Option<Box<dyn Command<Sketch>>> = match self.tool {
             ToolKind::Rectangle => {
                 let first = self.rect_first_corner(pts[0], pts[1]);
@@ -1095,6 +1103,9 @@ impl DuCADApp {
                 self.sketch_move_target = None;
             }
 
+            // Copy/Cut/Paste entitas sketsa (Paritas 1.15).
+            self.handle_sketch_clipboard_keys(ui, raw_cursor);
+
             let cmd_held = ui.input(|i| i.modifiers.command);
             if self.is_sketching && (cmd_held || self.sketch_move_armed) {
                 if let Some(ids) = self.nudge_target_ids() {
@@ -1405,6 +1416,13 @@ impl DuCADApp {
 
                     // Prioritas 0: Penanganan Khusus Tool Datum Plane (3-Point, Angled, Offset)
                     if self.tool == ToolKind::DatumPlane {
+                        // Sumbu/titik datum dan mode bidang Paritas 1.4: klik =
+                        // pilih geometri (datum_tools.rs).
+                        if let Some(pos) = click_pos {
+                            if self.datum_handle_click(rect, pos) {
+                                return;
+                            }
+                        }
                         match self.datum_mode {
                             ducad_ui::DatumPlaneMode::ThreePoints => {
                                 let mut pt_found: Option<glam::Vec3> = None;
@@ -1483,6 +1501,8 @@ impl DuCADApp {
                                     }
                                 }
                             }
+                            // Mode 1.4 sudah ditangani `datum_handle_click`.
+                            _ => {}
                         }
                     }
 
@@ -2061,6 +2081,9 @@ impl DuCADApp {
                                 .filter(|(id, _)| !self.sketch().is_hidden(*id))
                                 .filter_map(|(id, entity)| {
                                     let inside = match entity {
+                                        Entity::Point { pos, .. } => {
+                                            pos.x >= min.x && pos.x <= max.x && pos.y >= min.y && pos.y <= max.y
+                                        }
                                         Entity::Line { start, end, .. } => {
                                             (start.x >= min.x && start.x <= max.x && start.y >= min.y && start.y <= max.y)
                                                 || (end.x >= min.x && end.x <= max.x && end.y >= min.y && end.y <= max.y)
@@ -2152,7 +2175,23 @@ impl DuCADApp {
                     .flatten();
                 if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
-                    self.handle_line_chain_click(effective, tol);
+                    if self.line_uses_two_clicks() {
+                        // Garis titik-tengah / tak hingga (Paritas 1.12).
+                        self.on_click_point(effective);
+                    } else {
+                        self.handle_line_chain_click(effective, tol);
+                    }
+                }
+            }
+            ToolKind::Point => {
+                // Paritas 1.1: satu klik = satu titik (lihat `sketch_points.rs`).
+                self.hovered = None;
+                self.last_snap = response
+                    .hovered()
+                    .then(|| self.find_current_snap(raw, tol, grid_step, None))
+                    .flatten();
+                if response.clicked() && !is_finger_navigating {
+                    self.place_sketch_point(raw);
                 }
             }
             ToolKind::Spline => {
@@ -2186,6 +2225,8 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
+                // Toleransi pilih kurva/ujung untuk mode tangen (Paritas 1.7/1.8).
+                self.sketch_modes.pick_tol = tol;
                 if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.on_click_point(effective);
@@ -2274,6 +2315,7 @@ impl DuCADApp {
                     }
                 }
             }
+            ToolKind::Break => self.handle_break_tool(rect, response, tol, raw),
             ToolKind::Extend => {
                 self.last_snap = None;
                 self.hovered = response

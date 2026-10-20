@@ -101,7 +101,7 @@ pub fn open_endpoints(sketch: &Sketch, join_tol: f64) -> Vec<Endpoint> {
                     }
                 }
             }
-            Entity::Circle { .. } | Entity::Ellipse { .. } => {}
+            Entity::Circle { .. } | Entity::Ellipse { .. } | Entity::Point { .. } => {}
         }
     }
     out

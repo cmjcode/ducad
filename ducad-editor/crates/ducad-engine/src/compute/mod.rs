@@ -10,9 +10,13 @@
 //! ia menerima referensi dan mengembalikan geometri baru.
 
 pub mod advanced;
+pub mod datum;
+pub mod direct;
 pub mod hole;
 pub mod pattern;
+pub mod plastic;
 pub mod primitive;
+pub mod project;
 pub mod round;
 pub mod sheet_metal;
 pub mod sketch;

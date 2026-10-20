@@ -226,3 +226,19 @@ fn configurations_design_table_and_param_merge() {
         OpErrorCode::InvalidParam
     );
 }
+
+/// Paritas 4.11: aturan konfigurasi + pratinjau tanpa mengaktifkan.
+#[test]
+fn configuration_rules_and_preview() {
+    let mut s = bracket();
+    let base = volume(&s);
+    let mut big = config("Besar", &[], &[]);
+    big.rules = vec![ducad_core::ConfigRule::parse("if len >= 0 then len = 80").unwrap()];
+    s.set_configurations(vec![big]).unwrap();
+    let pv = ducad_engine::preview_configuration(s.model(), s.design(), "Besar").unwrap();
+    assert!(pv.diff.iter().any(|d| d.status == "changed"), "pratinjau menunjukkan perubahan");
+    assert!((volume(&s) - base).abs() < 1e-6, "pratinjau tidak mengubah model");
+    assert!(ducad_engine::preview_configuration(s.model(), s.design(), "Tidak ada").is_err());
+    s.activate_configuration("Besar").unwrap();
+    assert!(volume(&s) > base, "aturan menimpa len");
+}

@@ -26,6 +26,8 @@ pub enum ToolKind {
     Slot,
     /// Kurva Spline multi-titik (Catmull-Rom).
     Spline,
+    /// Titik sketch mandiri (Paritas 1.1): satu klik = satu titik.
+    Point,
     /// Coretan bebas (Pencil/mouse) → bentuk rapi ber-constraint (P12.3).
     Freehand,
     /// Teks 2D sketsa (vektorisasi font TTF/OTF — Fase 9.5).
@@ -44,6 +46,8 @@ pub enum ToolKind {
     Trim,
     /// Perpanjang segmen garis sampai kurva batas terdekat (Extend).
     Extend,
+    /// Pecah entitas di titik klik menjadi dua (Paritas 1.13).
+    Break,
     /// Constraint Coincident.
     CoincidentPick,
     /// Constraint Fixed.
@@ -104,6 +108,7 @@ impl ToolKind {
             ToolKind::Polygon => ToolbarTool::Polygon,
             ToolKind::Slot => ToolbarTool::Slot,
             ToolKind::Spline => ToolbarTool::Spline,
+            ToolKind::Point => ToolbarTool::Point,
             ToolKind::Freehand => ToolbarTool::Freehand,
             ToolKind::Text => ToolbarTool::Text,
             ToolKind::Fillet2D => ToolbarTool::Fillet2D,
@@ -112,6 +117,7 @@ impl ToolKind {
             ToolKind::Mirror => ToolbarTool::Mirror,
             ToolKind::Trim => ToolbarTool::Trim,
             ToolKind::Extend => ToolbarTool::Extend,
+            ToolKind::Break => ToolbarTool::Break,
             ToolKind::CoincidentPick => ToolbarTool::PointCoincident,
             ToolKind::FixedPick => ToolbarTool::PointFixed,
             ToolKind::SymmetricPick => ToolbarTool::PointSymmetric,
@@ -153,6 +159,7 @@ impl ToolKind {
             ToolbarTool::Polygon => ToolKind::Polygon,
             ToolbarTool::Slot => ToolKind::Slot,
             ToolbarTool::Spline => ToolKind::Spline,
+            ToolbarTool::Point => ToolKind::Point,
             ToolbarTool::Freehand => ToolKind::Freehand,
             ToolbarTool::Text => ToolKind::Text,
             ToolbarTool::Fillet2D => ToolKind::Fillet2D,
@@ -161,6 +168,7 @@ impl ToolKind {
             ToolbarTool::Mirror => ToolKind::Mirror,
             ToolbarTool::Trim => ToolKind::Trim,
             ToolbarTool::Extend => ToolKind::Extend,
+            ToolbarTool::Break => ToolKind::Break,
             ToolbarTool::PointCoincident => ToolKind::CoincidentPick,
             ToolbarTool::PointFixed => ToolKind::FixedPick,
             ToolbarTool::PointSymmetric => ToolKind::SymmetricPick,
@@ -314,6 +322,16 @@ pub enum PaletteAction {
 /// Perintah Fase 0 plan paritas (`docs/PLAN_PARITAS_SOLIDCRAFT.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParityCmd {
+    // ---- Paritas 1.13–1.15, 1.18, 1.19 ----
+    SketchBreak,
+    ProjectEdges,
+    IntersectBody,
+    BreakLink,
+    CopySketch,
+    CutSketch,
+    PasteSketch,
+    ToggleGlyphs,
+    InsertSvg,
     Primitive,
     MirrorBody,
     RotateBody,
@@ -328,10 +346,55 @@ pub enum ParityCmd {
     Compare,
     RigidGroup,
     DissolveRigidGroup,
+    // Fase 1 (1.1, 1.16, 1.17, 1.20)
+    SketchPoint,
+    ToggleDriven,
+    ResetDimText,
+    CurvatureG2,
+    // Fase 1A (1.2–1.5): geometri konstruksi datum
+    DatumAxis,
+    DatumPoint,
+    DatumDrawer,
+    // Fase 2: direct editing & alat solid (`direct_tools.rs`).
+    Direct(crate::direct_tools::DirectTool),
+    // Fase 3: berkas, interop, keselamatan data.
+    ExportThreeMf,
+    OpenInSlicer,
+    ImportMesh,
+    ExportIges,
+    ImportIges,
+    ExportViewDxf,
+    RecoverableDesigns,
+    NamedViews,
+    CrashReports,
+    // Fase 4: perakitan & gerak.
+    Joint(ducad_core::assembly::JointKind),
+    AssemblyTools,
+    MotionTools,
+    CapturePositions,
+    RevertPositions,
+    CopyOccurrence,
+    ContactSet,
+    // Fase 5: inspeksi & analisis.
+    InspectTools,
+    CurvatureMap,
+    // Fase 6A: permukaan.
+    SurfaceTools,
+    // Fase 6B: plastik.
+    PlasticTools,
 }
 
 impl ParityCmd {
-    pub const ALL: [ParityCmd; 14] = [
+    pub const ALL: [ParityCmd; 67] = [
+        ParityCmd::SketchBreak,
+        ParityCmd::ProjectEdges,
+        ParityCmd::IntersectBody,
+        ParityCmd::BreakLink,
+        ParityCmd::CopySketch,
+        ParityCmd::CutSketch,
+        ParityCmd::PasteSketch,
+        ParityCmd::ToggleGlyphs,
+        ParityCmd::InsertSvg,
         ParityCmd::RigidGroup,
         ParityCmd::DissolveRigidGroup,
         ParityCmd::ExportPng,
@@ -346,10 +409,63 @@ impl ParityCmd {
         ParityCmd::AutoConstrain,
         ParityCmd::EditText,
         ParityCmd::ToggleDiameter,
+        ParityCmd::SketchPoint,
+        ParityCmd::ToggleDriven,
+        ParityCmd::ResetDimText,
+        ParityCmd::CurvatureG2,
+        ParityCmd::DatumAxis,
+        ParityCmd::DatumPoint,
+        ParityCmd::DatumDrawer,
+        ParityCmd::Direct(crate::direct_tools::DirectTool::OffsetFace),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::DeleteFace),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::ReplaceFace),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::Align),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::Pipe),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::PatternPath),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::Web),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::Emboss),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::BoundaryFill),
+        ParityCmd::Direct(crate::direct_tools::DirectTool::BoundingSolid),
+        ParityCmd::ExportThreeMf,
+        ParityCmd::OpenInSlicer,
+        ParityCmd::ImportMesh,
+        ParityCmd::ExportIges,
+        ParityCmd::ImportIges,
+        ParityCmd::ExportViewDxf,
+        ParityCmd::RecoverableDesigns,
+        ParityCmd::NamedViews,
+        ParityCmd::CrashReports,
+        ParityCmd::Joint(ducad_core::assembly::JointKind::Rigid),
+        ParityCmd::Joint(ducad_core::assembly::JointKind::Revolute),
+        ParityCmd::Joint(ducad_core::assembly::JointKind::Slider),
+        ParityCmd::Joint(ducad_core::assembly::JointKind::Cylindrical),
+        ParityCmd::Joint(ducad_core::assembly::JointKind::Planar),
+        ParityCmd::Joint(ducad_core::assembly::JointKind::Ball),
+        ParityCmd::Joint(ducad_core::assembly::JointKind::PinSlot),
+        ParityCmd::Joint(ducad_core::assembly::JointKind::Cam),
+        ParityCmd::AssemblyTools,
+        ParityCmd::MotionTools,
+        ParityCmd::CapturePositions,
+        ParityCmd::RevertPositions,
+        ParityCmd::CopyOccurrence,
+        ParityCmd::ContactSet,
+        ParityCmd::InspectTools,
+        ParityCmd::CurvatureMap,
+        ParityCmd::SurfaceTools,
+        ParityCmd::PlasticTools,
     ];
 
     pub fn label(self) -> String {
         match self {
+            ParityCmd::SketchBreak => ducad_i18n::t!("tool-break"),
+            ParityCmd::ProjectEdges => ducad_i18n::t!("cmd-project-edges"),
+            ParityCmd::IntersectBody => ducad_i18n::t!("cmd-intersect-body"),
+            ParityCmd::BreakLink => ducad_i18n::t!("cmd-break-link"),
+            ParityCmd::CopySketch => ducad_i18n::t!("cmd-sketch-copy"),
+            ParityCmd::CutSketch => ducad_i18n::t!("cmd-sketch-cut"),
+            ParityCmd::PasteSketch => ducad_i18n::t!("cmd-sketch-paste"),
+            ParityCmd::ToggleGlyphs => ducad_i18n::t!("cmd-toggle-glyphs"),
+            ParityCmd::InsertSvg => ducad_i18n::t!("svg-insert-title"),
             ParityCmd::Primitive => ducad_i18n::t!("prim-title"),
             ParityCmd::MirrorBody => ducad_i18n::t!("mirror-body-title"),
             ParityCmd::RotateBody => ducad_i18n::t!("rotate-body-title"),
@@ -364,20 +480,81 @@ impl ParityCmd {
             ParityCmd::Compare => ducad_i18n::t!("compare-title"),
             ParityCmd::RigidGroup => ducad_i18n::t!("rigid-group-make"),
             ParityCmd::DissolveRigidGroup => ducad_i18n::t!("rigid-group-dissolve"),
+            ParityCmd::SketchPoint => ducad_i18n::t!("tool-point"),
+            ParityCmd::ToggleDriven => ducad_i18n::t!("cmd-toggle-driven"),
+            ParityCmd::ResetDimText => ducad_i18n::t!("cmd-reset-dim-text"),
+            ParityCmd::CurvatureG2 => ducad_i18n::t!("constraint-curvature-tip"),
+            ParityCmd::DatumAxis => ducad_i18n::t!("cmd-datum-axis"),
+            ParityCmd::DatumPoint => ducad_i18n::t!("cmd-datum-point"),
+            ParityCmd::DatumDrawer => ducad_i18n::t!("cmd-datum-drawer"),
+            ParityCmd::Direct(t) => t.label(),
+            ParityCmd::ExportThreeMf => ducad_i18n::t!("cmd-export-3mf"),
+            ParityCmd::OpenInSlicer => ducad_i18n::t!("cmd-open-in-slicer"),
+            ParityCmd::ImportMesh => ducad_i18n::t!("cmd-import-mesh"),
+            ParityCmd::ExportIges => ducad_i18n::t!("cmd-export-iges"),
+            ParityCmd::ImportIges => ducad_i18n::t!("cmd-import-iges"),
+            ParityCmd::ExportViewDxf => ducad_i18n::t!("cmd-export-view-dxf"),
+            ParityCmd::RecoverableDesigns => ducad_i18n::t!("recovery-title"),
+            ParityCmd::NamedViews => ducad_i18n::t!("views-title"),
+            ParityCmd::CrashReports => ducad_i18n::t!("crash-title"),
+            ParityCmd::Joint(k) => ducad_i18n::t!("cmd-joint", kind = k.label()),
+            ParityCmd::AssemblyTools => ducad_i18n::t!("asm-tools-title"),
+            ParityCmd::MotionTools => ducad_i18n::t!("motion-title"),
+            ParityCmd::CapturePositions => ducad_i18n::t!("asm-capture"),
+            ParityCmd::RevertPositions => ducad_i18n::t!("asm-revert"),
+            ParityCmd::CopyOccurrence => ducad_i18n::t!("asm-occurrence-copy"),
+            ParityCmd::ContactSet => ducad_i18n::t!("asm-contact-add"),
+            ParityCmd::InspectTools => ducad_i18n::t!("inspect-tools-title"),
+            ParityCmd::CurvatureMap => ducad_i18n::t!("inspect-curvature-map"),
+            ParityCmd::SurfaceTools => ducad_i18n::t!("surface-title"),
+            ParityCmd::PlasticTools => ducad_i18n::t!("plastic-title"),
         }
     }
 
     pub fn group(self) -> PaletteGroup {
         match self {
+            ParityCmd::SketchBreak
+            | ParityCmd::ProjectEdges
+            | ParityCmd::IntersectBody
+            | ParityCmd::BreakLink
+            | ParityCmd::ToggleGlyphs => PaletteGroup::Sketch,
+            ParityCmd::CopySketch | ParityCmd::CutSketch | ParityCmd::PasteSketch => PaletteGroup::Edit,
+            ParityCmd::InsertSvg => PaletteGroup::File,
             ParityCmd::Primitive
             | ParityCmd::MirrorBody
             | ParityCmd::RotateBody
             | ParityCmd::RigidGroup
-            | ParityCmd::DissolveRigidGroup => PaletteGroup::Solid,
+            | ParityCmd::DissolveRigidGroup
+            | ParityCmd::DatumAxis
+            | ParityCmd::DatumPoint => PaletteGroup::Solid,
+            ParityCmd::DatumDrawer => PaletteGroup::View,
+            ParityCmd::Direct(_) => PaletteGroup::Solid,
+            ParityCmd::ExportThreeMf => PaletteGroup::File,
+            ParityCmd::OpenInSlicer => PaletteGroup::File,
+            ParityCmd::ImportMesh => PaletteGroup::File,
+            ParityCmd::ExportIges => PaletteGroup::File,
+            ParityCmd::ImportIges => PaletteGroup::File,
+            ParityCmd::ExportViewDxf => PaletteGroup::File,
+            ParityCmd::RecoverableDesigns => PaletteGroup::File,
+            ParityCmd::NamedViews => PaletteGroup::View,
+            ParityCmd::CrashReports => PaletteGroup::Analysis,
+            ParityCmd::Joint(_) => PaletteGroup::Solid,
+            ParityCmd::AssemblyTools => PaletteGroup::Solid,
+            ParityCmd::MotionTools => PaletteGroup::Analysis,
+            ParityCmd::CapturePositions => PaletteGroup::Solid,
+            ParityCmd::RevertPositions => PaletteGroup::Solid,
+            ParityCmd::CopyOccurrence => PaletteGroup::Solid,
+            ParityCmd::ContactSet => PaletteGroup::Solid,
+            ParityCmd::InspectTools | ParityCmd::CurvatureMap => PaletteGroup::Analysis,
+            ParityCmd::SurfaceTools | ParityCmd::PlasticTools => PaletteGroup::Solid,
             ParityCmd::AutoConstrain
             | ParityCmd::EditText
             | ParityCmd::ToggleDiameter
-            | ParityCmd::LooseEnds => PaletteGroup::Sketch,
+            | ParityCmd::LooseEnds
+            | ParityCmd::SketchPoint
+            | ParityCmd::ToggleDriven
+            | ParityCmd::ResetDimText
+            | ParityCmd::CurvatureG2 => PaletteGroup::Sketch,
             ParityCmd::Parameters => PaletteGroup::Edit,
             ParityCmd::Inspect | ParityCmd::CopyOplog | ParityCmd::Compare => PaletteGroup::Analysis,
             ParityCmd::ExportPng => PaletteGroup::File,
@@ -500,7 +677,7 @@ pub fn required_points(tool: ToolKind) -> usize {
     match tool {
         // Freehand tidak memakai klik titik: satu coretan penuh.
         ToolKind::Freehand => 0,
-        ToolKind::Text => 1,
+        ToolKind::Text | ToolKind::Point => 1,
         ToolKind::Rectangle
         | ToolKind::Circle
         | ToolKind::Ellipse
@@ -517,6 +694,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Offset
         | ToolKind::Trim
         | ToolKind::Extend
+        | ToolKind::Break
         | ToolKind::CoincidentPick
         | ToolKind::FixedPick
         | ToolKind::SymmetricPick

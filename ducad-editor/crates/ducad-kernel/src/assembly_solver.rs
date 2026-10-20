@@ -314,6 +314,24 @@ pub struct AssemblySolveReport {
     pub applied: Vec<(AssemblyInstanceId, MateTransformResult)>,
 }
 
+/// (pose sekarang, pose diminta) instance yang digerakkan joint `mate`
+/// (`None` bila mate bukan joint kinematik). Nilai utama dijepit limit.
+fn joint_targets(
+    mate: &MateConstraint,
+    pose_a: (DVec3, DQuat),
+    pose_b: (DVec3, DQuat),
+    b_grounded: bool,
+) -> Option<((DVec3, DQuat), (DVec3, DQuat))> {
+    let kind = mate.joint?;
+    let mut js = mate.joint_state?;
+    js.values[0] = mate.limits.clamp(js.values[0]);
+    Some(if !b_grounded {
+        (pose_b, js.target_b(kind, pose_a))
+    } else {
+        (pose_a, js.target_a(kind, pose_b))
+    })
+}
+
 const MAX_ASSEMBLY_ITERS: usize = 60;
 const ASSEMBLY_TOL_MM: f64 = 1e-6;
 /// Faktor relaksasi. < 1 supaya mate yang saling tarik tidak berosilasi:
@@ -427,6 +445,19 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
                     target_to_world(&mate.target_a.kind, pose_a),
                 )
             };
+
+            // Paritas 4.1–4.4: joint kinematik — pose target langsung dari
+            // frame + pose relatif + nilai joint.
+            if let Some((cur, want)) = joint_targets(mate, pose_a, pose_b, b_grounded) {
+                worst = worst.max(ducad_core::joint::pose_error(cur, want));
+                let entry = accum
+                    .entry(moving_id)
+                    .or_insert((DVec3::ZERO, DQuat::IDENTITY, 0));
+                entry.0 += want.0 - cur.0;
+                entry.1 = (want.1 * cur.1.inverse()) * entry.1;
+                entry.2 += 1;
+                continue;
+            }
 
             let mut probe = mate.clone();
             probe.target_a.kind = world_ref;
@@ -547,6 +578,19 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
         ) else {
             continue;
         };
+        let b_grounded = tree.instances.get(&id_b).is_some_and(|i| i.is_grounded);
+        if let Some((cur, want)) = joint_targets(mate, pose_a, pose_b, b_grounded) {
+            let err = ducad_core::joint::pose_error(cur, want);
+            let status = if err < 1e-3 {
+                MateStatus::Satisfied
+            } else {
+                MateStatus::Conflicted(format!("joint tidak terpenuhi, sisa {err:.3}"))
+            };
+            if let Some(m) = tree.mates.get_mut(mid) {
+                m.status = status;
+            }
+            continue;
+        }
         let mut probe = mate.clone();
         probe.target_a.kind = target_to_world(&mate.target_a.kind, pose_a);
         probe.target_b.kind = target_to_world(&mate.target_b.kind, pose_b);
@@ -642,6 +686,12 @@ pub fn evaluate_motion(
 ) -> Option<AssemblySolveReport> {
     let value = study.value_at(t);
     let mate = tree.mates.get_mut(&study.driven_mate)?;
+    if let Some(js) = mate.joint_state.as_mut() {
+        js.values[0] = value;
+        let report = solve_assembly(tree);
+        tree.apply_couplings();
+        return Some(report);
+    }
     mate.kind = match &mate.kind {
         MateKind::Distance {
             opposite_normal, ..
@@ -896,6 +946,7 @@ mod simultaneous_tests {
             suppressed: false,
             limits: Default::default(),
             joint: None,
+            joint_state: None,
         }
     }
 
@@ -1172,6 +1223,7 @@ mod drag_motion_explode_tests {
             suppressed: false,
             limits: Default::default(),
             joint: None,
+            joint_state: None,
         }
     }
 
@@ -1316,5 +1368,57 @@ mod drag_motion_explode_tests {
         assert_eq!(tree.instances[&base].explode_offset, (0.0, 0.0, 0.0), "jangkar tidak bergeser");
         assert!(tree.instances[&left].explode_offset.0 < -30.0, "kiri terdorong ke kiri");
         assert!(tree.instances[&right].explode_offset.0 > 30.0, "kanan terdorong ke kanan");
+    }
+}
+
+#[cfg(test)]
+mod joint_tests {
+    use super::*;
+    use ducad_core::assembly::{JointKind, MateTarget, MateTargetKind};
+    use ducad_core::joint::{JointFrame, JointState};
+
+    /// Engsel: B mengikuti nilai joint dan limit; motion study menggerakkannya.
+    #[test]
+    fn revolute_joint_follows_value_limits_and_motion() {
+        let mut tree = AssemblyTree::default();
+        let base = tree.add_instance("base", 1);
+        let arm = tree.add_instance("arm", 2);
+        tree.instances.get_mut(&arm).unwrap().translation = (10.0, 0.0, 0.0);
+        let a = tree.instance_world_transform(base).unwrap();
+        let b = tree.instance_world_transform(arm).unwrap();
+        let frame = JointFrame::from_world(a, DVec3::ZERO, DVec3::Z, None).unwrap();
+        let state = JointState::capture(JointKind::Revolute, frame, a, b, [0.0; 3]);
+        let p = MateTargetKind::Point { pos: (0.0, 0.0, 0.0) };
+        let id = tree.add_mate(
+            "Engsel",
+            JointKind::Revolute.underlying_mate(),
+            MateTarget { instance_id: base, kind: p.clone() },
+            MateTarget { instance_id: arm, kind: p },
+        );
+        {
+            let m = tree.mates.get_mut(&id).unwrap();
+            m.joint = Some(JointKind::Revolute);
+            m.joint_state = Some(state);
+            m.limits = ducad_core::assembly::MateLimits { min: Some(-45.0), max: Some(60.0) };
+            m.joint_state.as_mut().unwrap().values[0] = 90.0; // dijepit ke 60°
+        }
+        let r = solve_assembly(&mut tree);
+        assert!(r.converged, "{r:?}");
+        let t = tree.instances[&arm].translation;
+        let want = DVec3::new(10.0 * 60f64.to_radians().cos(), 10.0 * 60f64.to_radians().sin(), 0.0);
+        assert!((DVec3::new(t.0, t.1, t.2) - want).length() < 1e-4, "{t:?}");
+        assert_eq!(tree.mates[&id].status, MateStatus::Satisfied);
+        assert_eq!(tree.mates[&id].driven_value(), Some(90.0));
+
+        let study = ducad_core::assembly::MotionStudy {
+            name: "buka".into(),
+            driven_mate: id,
+            from: 0.0,
+            to: 30.0,
+            steps: 10,
+        };
+        evaluate_motion(&mut tree, &study, 1.0).unwrap();
+        let t = tree.instances[&arm].translation;
+        assert!((t.1 - 5.0).abs() < 1e-4, "{t:?}");
     }
 }

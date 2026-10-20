@@ -67,6 +67,7 @@ mod tests {
             k_factor: 0.44,
             flanges: vec![flange(0, 90.0), flange(2, -90.0)],
             bend_table: BendTable::default(),
+            cutouts: Vec::new(),
         }
     }
 

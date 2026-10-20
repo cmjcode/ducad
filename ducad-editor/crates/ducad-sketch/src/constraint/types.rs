@@ -8,9 +8,11 @@ use crate::sketch::Sketch;
 /// titik spesifik (Coincident, Fixed, Distance), bukan seluruh entitas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PointRef {
+    /// Awal garis / Spline, atau titik di `start_angle` sebuah Arc.
     LineStart(EntityId),
+    /// Akhir garis / Spline, atau titik di `end_angle` sebuah Arc.
     LineEnd(EntityId),
-    /// Center Circle/Arc/Ellipse.
+    /// Center Circle/Arc/Ellipse, atau posisi `Entity::Point`.
     Center(EntityId),
     /// Node ke-`node` pada subpath ke-`sub` dari `Entity::Path`.
     PathNode {
@@ -35,12 +37,33 @@ pub fn point_ref_position(sketch: &Sketch, pr: &PointRef) -> Option<DVec2> {
     match (entity, pr) {
         (Entity::Line { start, .. }, PointRef::LineStart(_)) => Some(*start),
         (Entity::Line { end, .. }, PointRef::LineEnd(_)) => Some(*end),
+        // Ujung busur: LineStart = titik di `start_angle`, LineEnd = di `end_angle`.
+        (
+            Entity::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                ..
+            },
+            PointRef::LineStart(_) | PointRef::LineEnd(_),
+        ) => {
+            let ang = if matches!(pr, PointRef::LineStart(_)) { *start_angle } else { *end_angle };
+            Some(*center + DVec2::new(ang.cos(), ang.sin()) * *radius)
+        }
         (
             Entity::Circle { center, .. }
             | Entity::Arc { center, .. }
             | Entity::Ellipse { center, .. },
             PointRef::Center(_),
         ) => Some(*center),
+        // Titik sketch (Fase 1.1): posisinya dirujuk sebagai `Center`, dan
+        // LineStart/LineEnd diterima juga agar alat yang memakai endpoint
+        // generik tetap bekerja.
+        (
+            Entity::Point { pos, .. },
+            PointRef::Center(_) | PointRef::LineStart(_) | PointRef::LineEnd(_),
+        ) => Some(*pos),
         (Entity::Spline { points, .. }, PointRef::LineStart(_)) => points.first().copied(),
         (Entity::Spline { points, .. }, PointRef::LineEnd(_)) => points.last().copied(),
         (Entity::Spline { points, .. }, PointRef::Center(_)) => {
@@ -98,20 +121,28 @@ pub enum Constraint {
         point: PointRef,
         target: DVec2,
     },
+    /// `driven = true` (Fase 1.16): dimensi acuan/terukur — dilewati solver,
+    /// `value` hanya diperbarui dari geometri (lihat [`refresh_driven_values`]).
     Distance {
         a: PointRef,
         b: PointRef,
         value: f64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        driven: bool,
     },
     Radius {
         entity: EntityId,
         value: f64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        driven: bool,
     },
     /// Sudut CCW dari arah `a` ke arah `b`, radian, kontinu di (-π, π].
     Angle {
         a: EntityId,
         b: EntityId,
         value: f64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        driven: bool,
     },
     Tangent {
         a: EntityId,
@@ -150,6 +181,24 @@ pub enum Constraint {
         a: EntityId,
         b: EntityId,
     },
+
+    // ---- Fase 1.20 ----
+    /// Kontinuitas kelengkungan (G2) antara ujung kurva `a` dan ujung kurva
+    /// `b` (Spline–Spline atau Spline–Arc). Ujung dipilih lewat
+    /// `PointRef::LineStart`/`LineEnd` pada entitas Spline/Arc. Residual:
+    /// kedua ujung berimpit (G0), arah tangen menyambung mulus (G1), dan
+    /// kelengkungan bertanda sama (G2) — kurva `a` "masuk" ke sambungan,
+    /// kurva `b` "keluar" darinya.
+    Curvature {
+        a: PointRef,
+        b: PointRef,
+    },
+}
+
+/// Helper serde: lewati field `driven` bila `false` agar berkas lama
+/// tetap identik byte-per-byte saat disimpan ulang.
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 impl PointRef {
@@ -162,6 +211,37 @@ impl PointRef {
 }
 
 impl Constraint {
+    /// `true` bila ini dimensi acuan (driven) — tidak ikut diselesaikan solver.
+    pub fn is_driven(&self) -> bool {
+        matches!(
+            self,
+            Constraint::Distance { driven: true, .. }
+                | Constraint::Radius { driven: true, .. }
+                | Constraint::Angle { driven: true, .. }
+        )
+    }
+
+    /// Apakah constraint ini dimensi (punya nilai & bisa driven).
+    pub fn is_dimension(&self) -> bool {
+        matches!(
+            self,
+            Constraint::Distance { .. } | Constraint::Radius { .. } | Constraint::Angle { .. }
+        )
+    }
+
+    /// Ubah status driven; `false` bila constraint ini bukan dimensi.
+    pub fn set_driven(&mut self, value: bool) -> bool {
+        match self {
+            Constraint::Distance { driven, .. }
+            | Constraint::Radius { driven, .. }
+            | Constraint::Angle { driven, .. } => {
+                *driven = value;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Ganti setiap `EntityId` yang dirujuk lewat `f` — dipakai saat undo
     /// memulihkan entitas terhapus dengan id baru.
     pub fn map_entity_ids(&mut self, f: impl Fn(EntityId) -> EntityId) {
@@ -184,6 +264,10 @@ impl Constraint {
             | Constraint::Collinear { a, b } => {
                 *a = f(*a);
                 *b = f(*b);
+            }
+            Constraint::Curvature { a, b } => {
+                a.map_entity_id(&f);
+                b.map_entity_id(&f);
             }
             Constraint::Fixed { point, .. } => point.map_entity_id(&f),
             Constraint::Radius { entity, .. } => *entity = f(*entity),

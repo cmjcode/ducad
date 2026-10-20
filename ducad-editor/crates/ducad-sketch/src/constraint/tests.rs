@@ -1,4 +1,5 @@
 use super::*;
+use crate::constraint::solver::{measured_value, refresh_driven_values};
 use crate::constraint::solver::distance_point_to_infinite_line;
 use crate::{Entity, EntityId, Sketch};
 use glam::DVec2;
@@ -89,6 +90,7 @@ fn distance_sets_exact_length_between_two_points() {
             a: PointRef::LineStart(l),
             b: PointRef::LineEnd(l),
             value: 25.0,
+            driven: false,
         }],
     );
     assert!(result.converged);
@@ -107,6 +109,7 @@ fn radius_sets_exact_circle_radius() {
         &[Constraint::Radius {
             entity: c,
             value: 12.5,
+            driven: false,
         }],
     );
     assert!(result.converged);
@@ -185,6 +188,7 @@ fn angle_sets_angle_between_two_lines() {
             a,
             b,
             value: target,
+            driven: false,
         }],
     );
     assert!(result.converged);
@@ -512,6 +516,7 @@ mod p1_2 {
                 Constraint::Radius {
                     entity: c,
                     value: 10.0,
+                    driven: false,
                 },
                 Constraint::PointOnCurve {
                     point: PointRef::LineStart(l),
@@ -711,6 +716,7 @@ mod p1_2 {
                         node: 1,
                     },
                     value: 20.0,
+                    driven: false,
                 },
             ],
         );
@@ -771,6 +777,7 @@ mod p1_2 {
                     node: 2,
                 },
                 value: 35.0,
+                driven: false,
             }],
         );
         assert!(res.converged, "residual: {}", res.final_residual_norm);
@@ -1060,5 +1067,427 @@ mod stale_references {
 
         cmd.revert(&mut sketch);
         assert_eq!(sketch.constraints.len(), 1, "undo memulihkan constraint");
+    }
+}
+
+/// Fase 1 plan paritas: titik sketch (1.1), dimensi driven (1.16),
+/// constraint kelengkungan G2 (1.20).
+mod fase1 {
+    use super::*;
+    use crate::constraint::solver::{arc_end, spline_end};
+
+    fn pt(sketch: &mut Sketch, p: DVec2) -> EntityId {
+        sketch.entities.insert(Entity::point(p))
+    }
+
+    fn pos(sketch: &Sketch, id: EntityId) -> DVec2 {
+        match sketch.entities[id] {
+            Entity::Point { pos, .. } => pos,
+            _ => unreachable!(),
+        }
+    }
+
+    // ---------- 1.1 Point ----------
+
+    #[test]
+    fn point_coincident_with_line_endpoint() {
+        let mut sk = Sketch::default();
+        let l = line(&mut sk, DVec2::ZERO, DVec2::new(10.0, 0.0));
+        let p = pt(&mut sk, DVec2::new(3.0, 4.0));
+        let res = solve(
+            &mut sk,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::LineStart(l),
+                    target: DVec2::ZERO,
+                },
+                Constraint::Fixed {
+                    point: PointRef::LineEnd(l),
+                    target: DVec2::new(10.0, 0.0),
+                },
+                Constraint::Coincident {
+                    a: PointRef::Center(p),
+                    b: PointRef::LineEnd(l),
+                },
+            ],
+        );
+        assert!(res.converged);
+        assert!((pos(&sk, p) - DVec2::new(10.0, 0.0)).length() < 1e-6);
+    }
+
+    #[test]
+    fn point_fixed_distance_and_horizontal() {
+        let mut sk = Sketch::default();
+        let a = pt(&mut sk, DVec2::new(0.0, 0.0));
+        let b = pt(&mut sk, DVec2::new(3.0, 1.0));
+        let res = solve(
+            &mut sk,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::Center(a),
+                    target: DVec2::new(1.0, 1.0),
+                },
+                Constraint::HorizontalPoints {
+                    a: PointRef::Center(a),
+                    b: PointRef::Center(b),
+                },
+                Constraint::Distance {
+                    a: PointRef::Center(a),
+                    b: PointRef::Center(b),
+                    value: 7.0,
+                    driven: false,
+                },
+            ],
+        );
+        assert!(res.converged, "{res:?}");
+        assert!((pos(&sk, a) - DVec2::new(1.0, 1.0)).length() < 1e-6);
+        assert!((pos(&sk, b).y - 1.0).abs() < 1e-6);
+        assert!(((pos(&sk, b) - pos(&sk, a)).length() - 7.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn point_on_line_slides_along_curve() {
+        let mut sk = Sketch::default();
+        let l = line(&mut sk, DVec2::ZERO, DVec2::new(10.0, 0.0));
+        let p = pt(&mut sk, DVec2::new(4.0, 2.0));
+        let res = solve(
+            &mut sk,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::LineStart(l),
+                    target: DVec2::ZERO,
+                },
+                Constraint::Fixed {
+                    point: PointRef::LineEnd(l),
+                    target: DVec2::new(10.0, 0.0),
+                },
+                Constraint::PointOnCurve {
+                    point: PointRef::Center(p),
+                    curve: l,
+                },
+            ],
+        );
+        assert!(res.converged);
+        assert!(pos(&sk, p).y.abs() < 1e-6);
+    }
+
+    #[test]
+    fn point_is_snap_target_and_has_no_profile_edges() {
+        let mut sk = Sketch::default();
+        let p = pt(&mut sk, DVec2::new(5.0, 5.0));
+        let hit = crate::snap::find_snap(&sk, DVec2::new(5.2, 4.9), 1.0, 0.0, None).unwrap();
+        assert_eq!(hit.point, DVec2::new(5.0, 5.0));
+        assert_eq!(hit.source, Some(PointRef::Center(p)));
+        assert!(sk.entities[p].flatten_all(0.01).is_empty());
+        assert_eq!(sk.entities[p].bounding_box(), Some((DVec2::new(5.0, 5.0), DVec2::new(5.0, 5.0))));
+        // Persegi + titik di dalamnya tetap satu region.
+        let c = [
+            DVec2::ZERO,
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 10.0),
+            DVec2::new(0.0, 10.0),
+        ];
+        for i in 0..4 {
+            line(&mut sk, c[i], c[(i + 1) % 4]);
+        }
+        assert_eq!(crate::region::find_closed_regions(&sk).len(), 1);
+    }
+
+    #[test]
+    fn point_serde_round_trip_and_default_construction() {
+        let e = Entity::point(DVec2::new(1.5, -2.0)).with_construction(true);
+        let json = serde_json::to_string(&e).unwrap();
+        let back: Entity = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, e);
+        let old: Entity = serde_json::from_str(r#"{"Point":{"pos":[1.0,2.0]}}"#).unwrap();
+        assert!(!old.is_construction());
+    }
+
+    #[test]
+    fn hostile_point_inputs_do_not_panic() {
+        let mut sk = Sketch::default();
+        let p = pt(&mut sk, DVec2::new(f64::NAN, 0.0));
+        let _ = solve(
+            &mut sk,
+            &[Constraint::Fixed {
+                point: PointRef::Center(p),
+                target: DVec2::new(f64::INFINITY, 0.0),
+            }],
+        );
+        // Rujukan jenis salah (radius pada titik) dilewati, bukan panic.
+        let res = solve(
+            &mut sk,
+            &[Constraint::Radius {
+                entity: p,
+                value: 3.0,
+                driven: false,
+            }],
+        );
+        assert_eq!(res.skipped, 1);
+        let _ = sk.entities[p].distance_to(DVec2::ZERO);
+    }
+
+    #[test]
+    fn arc_endpoint_refs_follow_angles_in_solver() {
+        let mut sk = Sketch::default();
+        let l = line(&mut sk, DVec2::ZERO, DVec2::new(10.0, 0.0));
+        let arc = sk.entities.insert(Entity::arc(DVec2::new(10.0, 5.0), 5.0, -1.4, 0.0));
+        assert_eq!(
+            point_ref_position(&sk, &PointRef::LineEnd(arc)),
+            Some(DVec2::new(15.0, 5.0))
+        );
+        let res = solve(
+            &mut sk,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::LineEnd(l),
+                    target: DVec2::new(10.0, 0.0),
+                },
+                Constraint::Coincident {
+                    a: PointRef::LineEnd(l),
+                    b: PointRef::LineStart(arc),
+                },
+            ],
+        );
+        assert!(res.converged, "{res:?}");
+        let s = point_ref_position(&sk, &PointRef::LineStart(arc)).unwrap();
+        assert!((s - DVec2::new(10.0, 0.0)).length() < 1e-6, "{s}");
+    }
+
+    // ---------- 1.16 Driven ----------
+
+    #[test]
+    fn driven_dimension_is_ignored_by_solver_and_refreshed() {
+        let mut sk = Sketch::default();
+        let l = line(&mut sk, DVec2::ZERO, DVec2::new(10.0, 0.0));
+        let driven = Constraint::Distance {
+            a: PointRef::LineStart(l),
+            b: PointRef::LineEnd(l),
+            value: 25.0,
+            driven: true,
+        };
+        sk.constraints.push(driven.clone());
+        let snap = sk.constraints.clone();
+        let res = solve(&mut sk, &snap);
+        assert!(res.converged);
+        assert_eq!(res.skipped, 0, "driven bukan constraint yang dilewati");
+        let Entity::Line { end, .. } = sk.entities[l] else {
+            unreachable!()
+        };
+        assert_eq!(end, DVec2::new(10.0, 0.0), "geometri tidak digerakkan");
+        assert_eq!(refresh_driven_values(&mut sk), 1);
+        let Constraint::Distance { value, .. } = sk.constraints[0] else {
+            unreachable!()
+        };
+        assert!((value - 10.0).abs() < 1e-12);
+        // DOF: dimensi driven tidak mengurangi derajat kebebasan.
+        let rep = analyze_dof(&sk, &sk.constraints);
+        assert_eq!(rep.rank, 0);
+        assert!(rep.redundant.is_empty());
+    }
+
+    #[test]
+    fn driven_flag_serde_is_backward_compatible() {
+        let mut sk = Sketch::default();
+        let c = circle(&mut sk, DVec2::ZERO, 4.0);
+        let normal = Constraint::Radius {
+            entity: c,
+            value: 4.0,
+            driven: false,
+        };
+        let json = serde_json::to_string(&normal).unwrap();
+        assert!(!json.contains("driven"), "berkas tanpa driven tidak berubah: {json}");
+        let back: Constraint = serde_json::from_str(&json).unwrap();
+        assert!(!back.is_driven());
+
+        let mut d = normal.clone();
+        assert!(d.set_driven(true));
+        let json = serde_json::to_string(&d).unwrap();
+        let back: Constraint = serde_json::from_str(&json).unwrap();
+        assert!(back.is_driven());
+
+        let mut h = Constraint::Horizontal { line: c };
+        assert!(!h.set_driven(true), "constraint non-dimensi tidak bisa driven");
+        assert!(!h.is_driven());
+    }
+
+    #[test]
+    fn measured_value_angle_and_radius() {
+        let mut sk = Sketch::default();
+        let a = line(&mut sk, DVec2::ZERO, DVec2::X);
+        let b = line(&mut sk, DVec2::ZERO, DVec2::new(0.0, 2.0));
+        let ang = Constraint::Angle {
+            a,
+            b,
+            value: 0.0,
+            driven: true,
+        };
+        let v = measured_value(&sk, &ang).unwrap();
+        assert!((v - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+        let c = circle(&mut sk, DVec2::ZERO, 3.5);
+        let r = Constraint::Radius {
+            entity: c,
+            value: 0.0,
+            driven: true,
+        };
+        assert_eq!(measured_value(&sk, &r), Some(3.5));
+        assert_eq!(measured_value(&sk, &Constraint::Horizontal { line: a }), None);
+    }
+
+    // ---------- 1.20 Curvature (G2) ----------
+
+    fn spline(sk: &mut Sketch, pts: &[DVec2]) -> EntityId {
+        sk.entities.insert(Entity::spline(pts.to_vec()))
+    }
+
+    fn spline_pts(sk: &Sketch, id: EntityId) -> Vec<DVec2> {
+        match &sk.entities[id] {
+            Entity::Spline { points, .. } => points.clone(),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn curvature_spline_spline_converges_and_matches() {
+        let mut sk = Sketch::default();
+        let s1 = spline(
+            &mut sk,
+            &[DVec2::new(0.0, 0.0), DVec2::new(5.0, 2.0), DVec2::new(10.0, 3.0)],
+        );
+        let s2 = spline(
+            &mut sk,
+            &[DVec2::new(10.5, 3.2), DVec2::new(15.0, 1.0), DVec2::new(20.0, -3.0)],
+        );
+        let fix = |pr: PointRef, at: DVec2| Constraint::Fixed { point: pr, target: at };
+        let res = solve(
+            &mut sk,
+            &[
+                fix(PointRef::LineStart(s1), DVec2::new(0.0, 0.0)),
+                fix(PointRef::LineEnd(s2), DVec2::new(20.0, -3.0)),
+                Constraint::Curvature {
+                    a: PointRef::LineEnd(s1),
+                    b: PointRef::LineStart(s2),
+                },
+            ],
+        );
+        assert!(res.converged, "{res:?}");
+        let ea = spline_end(&spline_pts(&sk, s1), true).unwrap();
+        let eb = spline_end(&spline_pts(&sk, s2), false).unwrap();
+        assert!((ea.pos - eb.pos).length() < 1e-6);
+        assert!((ea.tangent - eb.tangent).length() < 1e-6);
+        assert!((ea.curvature - eb.curvature).abs() < 1e-6, "{} vs {}", ea.curvature, eb.curvature);
+    }
+
+    #[test]
+    fn curvature_spline_arc_matches_arc_curvature() {
+        let mut sk = Sketch::default();
+        // Busur CCW r=5 berpusat di (0,0), ujung awal di (5,0) dengan tangen +Y.
+        let arc = sk.entities.insert(Entity::arc(DVec2::ZERO, 5.0, 0.0, 1.2));
+        // Spline yang datang ke (5,0) dari bawah, hampir lurus.
+        let s = spline(
+            &mut sk,
+            &[DVec2::new(5.3, -8.0), DVec2::new(5.2, -4.0), DVec2::new(5.1, -0.2)],
+        );
+        let res = solve(
+            &mut sk,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::Center(arc),
+                    target: DVec2::ZERO,
+                },
+                Constraint::Radius {
+                    entity: arc,
+                    value: 5.0,
+                    driven: false,
+                },
+                Constraint::Curvature {
+                    a: PointRef::LineEnd(s),
+                    b: PointRef::LineStart(arc),
+                },
+            ],
+        );
+        assert!(res.converged, "{res:?}");
+        let es = spline_end(&spline_pts(&sk, s), true).unwrap();
+        let Entity::Arc {
+            center,
+            radius,
+            start_angle,
+            ..
+        } = sk.entities[arc]
+        else {
+            unreachable!()
+        };
+        let ea = arc_end(center, radius, start_angle).unwrap();
+        assert!((es.pos - ea.pos).length() < 1e-6);
+        assert!((es.tangent - ea.tangent).length() < 1e-6);
+        assert!((es.curvature - 0.2).abs() < 1e-6, "kelengkungan {}", es.curvature);
+    }
+
+    #[test]
+    fn curvature_rejects_bad_refs_without_panic() {
+        let mut sk = Sketch::default();
+        let l = line(&mut sk, DVec2::ZERO, DVec2::X);
+        let s = spline(&mut sk, &[DVec2::ZERO, DVec2::new(f64::NAN, 1.0), DVec2::new(2.0, 0.0)]);
+        let arc = sk.entities.insert(Entity::arc(DVec2::ZERO, 1.0, 0.0, 1.0));
+        let arc2 = sk.entities.insert(Entity::arc(DVec2::X, 1.0, 0.0, 1.0));
+        let bad = [
+            // Garis bukan kurva G2.
+            Constraint::Curvature {
+                a: PointRef::LineEnd(l),
+                b: PointRef::LineStart(s),
+            },
+            // Busur–busur tanpa spline tidak didukung.
+            Constraint::Curvature {
+                a: PointRef::LineEnd(arc),
+                b: PointRef::LineStart(arc2),
+            },
+            // Center bukan ujung kurva.
+            Constraint::Curvature {
+                a: PointRef::Center(s),
+                b: PointRef::LineStart(arc),
+            },
+            // Diri sendiri.
+            Constraint::Curvature {
+                a: PointRef::LineEnd(s),
+                b: PointRef::LineStart(s),
+            },
+        ];
+        let res = solve(&mut sk, &bad);
+        assert_eq!(res.skipped, 4);
+        // Spline dengan NaN: sah secara rujukan, tidak boleh panic.
+        let _ = solve(
+            &mut sk,
+            &[Constraint::Curvature {
+                a: PointRef::LineEnd(s),
+                b: PointRef::LineStart(arc),
+            }],
+        );
+        let _ = analyze_dof(
+            &sk,
+            &[Constraint::Curvature {
+                a: PointRef::LineEnd(s),
+                b: PointRef::LineStart(arc),
+            }],
+        );
+    }
+
+    #[test]
+    fn curvature_serde_and_entity_remap() {
+        let mut sk = Sketch::default();
+        let s1 = spline(&mut sk, &[DVec2::ZERO, DVec2::X, DVec2::new(2.0, 1.0)]);
+        let s2 = spline(&mut sk, &[DVec2::new(2.0, 1.0), DVec2::new(3.0, 3.0), DVec2::new(4.0, 6.0)]);
+        let mut c = Constraint::Curvature {
+            a: PointRef::LineEnd(s1),
+            b: PointRef::LineStart(s2),
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        let back: Constraint = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, Constraint::Curvature { .. }));
+        c.map_entity_ids(|id| if id == s1 { s2 } else { s1 });
+        let Constraint::Curvature { a, b } = c else {
+            unreachable!()
+        };
+        assert_eq!(a, PointRef::LineEnd(s2));
+        assert_eq!(b, PointRef::LineStart(s1));
     }
 }

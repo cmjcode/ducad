@@ -32,6 +32,9 @@ pub enum ContextAction {
     DraftAngle,
     SplitBody,
     SplitFace,
+    /// Paritas 2.1/2.2: direct editing face.
+    OffsetFace,
+    DeleteFace,
     Boolean,
     Fillet,
     SketchOnFace,
@@ -496,6 +499,14 @@ impl ContextActionBar {
                 // Split Face
                 if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Face", TEXT_PRIMARY, icon_sz, "Bagi permukaan (face) ini menjadi bagian terpisah (S)").clicked() {
                     action = Some(ContextAction::SplitFace);
+                }
+
+                // Offset Face / Delete Face (direct editing, Paritas 2.1/2.2)
+                if context_action_btn(ui, egui_icons::icons::ICON_HEIGHT.codepoint, &t!("direct-offset-face"), TEXT_PRIMARY, icon_sz, &t!("direct-offset-face-help")).clicked() {
+                    action = Some(ContextAction::OffsetFace);
+                }
+                if context_action_btn(ui, egui_icons::icons::ICON_DELETE_SWEEP.codepoint, &t!("direct-delete-face"), TEXT_PRIMARY, icon_sz, &t!("direct-delete-face-help")).clicked() {
+                    action = Some(ContextAction::DeleteFace);
                 }
 
                 // Hole Wizard (Standar ISO Fastener)

@@ -4,14 +4,14 @@
 
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::sketch::Sketch;
-use ducad_sketch::{Entity, EntityId};
+use ducad_sketch::{DimKey, Entity, EntityId, SetDimTextOffset};
 use ducad_ui::CanvasHud;
 use glam::DVec2;
 use slotmap::Key;
 
 use crate::app::DuCADApp;
 use crate::types::ToolKind;
-use crate::viewport::world_to_screen_pos;
+use crate::viewport::{screen_to_plane_point, world_to_screen_pos};
 
 #[derive(Default)]
 pub struct SketchDimState {
@@ -20,6 +20,9 @@ pub struct SketchDimState {
     /// Pasangan garis yang dimensi sudutnya sedang diedit.
     pub angle_edit: Option<(EntityId, EntityId)>,
     pub angle_input: String,
+    /// Label dimensi yang sedang diseret (Paritas 1.17): kunci + offset
+    /// sebelum seretan dimulai (untuk satu langkah undo saat dilepas).
+    pub text_drag: Option<(DimKey, DVec2)>,
 }
 
 fn line_ends(sk: &Sketch, id: EntityId) -> Option<(DVec2, DVec2)> {
@@ -66,10 +69,144 @@ pub fn angle_constraint(sk: &Sketch, a: EntityId, b: EntityId, deg: f64) -> Opti
     }
     let cur = signed_angle(sk, a, b)?;
     let sign = if cur < 0.0 { -1.0 } else { 1.0 };
-    Some(Constraint::Angle { a, b, value: sign * deg.abs().to_radians() })
+    Some(Constraint::Angle { a, b, value: sign * deg.abs().to_radians(), driven: false })
+}
+
+/// Teks pill dimensi: dimensi driven (acuan) ditulis dalam kurung, konvensi
+/// gambar teknik untuk "reference dimension" (Paritas 1.16).
+pub fn dim_label(text: String, driven: bool) -> String {
+    if driven {
+        format!("({text})")
+    } else {
+        text
+    }
+}
+
+/// Indeks constraint dimensi yang merujuk salah satu entitas `sel`.
+pub fn dimension_indices_for(sk: &Sketch, sel: &[EntityId]) -> Vec<usize> {
+    sk.constraints
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.is_dimension())
+        .filter(|(_, c)| {
+            let ids: Vec<EntityId> = match c {
+                Constraint::Distance { a, b, .. } => vec![a.entity_id(), b.entity_id()],
+                Constraint::Radius { entity, .. } => vec![*entity],
+                Constraint::Angle { a, b, .. } => vec![*a, *b],
+                _ => Vec::new(),
+            };
+            ids.iter().any(|id| sel.contains(id))
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 impl DuCADApp {
+    /// Balik status driven constraint dimensi ke-`idx` (Paritas 1.16).
+    /// Driven → driving memakai nilai terukur saat ini, jadi geometri tidak
+    /// melompat.
+    pub fn toggle_dimension_driven(&mut self, idx: usize) {
+        let Some(mut c) = self.sketch().constraints.get(idx).cloned() else {
+            return;
+        };
+        let to_driven = !c.is_driven();
+        if !c.set_driven(to_driven) {
+            self.constraint_status = Some(ducad_i18n::t!("dim-driven-not-dimension"));
+            return;
+        }
+        if let Some(m) = ducad_sketch::constraint::measured_value(self.sketch(), &c) {
+            if let Constraint::Distance { value, .. }
+            | Constraint::Radius { value, .. }
+            | Constraint::Angle { value, .. } = &mut c
+            {
+                *value = m;
+            }
+        }
+        self.update_constraint(idx, c);
+        if self.editing_constraint_idx == Some(idx) {
+            self.editing_constraint_idx = None;
+        }
+    }
+
+    /// Perintah palet "Toggle driven": berlaku untuk semua dimensi yang
+    /// merujuk entitas terpilih.
+    pub fn toggle_driven_for_selection(&mut self) {
+        let sel = self.sorted_selection();
+        let idx = dimension_indices_for(self.sketch(), &sel);
+        if idx.is_empty() {
+            self.constraint_status = Some(ducad_i18n::t!("dim-driven-none"));
+            return;
+        }
+        for i in idx {
+            self.toggle_dimension_driven(i);
+        }
+    }
+
+    /// Reset posisi teks dimensi yang dirujuk seleksi (atau semuanya bila
+    /// seleksi kosong) — Paritas 1.17.
+    pub fn reset_dim_text_positions(&mut self) {
+        let sel = self.sorted_selection();
+        let keys: Vec<DimKey> = self
+            .sketch()
+            .dim_text_offsets
+            .iter()
+            .map(|e| e.key)
+            .filter(|k| {
+                sel.is_empty()
+                    || match k {
+                        DimKey::Entity(id) | DimKey::Radius(id) => sel.contains(id),
+                        DimKey::Distance(a, b) => {
+                            sel.contains(&a.entity_id()) || sel.contains(&b.entity_id())
+                        }
+                        DimKey::Angle(a, b) => sel.contains(a) || sel.contains(b),
+                    }
+            })
+            .collect();
+        for k in keys {
+            self.execute_sketch_command(Box::new(SetDimTextOffset::new(k, DVec2::ZERO)));
+        }
+    }
+
+    /// Seret label dimensi (Paritas 1.17). `base` = posisi label bawaan di
+    /// ruang sketch. Selama diseret offset ditulis langsung (pratinjau);
+    /// saat dilepas dicatat sebagai satu command undo. `true` bila respons
+    /// ini sedang/selesai diseret (pemanggil jangan menganggapnya klik).
+    pub fn handle_dim_text_drag(
+        &mut self,
+        resp: &egui::Response,
+        rect: egui::Rect,
+        key: DimKey,
+        base: DVec2,
+    ) -> bool {
+        if resp.drag_started() {
+            let start = self.sketch().dim_text_offset(&key);
+            self.sketch_dims.text_drag = Some((key, start));
+        }
+        let Some((drag_key, start)) = self.sketch_dims.text_drag else {
+            return false;
+        };
+        if drag_key != key {
+            return false;
+        }
+        if resp.dragged() {
+            if let Some(p) = resp
+                .interact_pointer_pos()
+                .and_then(|s| screen_to_plane_point(&self.camera, rect, s, &self.active_plane))
+            {
+                self.sketch_mut().set_dim_text_offset(key, p - base);
+            }
+        }
+        if resp.drag_stopped() {
+            let end = self.sketch().dim_text_offset(&key);
+            self.sketch_mut().set_dim_text_offset(key, start);
+            if (end - start).length() > 1e-9 {
+                self.execute_sketch_command(Box::new(SetDimTextOffset::new(key, end)));
+            }
+            self.sketch_dims.text_drag = None;
+        }
+        true
+    }
+
     fn two_selected_lines(&self) -> Option<(EntityId, EntityId)> {
         let mut ids: Vec<EntityId> = self.selected.iter().copied().collect();
         ids.sort();
@@ -96,7 +233,7 @@ impl DuCADApp {
                 // Pertahankan urutan a/b milik constraint lama.
                 let c = match (&self.sketch().constraints[i], c) {
                     (Constraint::Angle { a: x, .. }, Constraint::Angle { value, .. }) if *x == b => {
-                        Constraint::Angle { a: b, b: a, value: -value }
+                        Constraint::Angle { a: b, b: a, value: -value, driven: false }
                     }
                     (_, c) => c,
                 };
@@ -116,7 +253,7 @@ impl DuCADApp {
             .position(|c| matches!(c, Constraint::Radius { entity, .. } if *entity == id));
         match idx {
             Some(i) => {
-                self.update_constraint(i, Constraint::Radius { entity: id, value: radius });
+                self.update_constraint(i, Constraint::Radius { entity: id, value: radius, driven: false });
                 true
             }
             None => false,

@@ -112,6 +112,7 @@ pub(crate) fn push_entity(
     }
 
     match entity {
+        Entity::Point { pos, .. } => push_point_marker(verts, *pos, color, plane),
         Entity::Line { start, end, .. } => {
             verts.push(LineVertex {
                 position: to3(plane, *start),
@@ -157,6 +158,36 @@ pub(crate) fn push_entity(
     }
 }
 
+/// Setengah panjang lengan penanda titik sketch (mm, ruang sketch).
+const POINT_MARKER_HALF: f64 = 0.6;
+
+/// Penanda titik sketch (Fase 1.1): silang "+" kecil di `pos`. Titik tidak
+/// punya tepi, jadi tanpa penanda ia tidak terlihat sama sekali.
+pub(crate) fn push_point_marker(
+    verts: &mut Vec<LineVertex>,
+    pos: DVec2,
+    color: [f32; 4],
+    plane: &SketchPlane,
+) {
+    if !pos.is_finite() {
+        return;
+    }
+    let h = POINT_MARKER_HALF;
+    for (a, b) in [
+        (DVec2::new(-h, 0.0), DVec2::new(h, 0.0)),
+        (DVec2::new(0.0, -h), DVec2::new(0.0, h)),
+    ] {
+        verts.push(LineVertex {
+            position: to3(plane, pos + a),
+            color,
+        });
+        verts.push(LineVertex {
+            position: to3(plane, pos + b),
+            color,
+        });
+    }
+}
+
 pub(crate) fn push_construction_entity(
     verts: &mut Vec<LineVertex>,
     entity: &Entity,
@@ -165,6 +196,9 @@ pub(crate) fn push_construction_entity(
 ) {
     const DASH_LEN: f64 = 2.5;
     match entity {
+        // Titik konstruksi digambar sama seperti titik biasa (warnanya
+        // sudah dibedakan pemanggil).
+        Entity::Point { pos, .. } => push_point_marker(verts, *pos, color, plane),
         Entity::Line { start, end, .. } => {
             verts.extend(dashed_line_3d(
                 to3(plane, *start),

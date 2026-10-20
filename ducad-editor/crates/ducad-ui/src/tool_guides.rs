@@ -275,7 +275,40 @@ impl ToolGuides {
             crate::canvas_hud::DatumPlaneMode::ThreePoints => {
                 Self::render_datum_3point_anim(&painter, card_rect, points_count, time);
             }
+            // Mode Paritas 1.4: kartu teks (pilih geometri di viewport).
+            m => {
+                let step = match m {
+                    crate::canvas_hud::DatumPlaneMode::Midplane => t!("guide-datum-midplane"),
+                    crate::canvas_hud::DatumPlaneMode::Perpendicular => t!("guide-datum-perpendicular"),
+                    crate::canvas_hud::DatumPlaneMode::Tangent => t!("guide-datum-tangent"),
+                    crate::canvas_hud::DatumPlaneMode::AlongPath => t!("guide-datum-along-path"),
+                    _ => t!("guide-datum-two-edges"),
+                };
+                Self::draw_header(&painter, card_rect, &m.label(), &step, ACCENT_BLUE);
+                Self::draw_footer(&painter, card_rect, &t!("guide-datum-pick-tip"));
+            }
         }
+    }
+
+    /// Kartu panduan teks untuk tool sumbu/titik datum (Paritas 1.2/1.3):
+    /// judul = mode, langkah = apa yang harus dipilih berikutnya.
+    pub fn render_datum_text_guide(ui: &mut Ui, canvas_rect: Rect, title: &str, step: &str) {
+        let card_rect = Rect::from_min_size(
+            Pos2::new(
+                canvas_rect.left() + Self::CORNER_MARGIN,
+                canvas_rect.bottom() - 90.0 - Self::CORNER_MARGIN,
+            ),
+            Vec2::new(320.0, 90.0),
+        );
+        Self::publish_card_rect(ui.ctx(), card_rect);
+        let painter = ui.painter_at(card_rect);
+        crate::theme::glass_frame()
+            .corner_radius(egui::CornerRadius::same(8))
+            .shadow(egui::Shadow::NONE)
+            .fill(Color32::from_rgba_premultiplied(12, 14, 18, 230))
+            .paint(ui, card_rect);
+        Self::draw_header(&painter, card_rect, title, step, ACCENT_BLUE);
+        Self::draw_footer(&painter, card_rect, &t!("guide-datum-pick-tip"));
     }
 
     // ==========================================

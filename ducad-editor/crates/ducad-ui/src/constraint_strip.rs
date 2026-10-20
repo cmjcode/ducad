@@ -10,9 +10,9 @@
 use ducad_i18n::t;
 use egui::{Button, RichText, Ui, Vec2};
 use egui_icons::icons::{
-    ICON_AUTO_FIX_HIGH, ICON_CLOSE_FULLSCREEN, ICON_COMMIT, ICON_EQUAL, ICON_FLIP, ICON_HEIGHT,
+    ICON_AUTO_FIX_HIGH, ICON_BADGE, ICON_CLOSE_FULLSCREEN, ICON_COMMIT, ICON_EQUAL, ICON_FLIP, ICON_HEIGHT,
     ICON_HORIZONTAL_RULE, ICON_LINEAR_SCALE, ICON_LINE_CURVE, ICON_LOCK, ICON_PAUSE,
-    ICON_RADIO_BUTTON_CHECKED, ICON_SQUARE_FOOT, ICON_STRAIGHTEN, ICON_TRIP_ORIGIN,
+    ICON_RADIO_BUTTON_CHECKED, ICON_SQUARE_FOOT, ICON_SSID_CHART, ICON_STRAIGHTEN, ICON_TRIP_ORIGIN,
     ICON_VERTICAL_ALIGN_CENTER,
 };
 use crate::theme::{ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -38,13 +38,17 @@ pub enum ConstraintAction {
     ApplyCollinear,
     /// Titik menempel di kurva.
     ApplyPointOnCurve,
+    /// Kontinuitas kelengkungan G2 spline–spline / spline–busur (Paritas 1.20).
+    ApplyCurvature,
     /// Inferensi constraint otomatis untuk seleksi / seluruh sketsa (Paritas 0.14).
     AutoConstrain,
+    /// Tampil/sembunyikan glyph constraint di kanvas (Paritas 1.18).
+    ToggleGlyphs,
 }
 
 impl ConstraintAction {
     /// Urutan tampil tetap di baris, apa pun urutan daftar `valid`.
-    pub const DISPLAY_ORDER: [ConstraintAction; 16] = [
+    pub const DISPLAY_ORDER: [ConstraintAction; 18] = [
         Self::ApplyHorizontal,
         Self::ApplyVertical,
         Self::ApplyParallel,
@@ -54,6 +58,7 @@ impl ConstraintAction {
         Self::ApplyEqualRadius,
         Self::ApplyConcentric,
         Self::ApplyTangent,
+        Self::ApplyCurvature,
         Self::ApplyCoincident,
         Self::ApplyMidpoint,
         Self::ApplyPointOnCurve,
@@ -61,6 +66,7 @@ impl ConstraintAction {
         Self::ApplyDistance,
         Self::ApplyFixed,
         Self::AutoConstrain,
+        Self::ToggleGlyphs,
     ];
 
     /// Ikon Material (bukan glyph Unicode mentah: lihat aturan "tofu").
@@ -75,6 +81,7 @@ impl ConstraintAction {
             Self::ApplyEqualRadius => ICON_RADIO_BUTTON_CHECKED.codepoint,
             Self::ApplyConcentric => ICON_TRIP_ORIGIN.codepoint,
             Self::ApplyTangent => ICON_LINE_CURVE.codepoint,
+            Self::ApplyCurvature => ICON_SSID_CHART.codepoint,
             Self::ApplyCoincident => ICON_CLOSE_FULLSCREEN.codepoint,
             Self::ApplyMidpoint => ICON_VERTICAL_ALIGN_CENTER.codepoint,
             Self::ApplyPointOnCurve => ICON_COMMIT.codepoint,
@@ -82,6 +89,7 @@ impl ConstraintAction {
             Self::ApplyDistance => ICON_STRAIGHTEN.codepoint,
             Self::ApplyFixed => ICON_LOCK.codepoint,
             Self::AutoConstrain => ICON_AUTO_FIX_HIGH.codepoint,
+            Self::ToggleGlyphs => ICON_BADGE.codepoint,
         }
     }
 
@@ -96,6 +104,7 @@ impl ConstraintAction {
             Self::ApplyEqualRadius => t!("constraint-equal-radius-tip"),
             Self::ApplyConcentric => t!("constraint-concentric-tip"),
             Self::ApplyTangent => t!("constraint-tangent-tip"),
+            Self::ApplyCurvature => t!("constraint-curvature-tip"),
             Self::ApplyCoincident => t!("constraint-coincident-tip"),
             Self::ApplyMidpoint => t!("constraint-midpoint-tip"),
             Self::ApplyPointOnCurve => t!("constraint-point-on-curve-tip"),
@@ -103,6 +112,7 @@ impl ConstraintAction {
             Self::ApplyDistance => t!("constraint-distance-tip"),
             Self::ApplyFixed => t!("constraint-fixed-tip"),
             Self::AutoConstrain => t!("constraint-auto-tip"),
+            Self::ToggleGlyphs => t!("cmd-toggle-glyphs"),
         }
     }
 }
@@ -130,7 +140,11 @@ impl ConstraintStrip {
                 if !valid.contains(&act) {
                     continue;
                 }
-                let color = if act == ConstraintAction::AutoConstrain { ACCENT_BLUE } else { TEXT_PRIMARY };
+                let color = if matches!(act, ConstraintAction::AutoConstrain | ConstraintAction::ToggleGlyphs) {
+                    ACCENT_BLUE
+                } else {
+                    TEXT_PRIMARY
+                };
                 let btn = ui.add_sized(
                     Vec2::new(side, side),
                     Button::new(RichText::new(act.icon()).size(icon_sz).color(color)).frame(false),

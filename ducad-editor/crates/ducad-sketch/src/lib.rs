@@ -6,8 +6,12 @@
 // kode produksi; modul tes dikecualikan.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+pub mod break_at;
 pub mod commands;
 pub mod constraint;
+pub mod construct2d;
+pub mod construct_cmd;
+pub mod dim_text;
 pub mod document;
 pub mod entity;
 pub mod faces;
@@ -15,6 +19,7 @@ pub mod gaps;
 pub mod index;
 pub mod infer;
 pub mod layer;
+pub mod link;
 pub mod measure;
 pub mod ops;
 pub mod recognize;
@@ -42,8 +47,18 @@ pub use commands::{
     SetLayerFlags, SetStyle, SetStyleField, SetZOrder, StyleField, ToggleConstruction,
     TranslateEntities, UndoStack, Ungroup, UpdateEntity, UpdateText, ZOrderAction,
 };
+pub use construct2d::{
+    arc_slot, arc_slot_from_arc, circle_tangent_three, circle_tangent_two, circle_three_point,
+    circle_two_point, edge_polygon_vertices, endpoint_tangent, infinite_line_span,
+    line_from_midpoint, rect_three_point, rounded_rect, rounded_rect_constraint_pairs,
+    tangent_arc, tangent_residual, TangentTarget,
+};
+pub use construct_cmd::{ConstraintTemplate, InsertConstructed, NewRef};
+pub use break_at::{break_entity, BreakEntity};
+pub use link::{BreakLinks, InsertLinked, LinkKind, LinkSource};
 pub use constraint::{AddConstraint, AddConstraints, RemoveConstraint, UpdateConstraint};
 
+pub use dim_text::{DimKey, DimTextOffset, SetDimTextOffset};
 pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
 pub use entity::{map_exact, Entity, EntityId, PathSeg, Subpath};
 pub use index::{IndexedBox, SpatialIndex};

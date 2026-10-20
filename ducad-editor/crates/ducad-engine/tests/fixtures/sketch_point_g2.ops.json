@@ -1,0 +1,14 @@
+{ "params": { "w": 60, "h": 40, "t": 6 },
+  "ops": [
+    {"op":"sketch","id":"base","plane":"XY","entities":[
+      {"rect":{"center":[0,0],"w":"$w","h":"$h","name":"outline"}},
+      {"point":{"at":[0,0],"name":"c"}},
+      {"point":{"at":[20,10],"name":"p","construction":true}},
+      {"spline":{"points":[[-25,-15],[-15,-5],[-5,0]],"name":"s1","construction":true}},
+      {"arc":{"center":[-5,8],"r":8,"start_deg":270,"end_deg":330,"name":"a1","construction":true}}],
+     "constraints":[
+      {"fixed":{"point":"c","at":[0,0]}},
+      {"distance":{"a":"c","b":"p","value":22.36,"driven":true}},
+      {"curvature":{"a":"s1.end","b":"a1.start"}}]},
+    {"op":"extrude","id":"plate","sketch":"base","distance":"$t"}
+  ] }

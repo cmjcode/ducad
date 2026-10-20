@@ -70,8 +70,14 @@ impl DuCADApp {
                     &plane,
                 ));
             }
+            // Garis konstruksi tak hingga (Paritas 1.12).
+            verts.extend(self.infinite_line_overlay(self.sketch_at_index(idx), &plane, world_scale));
 
-            if !is_active_plane {
+            // Datum plane yang disembunyikan dari drawer Datum (Paritas 1.5)
+            // tidak menggambar kerangkanya.
+            let hidden_datum = idx >= 3
+                && self.datum_planes.get(idx - 3).is_some_and(|dp| !dp.visible);
+            if !is_active_plane && !hidden_datum {
                 let outline_color: [f32; 4] = if is_hovered_plane {
                     [0.25, 0.85, 1.00, 0.85] // Cyan highlight saat kursor hover di atas bidang
                 } else if self.is_sketching {
@@ -258,6 +264,18 @@ impl DuCADApp {
                 let ghost_color = [0.0, 0.85, 1.0, 0.75];
                 for entity in ghost_entities {
                     match &entity {
+                        Entity::Point { pos, .. } => {
+                            let h = 0.6;
+                            for (a, b) in [
+                                (glam::DVec2::new(-h, 0.0), glam::DVec2::new(h, 0.0)),
+                                (glam::DVec2::new(0.0, -h), glam::DVec2::new(0.0, h)),
+                            ] {
+                                let p1 = self.active_plane.to_world(*pos + a, 0.03);
+                                let p2 = self.active_plane.to_world(*pos + b, 0.03);
+                                verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: ghost_color });
+                                verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: ghost_color });
+                            }
+                        }
                         Entity::Line { start, end, .. } => {
                             let p1 = self.active_plane.to_world(*start, 0.03);
                             let p2 = self.active_plane.to_world(*end, 0.03);
@@ -781,7 +799,14 @@ impl DuCADApp {
 
         if let Some(raw) = raw_cursor {
             let offset_dist = (14.0 * world_scale).max(8.0);
+            // Mode gambar Fase 1B punya pratinjau sendiri dan menggantikan
+            // pratinjau bawaan tool.
+            let mode_preview = self.mode_preview_entities(self.snapped_or(raw));
+            for e in mode_preview.iter().flatten() {
+                verts.extend(sketch_render::preview_lines(e, &self.active_plane));
+            }
             match self.tool {
+                _ if mode_preview.is_some() => {}
                 ToolKind::Line if self.pending_points.len() == 1 => {
                     let start = self.pending_points[0];
                     let end = self.snapped_or(raw);
@@ -1264,6 +1289,8 @@ impl DuCADApp {
 
         // Pratinjau Pen & node/handle Node Edit (Mode Vektor).
         verts.extend(self.vector_overlay_lines(raw_cursor, world_scale));
+        // Sumbu & titik datum + pilihan tool Datum (Paritas 1.2/1.3).
+        verts.extend(self.datum_overlay_lines(world_scale));
         verts
     }
 

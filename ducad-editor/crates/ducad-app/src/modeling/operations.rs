@@ -1463,7 +1463,18 @@ impl DuCADApp {
                 }
             }
             ducad_ui::SplitMode::SplitFace => {
-                match ducad_kernel::split_face(&geo.shape, plane_point, plane_normal) {
+                // Paritas 2.11: face terpilih saja bila ada; kosong = semua
+                // face yang dilintasi bidang.
+                let mut picked: Vec<usize> = self
+                    .selected_faces
+                    .iter()
+                    .chain(self.active_face.as_ref().map(|(_, r, _)| r))
+                    .filter_map(|r| ducad_kernel::pick_face_details(&geo.shape, *r))
+                    .filter_map(|h| h.face_index)
+                    .collect();
+                picked.sort_unstable();
+                picked.dedup();
+                match ducad_kernel::split_faces_by_plane(&geo.shape, &picked, plane_point, plane_normal) {
                     Ok(new_shape) => {
                         let new_geo = BodyGeometry::from_shape(new_shape);
                         self.execute_model_command(
@@ -1577,10 +1588,17 @@ impl DuCADApp {
                     [self.pattern_pitch_x, self.pattern_pitch_y, self.pattern_pitch_z],
                 ),
                 ducad_ui::PatternKind::Circular => {
-                    let pivot = self.pattern_custom_pivot_3d
-                        .map(|v| (v.x as f64, v.y as f64, v.z as f64))
-                        .unwrap_or((0.0, 0.0, 0.0));
-                    let axis = self.pattern_circ_axis.to_dir();
+                    // Sumbu datum terpilih (Paritas 1.6) menggantikan preset
+                    // sumbu + pivot HUD.
+                    let (pivot, axis) = match self.pattern_datum_axis() {
+                        Some((o, d)) => ((o[0], o[1], o[2]), (d[0], d[1], d[2])),
+                        None => (
+                            self.pattern_custom_pivot_3d
+                                .map(|v| (v.x as f64, v.y as f64, v.z as f64))
+                                .unwrap_or((0.0, 0.0, 0.0)),
+                            self.pattern_circ_axis.to_dir(),
+                        ),
+                    };
 
                     compute::circular_pattern(
                         &geo.shape,
@@ -2042,6 +2060,19 @@ impl DuCADApp {
     /// Selesaikan seluruh relasi mate perakitan dan terapkan transformasi ke geometri 3D bodi solid.
     pub fn solve_and_apply_assembly(&mut self) {
         self.sync_assembly_instances();
+        let before = self.instance_poses();
+        self.solve_assembly_once();
+        // Paritas 4.2: follower cam menempel kontur, lalu selesaikan ulang.
+        if self.update_cam_joints() {
+            self.solve_assembly_once();
+        }
+        // Paritas 4.8: gerakan yang membuat anggota contact set saling
+        // menembus ditolak.
+        self.enforce_contact_sets(&before);
+    }
+
+    /// Satu putaran solver + penerapan transformasi ke geometri.
+    fn solve_assembly_once(&mut self) {
         // Kopling gear/screw/rack mengikuti penggeraknya setelah mate selesai.
         let report = ducad_kernel::solve_assembly_with_couplings(&mut self.assembly_tree);
 

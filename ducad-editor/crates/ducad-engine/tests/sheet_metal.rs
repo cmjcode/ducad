@@ -1,5 +1,6 @@
-//! Op sheet metal (P19): base_flange, edge_flange, hem, jog, unfold/fold,
-//! flat_pattern.
+//! Op sheet metal (P19, Paritas 6C): base_flange, edge_flange, hem, jog,
+//! unfold/fold, flat_pattern, relief, flange-di-ujung-flange, perforate,
+//! convert_to_sheet.
 
 use ducad_engine::inspect::{summarize, DEFAULT_TOPOLOGY_LIMIT};
 use ducad_engine::ops::{Op, OpFile};
@@ -160,10 +161,10 @@ fn sheet_metal_hem_and_jog_build_valid_solids() {
 
 #[test]
 fn sheet_metal_rejects_unsupported_input() {
-    // Sketsa lingkaran bukan poligon.
+    // Dua region terpisah → harus tepat satu.
     let mut s = Session::new();
     let r = s.run(
-        ops(r#"[{"op":"sketch","id":"sk","plane":"XY","entities":[{"circle":{"center":[0,0],"r":20}}]},
+        ops(r#"[{"op":"sketch","id":"sk","plane":"XY","entities":[{"circle":{"center":[0,0],"r":5}},{"circle":{"center":[30,0],"r":5}}]},
                 {"op":"base_flange","id":"p","sketch":"sk","thickness":1}]"#),
         false,
     );
@@ -245,4 +246,153 @@ fn sheet_metal_survives_save_load_and_downward_flange() {
     assert!(!flat.bend_lines[0].up);
     let dxf = ducad_io::flat_dxf::flat_pattern_dxf(&flat);
     assert!(dxf.contains("BEND_DOWN"));
+}
+
+#[test]
+fn sheet_metal_base_with_holes_and_arcs() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[{"op":"sketch","id":"sk","plane":"XY","entities":[
+                    {"rect":{"corner":[0,0],"w":60,"h":40}},
+                    {"circle":{"center":[20,20],"r":5}},
+                    {"rect":{"corner":[40,10],"w":10,"h":20}}]},
+                {"op":"base_flange","id":"p","sketch":"sk","thickness":2},
+                {"op":"sketch","id":"disk","plane":{"base":"XY","offset":50},"entities":[{"circle":{"center":[0,0],"r":15}}]},
+                {"op":"base_flange","id":"d","sketch":"disk","thickness":1}]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let m = &s.meta().sheet_metal["p"].model;
+    assert_eq!(m.cutouts.len(), 2);
+    assert!(m
+        .cutouts
+        .iter()
+        .any(|c| matches!(c, ducad_core::Cutout::Circle { radius, .. } if (*radius - 5.0).abs() < 1e-9)));
+    let v = volume(&s, "p");
+    assert!((v - m.folded_volume()).abs() / v < VOL_TOL, "{v} vs {}", m.folded_volume());
+    // Lubang ikut ke pola datar (loop tertutup di outline DXF).
+    let flat = m.flat_pattern().unwrap();
+    assert!(flat.outline.len() > 4 + 48);
+    // Pelat bundar: lingkaran dicacah jadi poligon.
+    let disk = &s.meta().sheet_metal["d"].model;
+    assert!(disk.outline.len() >= 24);
+    let vd = volume(&s, "d");
+    assert!((vd - std::f64::consts::PI * 225.0).abs() / vd < 0.01, "{vd}");
+}
+
+#[test]
+fn sheet_metal_relief_is_cut_in_folded_and_flat() {
+    let mut s = plate(
+        r#",{"op":"edge_flange","id":"f","body":"p","edges":"|X[len=80][z=0][y=0]","length":10,"relief":"rect"}"#,
+    );
+    let m = s.meta().sheet_metal["p"].model.clone();
+    let v = volume(&s, "p");
+    let mut no_relief = m.clone();
+    no_relief.flanges[0].relief = ducad_core::ReliefKind::None;
+    assert!(no_relief.folded_volume() > m.folded_volume() + 1.0);
+    // Toleransi longgar: alat relief diperbesar sedikit supaya tidak sebidang.
+    assert!((v - m.folded_volume()).abs() / v < 0.005, "{v} vs {}", m.folded_volume());
+    assert!(summarize(&s, Some("p"), false, 10).unwrap().bodies[0].valid);
+    let r = s.run(ops(r#"[{"op":"unfold","id":"u","body":"p"}]"#), false);
+    assert!(r.committed, "{:?}", r.error);
+    let vf = volume(&s, "p");
+    let want = m.flat_area() * 1.5;
+    assert!((vf - want).abs() / want < 0.005, "{vf} vs {want}");
+}
+
+#[test]
+fn sheet_metal_flange_on_flange_extends_chain() {
+    // Flange 90° (R = t = 1.5, L = 8): ujung di z = 11; hem di tepi ujungnya.
+    let mut s = plate(
+        r#",{"op":"edge_flange","id":"wall","body":"p","edges":"|X[len=80][z=0][y=0]","length":8}"#,
+    );
+    let r = s.run(
+        ops(r#"[{"op":"edge_flange","id":"lip","body":"p","edges":"|X[len=80][z=11]","length":5,"angle":90}]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let m = &s.meta().sheet_metal["p"].model;
+    assert_eq!(m.flanges.len(), 1);
+    assert_eq!(m.flanges[0].segments.len(), 2);
+    let v = volume(&s, "p");
+    assert!((v - m.folded_volume()).abs() / v < VOL_TOL, "{v} vs {}", m.folded_volume());
+    let sum = summarize(&s, Some("p"), false, 10).unwrap();
+    assert!(sum.bodies[0].valid);
+    // Bentangan = Σ (BA + panjang) kedua segmen.
+    let ba = m.allowance(&m.flanges[0].segments[0]);
+    assert!((m.developed_length(&m.flanges[0]) - 2.0 * ba - 13.0).abs() < 1e-9);
+    let r = s.run(ops(r#"[{"op":"flat_pattern","id":"blank","body":"p"}]"#), false);
+    assert!(r.committed, "{:?}", r.error);
+}
+
+#[test]
+fn sheet_metal_perforate_grid_and_hostile_input() {
+    let mut s = plate("");
+    let r = s.run(
+        ops(r#"[{"op":"perforate","id":"pf","body":"p","d":3,"pitch":6,"margin":3}]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let holes = r.outcomes[0].detail["holes"].as_u64().unwrap();
+    assert!(holes > 20, "{holes}");
+    let m = &s.meta().sheet_metal["p"].model;
+    assert_eq!(m.cutouts.len() as u64, holes);
+    let v = volume(&s, "p");
+    assert!((v - m.folded_volume()).abs() / v < VOL_TOL, "{v} vs {}", m.folded_volume());
+    for bad in [
+        r#"{"op":"perforate","id":"x","body":"p","d":-1,"pitch":6}"#,
+        r#"{"op":"perforate","id":"x","body":"p","d":3,"pitch":2}"#,
+        r#"{"op":"perforate","id":"x","body":"p","d":0.01,"pitch":0.02,"margin":0}"#,
+        r#"{"op":"perforate","id":"x","body":"p","d":3,"pitch":6,"margin":-1}"#,
+        r#"{"op":"perforate","id":"x","body":"p","d":3,"pitch":6,"margin":100}"#,
+        r#"{"op":"perforate","id":"x","body":"ghost","d":3,"pitch":6}"#,
+    ] {
+        let r = s.run(vec![serde_json::from_str(bad).unwrap()], false);
+        let e = r.error.unwrap_or_else(|| panic!("harus gagal: {bad}"));
+        assert!(e.hint.is_some(), "{bad}");
+    }
+}
+
+#[test]
+fn sheet_metal_convert_flat_plate_solid() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[{"op":"sketch","id":"sk","plane":"XY","entities":[
+                    {"rect":{"corner":[0,0],"w":50,"h":30}},
+                    {"circle":{"center":[10,15],"r":3}}]},
+                {"op":"extrude","id":"plate","sketch":"sk","distance":2},
+                {"op":"convert_to_sheet","id":"cv","body":"plate","bend_radius":1}]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let m = &s.meta().sheet_metal["plate"].model;
+    assert!((m.thickness - 2.0).abs() < 1e-6);
+    assert_eq!(m.cutouts.len(), 1);
+    assert_eq!(m.default_radius, 1.0);
+    // Setelah konversi, flange dan pola datar bekerja.
+    let r = s.run(
+        ops(r#"[{"op":"edge_flange","id":"f","body":"plate","edges":"|X[len=50][z=0][y=0]","length":10},
+                {"op":"flat_pattern","id":"blank","body":"plate"}]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+
+    // Solid bukan pelat seragam (bertingkat) → error dengan hint.
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[{"op":"sketch","id":"sk","plane":"XY","entities":[{"rect":{"corner":[0,0],"w":40,"h":20}}]},
+                {"op":"extrude","id":"a","sketch":"sk","distance":2},
+                {"op":"sketch","id":"sk2","plane":"XY","entities":[{"rect":{"corner":[0,0],"w":10,"h":20}}]},
+                {"op":"extrude","id":"b","sketch":"sk2","distance":8},
+                {"op":"boolean","id":"ab","kind":"union","a":"a","b":"b"}]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let r = s.run(ops(r#"[{"op":"convert_to_sheet","id":"cv","body":"ab"}]"#), false);
+    let e = r.error.unwrap();
+    assert_eq!(e.code, OpErrorCode::InvalidParam);
+    assert!(e.hint.unwrap().contains("base_flange"));
+    // Dua kali konversi dan k-factor di luar 0..1 ditolak.
+    let r = s.run(ops(r#"[{"op":"convert_to_sheet","id":"cv","body":"ab","k_factor":2}]"#), false);
+    assert!(r.error.is_some());
 }

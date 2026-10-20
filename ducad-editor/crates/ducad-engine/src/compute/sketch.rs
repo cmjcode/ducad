@@ -67,6 +67,8 @@ pub fn solve_with(
     trial.constraints.extend(extra.iter().cloned());
     let snapshot = trial.constraints.clone();
     let result = constraint::solve(&mut trial, &snapshot);
+    // Dimensi driven (Fase 1.16) hanya mengukur: segarkan nilainya.
+    constraint::refresh_driven_values(&mut trial);
     if !result.converged {
         return Err(OpError::new(
             OpErrorCode::ConstraintUnsolved,

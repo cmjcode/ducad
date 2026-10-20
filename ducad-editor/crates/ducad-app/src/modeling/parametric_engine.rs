@@ -636,7 +636,8 @@ impl DuCADApp {
             let Some(node) = self.parametric_dag.get_feature(id).cloned() else {
                 continue;
             };
-            if node.is_suppressed {
+            // Paritas 3.6: fitur sesudah roll-to marker tidak dievaluasi.
+            if node.is_suppressed || self.parametric_dag.is_rolled_back(id) {
                 continue;
             }
 
@@ -1082,6 +1083,7 @@ fn dimension_updates(
         .map(|(id, ent)| {
             let mut ent = ent.clone();
             match &mut ent {
+                Entity::Point { pos, .. } => *pos = scale_point(*pos),
                 Entity::Line { start, end, .. } => {
                     *start = scale_point(*start);
                     *end = scale_point(*end);

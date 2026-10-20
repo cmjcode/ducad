@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 const FIXTURES: &[(&str, &str)] = &[
     ("bracket", include_str!("fixtures/bracket.ops.json")),
+    ("datum_axis", include_str!("fixtures/datum_axis.ops.json")),
     ("enclosure", include_str!("fixtures/enclosure.ops.json")),
     ("flange", include_str!("fixtures/flange.ops.json")),
     ("loft_helix", include_str!("fixtures/loft_helix.ops.json")),
@@ -30,6 +31,11 @@ const FIXTURES: &[(&str, &str)] = &[
         include_str!("fixtures/toolbox_joint.ops.json"),
     ),
     ("valve_body", include_str!("fixtures/valve_body.ops.json")),
+    (
+        "sketch_project",
+        include_str!("fixtures/sketch_project.ops.json"),
+    ),
+    ("direct_edit", include_str!("fixtures/direct_edit.ops.json")),
 ];
 
 /// Nilai pengganti yang "masuk akal secara tipe" supaya lolos serde dan
@@ -96,7 +102,13 @@ fn assert_not_internal(label: &str, report: &ducad_engine::BatchReport) {
 /// Fixture untuk sapuan default (cepat, ±10 s). `enclosure` dan
 /// `toolbox_joint` ikut karena keduanya pernah membuat kernel lama melempar
 /// exception C++ (hole Ø1e308, box 1e-300) yang meng-abort proses.
-const QUICK: &[&str] = &["plate", "bracket", "enclosure", "toolbox_joint"];
+const QUICK: &[&str] = &[
+    "plate",
+    "bracket",
+    "enclosure",
+    "toolbox_joint",
+    "sketch_project",
+];
 
 #[test]
 fn mutated_fixture_ops_never_panic() {

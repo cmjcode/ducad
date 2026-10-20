@@ -100,6 +100,12 @@ pub fn export_sketch_svg_string(
         has_entities = true;
 
         match entity {
+            Entity::Point { pos, .. } => {
+                min_x = min_x.min(pos.x);
+                min_y = min_y.min(pos.y);
+                max_x = max_x.max(pos.x);
+                max_y = max_y.max(pos.y);
+            }
             Entity::Line { start, end, .. } => {
                 min_x = min_x.min(start.x).min(end.x);
                 min_y = min_y.min(start.y).min(end.y);
@@ -231,6 +237,9 @@ fn render_sketch_entity<F>(
     F: Fn(DVec2) -> (f64, f64),
 {
     match entity {
+        // Titik sketch hanya acuan konstruksi — tidak ikut digambar ke SVG
+        // (SVG dipakai untuk potong/laser; titik tunggal tak bermakna di sana).
+        Entity::Point { .. } => {}
         Entity::Line { start, end, .. } => {
             let (x1, y1) = to_svg(*start);
             let (x2, y2) = to_svg(*end);
