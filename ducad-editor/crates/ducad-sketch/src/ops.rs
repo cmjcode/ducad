@@ -15,6 +15,9 @@ pub enum PolygonMode {
     Inscribed,
     /// Ukuran diukur dari pusat ke titik tengah sisi (circumscribed / di luar lingkaran).
     Circumscribed,
+    /// Poligon didefinisikan oleh satu sisinya (Paritas 1.11): titik pertama
+    /// dan kedua adalah ujung sisi, poligon berada di kiri sisi itu.
+    Edge,
 }
 
 /// Mode penentuan ukuran slot lonjong (lubang pengait / rel baut).
@@ -25,6 +28,13 @@ pub enum SlotMode {
     CenterToCenter,
     /// Slot diukur dari ujung luar busur pertama ke ujung luar busur kedua (Overall Slot).
     Overall,
+    /// Titik pertama = pusat slot, titik kedua = pusat busur ujung (setengah
+    /// panjang), titik ketiga = lebar (Paritas 1.10).
+    CenterPoint,
+    /// Slot busur: pusat busur, awal, akhir, lalu lebar (4 klik).
+    ArcCenter,
+    /// Slot busur: awal, titik pada busur, akhir, lalu lebar (4 klik).
+    ArcThreePoint,
 }
 
 /// Bangun Arc yang melalui tiga titik: `p1` jadi salah satu ujung, `p3`
@@ -59,6 +69,28 @@ pub fn arc_from_three_points(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<Entity> 
     })
 }
 
+/// Busur dari titik pusat: `start` menentukan radius dan sudut awal,
+/// `end` hanya menentukan sudut akhir (arah CCW dari `start`).
+pub fn arc_from_center(center: DVec2, start: DVec2, end: DVec2) -> Option<Entity> {
+    let radius = (start - center).length();
+    let to_end = end - center;
+    if !radius.is_finite() || radius < 1e-9 || to_end.length() < 1e-9 {
+        return None;
+    }
+    let start_angle = (start - center).y.atan2((start - center).x);
+    let end_angle = to_end.y.atan2(to_end.x);
+    if (end_angle - start_angle).abs() < 1e-9 {
+        return None;
+    }
+    Some(Entity::Arc { center, radius, start_angle, end_angle, is_construction: false })
+}
+
+/// Sudut berlawanan persegi panjang yang digambar dari pusat `center` ke
+/// sudut `corner`.
+pub fn rect_opposite_corner_from_center(center: DVec2, corner: DVec2) -> DVec2 {
+    center * 2.0 - corner
+}
+
 pub(crate) fn circumcenter(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<DVec2> {
     let (ax, ay) = (p1.x, p1.y);
     let (bx, by) = (p2.x, p2.y);
@@ -79,6 +111,8 @@ pub(crate) fn circumcenter(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<DVec2> {
 pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> {
     let is_construction = entity.is_construction();
     match entity {
+        // Titik tidak punya "sejajar".
+        Entity::Point { .. } => None,
         Entity::Line { start, end, .. } => {
             let dir = (*end - *start).normalize_or_zero();
             if dir == DVec2::ZERO {
@@ -228,6 +262,10 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
     let is_construction = entity.is_construction();
 
     Some(match entity {
+        Entity::Point { pos, .. } => Entity::Point {
+            pos: reflect(*pos),
+            is_construction,
+        },
         Entity::Line { start, end, .. } => Entity::Line {
             start: reflect(*start),
             end: reflect(*end),
@@ -282,6 +320,10 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
 pub fn translate_entity(entity: &Entity, delta: DVec2) -> Entity {
     let is_construction = entity.is_construction();
     match entity {
+        Entity::Point { pos, .. } => Entity::Point {
+            pos: *pos + delta,
+            is_construction,
+        },
         Entity::Line { start, end, .. } => Entity::Line {
             start: *start + delta,
             end: *end + delta,
@@ -860,6 +902,10 @@ pub fn rotate_point(p: DVec2, pivot: DVec2, angle_rad: f64) -> DVec2 {
 pub fn rotate_entity(entity: &Entity, pivot: DVec2, angle_rad: f64) -> Entity {
     let is_construction = entity.is_construction();
     match entity {
+        Entity::Point { pos, .. } => Entity::Point {
+            pos: rotate_point(*pos, pivot, angle_rad),
+            is_construction,
+        },
         Entity::Line { start, end, .. } => Entity::Line {
             start: rotate_point(*start, pivot, angle_rad),
             end: rotate_point(*end, pivot, angle_rad),
@@ -1069,6 +1115,9 @@ pub fn regular_polygon_vertices(
     sides: usize,
     mode: PolygonMode,
 ) -> Option<Vec<DVec2>> {
+    if mode == PolygonMode::Edge {
+        return crate::construct2d::edge_polygon_vertices(center, point2, sides);
+    }
     let sides = sides.max(3);
     let delta = point2 - center;
     let r = delta.length();
@@ -1079,7 +1128,7 @@ pub fn regular_polygon_vertices(
     let step_angle = TAU / sides as f64;
 
     let (r_vertex, start_angle) = match mode {
-        PolygonMode::Inscribed => (r, base_angle),
+        PolygonMode::Inscribed | PolygonMode::Edge => (r, base_angle),
         PolygonMode::Circumscribed => {
             let half_step = PI / sides as f64;
             let r_v = r / half_step.cos();
@@ -1158,6 +1207,10 @@ pub fn slot_from_radius(
 
     let (c1, c2) = match mode {
         SlotMode::CenterToCenter => (p1, p2),
+        // `p1` = pusat slot: busur ujung pertama adalah cerminan `p2`.
+        SlotMode::CenterPoint => (p1 * 2.0 - p2, p2),
+        // Slot busur butuh 4 titik — lihat `construct2d::arc_slot`.
+        SlotMode::ArcCenter | SlotMode::ArcThreePoint => return None,
         SlotMode::Overall => {
             if len <= 2.0 * radius {
                 let mid = (p1 + p2) * 0.5;
@@ -1482,6 +1535,8 @@ pub fn ray_intersect_entity(origin: DVec2, dir: DVec2, entity: &Entity) -> Vec<f
         return Vec::new();
     }
     match entity {
+        // Sinar praktis tak pernah tepat mengenai titik; abaikan.
+        Entity::Point { .. } => Vec::new(),
         Entity::Line { start, end, .. } => {
             let v = *end - *start;
             let denom = dir.x * v.y - dir.y * v.x;

@@ -92,6 +92,21 @@ pub struct Sketch {
     /// Palet swatch warna tersimpan pada sketch/dokumen.
     #[serde(default)]
     pub swatches: Vec<Rgba>,
+    /// Garis konstruksi yang dirender tak hingga (Paritas 1.12). Metadata
+    /// terpisah agar `Entity::Line` tidak berubah; id yang sudah tidak ada
+    /// diabaikan saat render.
+    #[serde(default)]
+    pub infinite_lines: HashSet<EntityId>,
+
+    /// Offset teks dimensi yang dipindah pengguna (Paritas 1.17), ruang
+    /// sketch mm relatif terhadap posisi label bawaan.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dim_text_offsets: Vec<crate::dim_text::DimTextOffset>,
+
+    /// Entitas linked hasil Project/Intersect (Paritas 1.14): asal body/tepi
+    /// tiap entitas. Lihat modul `link`; disimpan sebagai daftar pasangan.
+    #[serde(default, with = "crate::link::pairs", skip_serializing_if = "HashMap::is_empty")]
+    pub linked: HashMap<EntityId, crate::link::LinkSource>,
 
     /// Revisi per entitas; naik setiap kali entitas berubah lewat command.
     #[serde(skip)]

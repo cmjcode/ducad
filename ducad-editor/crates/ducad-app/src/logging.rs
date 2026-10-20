@@ -95,13 +95,66 @@ impl Write for Tee {
     }
 }
 
-/// Catat setiap panik ke log (lokasi + pesan) sebelum hook bawaan
-/// mencetaknya ke stderr, supaya penyebab crash ada di berkas log.
+/// Jurnal panik (diperkenalkan untuk soak 0.6.0-beta, PLAN_MIGRASI_TRUCK
+/// F6.3): satu baris JSON per panik di [`log_dir`], TIDAK ikut dirotasi tiap
+/// start sehingga bisa dihitung per versi. Hanya lokal — tidak pernah
+/// dikirim ke mana pun; pengguna beta melampirkannya ke laporan bila diminta.
+pub const PANIC_JOURNAL: &str = "panics.jsonl";
+/// Jurnal berhenti tumbuh setelah ukuran ini.
+pub const MAX_JOURNAL_BYTES: u64 = 1024 * 1024;
+
+/// Satu entri jurnal: `{"ts","version","backend","thread","location","message"}`.
+pub fn panic_record(
+    ts: &str,
+    thread: &str,
+    location: Option<String>,
+    message: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "ts": ts,
+        "version": env!("CARGO_PKG_VERSION"),
+        "backend": ducad_kernel::BACKEND,
+        "thread": thread,
+        "location": location,
+        "message": message,
+    })
+}
+
+/// Tambahkan `record` ke jurnal di `dir`. Gagal tulis atau jurnal penuh
+/// diabaikan (tidak boleh memperparah panik).
+pub fn append_panic_record(dir: &Path, record: &serde_json::Value) {
+    let path = dir.join(PANIC_JOURNAL);
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() >= MAX_JOURNAL_BYTES) {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{record}");
+    }
+}
+
+/// Catat setiap panik ke log (lokasi + pesan) dan ke jurnal panik sebelum
+/// hook bawaan mencetaknya ke stderr, supaya penyebab crash ada di berkas.
+/// Panik yang kemudian ditangkap `catch_unwind` (op kernel, tool MCP) ikut
+/// tercatat — justru itu yang dihitung selama soak backend kernel.
 pub fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         log::error!("PANIK: {info}");
         log::logger().flush();
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panic".to_string());
+        let record = panic_record(
+            &chrono::Utc::now().to_rfc3339(),
+            std::thread::current().name().unwrap_or("?"),
+            info.location().map(|l| format!("{}:{}", l.file(), l.line())),
+            &message,
+        );
+        append_panic_record(&log_dir(), &record);
         previous(info);
     }));
 }
@@ -129,8 +182,9 @@ pub fn init() -> Option<PathBuf> {
         .try_init();
     install_panic_hook();
     log::info!(
-        "DUCAD {} dimulai; log: {}",
+        "DUCAD {} (kernel {}) dimulai; log: {}",
         env!("CARGO_PKG_VERSION"),
+        ducad_kernel::BACKEND,
         path.as_ref()
             .map_or_else(|| "stderr saja".to_string(), |p| p.display().to_string())
     );
@@ -163,6 +217,28 @@ mod tests {
         assert_eq!(read(1).trim(), "sesi 2");
         assert_eq!(read(2).trim(), "sesi 1");
         assert!(!numbered(&dir, 3).exists(), "yang tertua dibuang");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn panic_journal_appends_one_json_line_per_panic_and_stops_at_cap() {
+        let dir = temp_dir("journal");
+        let rec = panic_record("2026-10-19T00:00:00+00:00", "main", Some("a.rs:1".into()), "boom");
+        append_panic_record(&dir, &rec);
+        append_panic_record(&dir, &rec);
+        let text = std::fs::read_to_string(dir.join(PANIC_JOURNAL)).unwrap();
+        let lines: Vec<serde_json::Value> =
+            text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["backend"], ducad_kernel::BACKEND);
+        assert_eq!(lines[0]["message"], "boom");
+        assert_eq!(lines[0]["location"], "a.rs:1");
+
+        let big = "x".repeat(MAX_JOURNAL_BYTES as usize);
+        std::fs::write(dir.join(PANIC_JOURNAL), big).unwrap();
+        append_panic_record(&dir, &rec);
+        let len = std::fs::metadata(dir.join(PANIC_JOURNAL)).unwrap().len();
+        assert_eq!(len, MAX_JOURNAL_BYTES, "jurnal penuh tidak ditambah");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

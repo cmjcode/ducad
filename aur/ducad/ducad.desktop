@@ -2,7 +2,7 @@
 Type=Application
 Name=DUCAD
 GenericName=CAD
-Comment=Parametric 2D/3D CAD on the OpenCASCADE kernel
+Comment=Parametric 2D/3D B-rep CAD
 TryExec=ducad
 Exec=ducad
 Icon=ducad

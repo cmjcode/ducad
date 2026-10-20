@@ -41,7 +41,7 @@ sampai file `.icns` disediakan dan didaftarkan lewat `icon = ["path/ke
 
 `cargo build --release` menghasilkan `.exe` (Windows) / binary ELF (Linux)
 yang jalan langsung tanpa bundling — DUCAD tidak punya dependensi native
-selain yang sudah di-static-link OCCT/wgpu saat build. Installer
+selain yang sudah di-static-link saat build (kernel Rust murni, wgpu). Installer
 (`.msi`/`.exe` installer Windows lewat `cargo-wix`, `.AppImage`/`.deb`
 Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
 
@@ -49,9 +49,9 @@ Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
 
 Metadata paket ada di `aur/ducad/` (root repo): `PKGBUILD`, `ducad.desktop`,
 dan `.SRCINFO` hasil generate. PKGBUILD membangun dari tag `v<versi>` di
-GitHub lewat sumber `git+` — bukan tarball — karena binding OCCT ada di
-submodule `ducad-editor/vendors/opencascade-rs` yang tidak ikut tarball.
-OCCT dipakai dari paket sistem Arch `opencascade` (>= 7.8), dilink dinamis.
+GitHub lewat sumber `git+`. Sejak 0.6.0 kernel geometri (SolidCraft/truck)
+adalah Rust murni yang di-vendor di repo — tanpa submodule, tanpa pustaka
+CAD sistem, tanpa cmake.
 Terpasang: `ducad`, `ducad-cli`, `ducad-mcp`, entri desktop, ikon, lisensi.
 
 Alur rilis:
@@ -90,7 +90,7 @@ tersedia di sandbox agent — sama alasan dengan TestFlight iOS di Fase 6:
 - **Ikon aplikasi** (`.icns`/`.ico`/PNG) — butuh aset visual, di luar
   lingkup kerja kode.
 - **iOS packaging** (`.ipa`, TestFlight) — `./build_ipad.sh ipa|publish`
-  (pre-build OCCT untuk iOS otomatis). Lihat `docs/TABLET.md`.
+  (tanpa pre-build C++). Lihat `docs/TABLET.md`.
 - **Android** — `make android-apk` menghasilkan APK debug (lihat
   `docs/TABLET.md`); signing rilis (keystore) di luar sandbox agent, sama
   alasannya dengan macOS.

@@ -7,8 +7,8 @@
 //! - **Mati secara default**; dinyalakan lewat command palette ("Agent
 //!   Bridge") dan tidak tersedia saat privasi AI `OfflineOnly`.
 //! - Thread latar hanya MEMBACA baris dan meneruskannya; seluruh eksekusi
-//!   terjadi di UI thread (kernel sudah diserialkan `lock_kernel`, dan
-//!   `KernelShape` tidak `Send`).
+//!   terjadi di UI thread (satu batch agent = satu langkah undo GUI yang
+//!   konsisten dengan state yang sedang dilihat pengguna).
 //! - Op dijalankan di atas state GUI lewat [`ducad_engine::SessionCore`],
 //!   jadi satu batch agent = satu langkah undo GUI.
 
@@ -411,7 +411,8 @@ impl DuCADApp {
                     visible: meta.visible,
                     material: meta.material,
                     mechanical: meta.mechanical.clone(),
-                    step: shape.to_step_string().ok()?,
+                    step: Some(shape.to_step_string().ok()?),
+                    brep: None,
                     round_history: None,
                 })
             })

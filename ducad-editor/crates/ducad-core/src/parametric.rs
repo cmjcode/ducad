@@ -326,6 +326,19 @@ pub struct ParametricDag {
     pub next_id: FeatureId,
     /// Rollback index marker: Jika Some(index), fitur setelah index ini dianggap ditahan/dirollback.
     pub rollback_marker: Option<usize>,
+    /// Folder fitur (Paritas 3.3): metadata tampilan, tidak memengaruhi regenerasi.
+    #[serde(default)]
+    pub groups: Vec<FeatureGroup>,
+}
+
+/// Folder/grup fitur di Feature Tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeatureGroup {
+    pub id: u64,
+    pub name: String,
+    pub members: Vec<FeatureId>,
+    #[serde(default)]
+    pub collapsed: bool,
 }
 
 impl ParametricDag {
@@ -334,6 +347,7 @@ impl ParametricDag {
             nodes: Vec::new(),
             next_id: 1,
             rollback_marker: None,
+            groups: Vec::new(),
         }
     }
 
@@ -346,10 +360,209 @@ impl ParametricDag {
     ) -> FeatureId {
         let id = self.next_id;
         self.next_id += 1;
-        let order = self.nodes.len();
-        let node = FeatureNode::new(id, name, payload, order).with_dependencies(dependencies);
-        self.nodes.push(node);
+        let node = FeatureNode::new(id, name, payload, 0).with_dependencies(dependencies);
+        // Paritas 3.6: dengan roll-to marker aktif, fitur baru disisipkan di
+        // posisi marker (lalu marker maju satu).
+        match self.rollback_marker {
+            Some(m) if m + 1 < self.nodes.len() => {
+                self.nodes.insert(m + 1, node);
+                self.rollback_marker = Some(m + 1);
+            }
+            _ => {
+                self.nodes.push(node);
+                if self.rollback_marker.is_some() {
+                    self.rollback_marker = None;
+                }
+            }
+        }
+        self.reindex();
         id
+    }
+
+    fn reindex(&mut self) {
+        for (idx, node) in self.nodes.iter_mut().enumerate() {
+            node.order_index = idx;
+        }
+    }
+
+    /// Posisi fitur `id` dalam urutan timeline.
+    pub fn position(&self, id: FeatureId) -> Option<usize> {
+        self.nodes.iter().position(|n| n.id == id)
+    }
+
+    /// Paritas 3.1: pindahkan fitur ke posisi `to` (indeks setelah fitur
+    /// dikeluarkan). Ditolak bila melompati induknya (harus tetap sesudah
+    /// semua dependensi) atau melompati turunan langsungnya.
+    pub fn move_feature(&mut self, id: FeatureId, to: usize) -> Result<(), String> {
+        let from = self.position(id).ok_or_else(|| format!("fitur #{id} tidak ada"))?;
+        let to = to.min(self.nodes.len().saturating_sub(1));
+        if from == to {
+            return Ok(());
+        }
+        let node = self.nodes.remove(from);
+        let pos_of = |nodes: &[FeatureNode], fid: FeatureId| nodes.iter().position(|n| n.id == fid);
+        // Semua induk harus berada sebelum `to`.
+        if let Some(parent) = node
+            .dependencies
+            .iter()
+            .filter_map(|d| pos_of(&self.nodes, *d).map(|p| (p, *d)))
+            .find(|(p, _)| *p >= to)
+        {
+            self.nodes.insert(from, node);
+            return Err(format!("fitur tidak boleh dipindah sebelum induknya #{}", parent.1));
+        }
+        // Semua turunan langsung harus berada sesudah `to`.
+        if let Some(child) = self
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(p, n)| n.dependencies.contains(&id) && *p < to)
+            .map(|(_, n)| n.id)
+        {
+            self.nodes.insert(from, node);
+            return Err(format!("fitur tidak boleh dipindah sesudah turunannya #{child}"));
+        }
+        self.nodes.insert(to, node);
+        self.reindex();
+        // Fitur yang urutannya berubah perlu dievaluasi ulang.
+        let (lo, hi) = (from.min(to), from.max(to));
+        let touched: Vec<FeatureId> = self.nodes[lo..=hi].iter().map(|n| n.id).collect();
+        for fid in touched {
+            if let Some(n) = self.get_feature_mut(fid) {
+                if !n.is_suppressed {
+                    n.status = FeatureStatus::NeedsRegeneration;
+                }
+            }
+            self.mark_dirty_downstream(fid);
+        }
+        Ok(())
+    }
+
+    /// Paritas 3.2: ganti nama fitur (nama kosong ditolak).
+    pub fn rename_feature(&mut self, id: FeatureId, name: &str) -> bool {
+        let name = name.trim();
+        match self.get_feature_mut(id) {
+            Some(n) if !name.is_empty() => {
+                n.name = name.to_string();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Paritas 3.4: tempel salinan fitur (`copied`, mis. dari clipboard)
+    /// setelah posisi `after` (atau di akhir / di marker). Dependensi ke
+    /// sesama fitur yang disalin dipetakan ke salinannya; dependensi ke fitur
+    /// lain dipertahankan bila fitur itu masih ada.
+    pub fn paste_features(&mut self, copied: &[FeatureNode], after: Option<FeatureId>) -> Vec<FeatureId> {
+        let mut map: HashMap<FeatureId, FeatureId> = HashMap::new();
+        let mut out = Vec::new();
+        let mut insert_at = after.and_then(|a| self.position(a)).map(|p| p + 1);
+        for src in copied {
+            let id = self.next_id;
+            self.next_id += 1;
+            map.insert(src.id, id);
+            let deps: Vec<FeatureId> = src
+                .dependencies
+                .iter()
+                .filter_map(|d| map.get(d).copied().or_else(|| self.get_feature(*d).map(|n| n.id)))
+                .collect();
+            let mut node = FeatureNode::new(id, format!("{} (salinan)", src.name), src.payload.clone(), 0)
+                .with_dependencies(deps);
+            node.status = FeatureStatus::NeedsRegeneration;
+            node.is_suppressed = src.is_suppressed;
+            match insert_at {
+                Some(p) if p <= self.nodes.len() => {
+                    self.nodes.insert(p, node);
+                    insert_at = Some(p + 1);
+                    if let Some(m) = self.rollback_marker {
+                        if p <= m + 1 {
+                            self.rollback_marker = Some(m + 1);
+                        }
+                    }
+                }
+                _ => match self.rollback_marker {
+                    Some(m) if m + 1 < self.nodes.len() => {
+                        self.nodes.insert(m + 1, node);
+                        self.rollback_marker = Some(m + 1);
+                    }
+                    _ => self.nodes.push(node),
+                },
+            }
+            out.push(id);
+        }
+        self.reindex();
+        out
+    }
+
+    /// Paritas 3.5: fitur yang bergantung (langsung/tak langsung) pada `id`
+    /// dan fitur yang menjadi induknya.
+    pub fn dependency_highlight(&self, id: FeatureId) -> (Vec<FeatureId>, Vec<FeatureId>) {
+        let downstream = self.get_downstream_dependents(id);
+        let mut upstream = Vec::new();
+        let mut stack: Vec<FeatureId> = self.get_feature(id).map(|n| n.dependencies.clone()).unwrap_or_default();
+        while let Some(d) = stack.pop() {
+            if upstream.contains(&d) {
+                continue;
+            }
+            if let Some(n) = self.get_feature(d) {
+                upstream.push(d);
+                stack.extend(n.dependencies.iter().copied());
+            }
+        }
+        (downstream, upstream)
+    }
+
+    /// Paritas 3.6: pasang roll-to marker setelah fitur `id` (`None` =
+    /// lepas marker, semua fitur aktif).
+    pub fn set_rollback_after(&mut self, id: Option<FeatureId>) {
+        self.rollback_marker = id.and_then(|i| self.position(i)).filter(|p| p + 1 < self.nodes.len());
+        for n in &mut self.nodes {
+            if !n.is_suppressed {
+                n.status = FeatureStatus::NeedsRegeneration;
+            }
+        }
+    }
+
+    /// Apakah fitur `id` berada setelah roll-to marker (tidak dievaluasi).
+    pub fn is_rolled_back(&self, id: FeatureId) -> bool {
+        match (self.rollback_marker, self.position(id)) {
+            (Some(m), Some(p)) => p > m,
+            _ => false,
+        }
+    }
+
+    /// Paritas 3.3: buat folder berisi `members` (yang sudah ada di folder
+    /// lain dipindah ke sini).
+    pub fn create_group(&mut self, name: &str, members: &[FeatureId]) -> Option<u64> {
+        let members: Vec<FeatureId> = members.iter().copied().filter(|m| self.get_feature(*m).is_some()).collect();
+        if members.is_empty() {
+            return None;
+        }
+        for g in &mut self.groups {
+            g.members.retain(|m| !members.contains(m));
+        }
+        self.groups.retain(|g| !g.members.is_empty());
+        let id = self.groups.iter().map(|g| g.id).max().unwrap_or(0) + 1;
+        let name = if name.trim().is_empty() { format!("Folder {id}") } else { name.trim().to_string() };
+        self.groups.push(FeatureGroup { id, name, members, collapsed: false });
+        Some(id)
+    }
+
+    /// Bubarkan folder `id` (fiturnya tetap ada).
+    pub fn ungroup(&mut self, id: u64) -> bool {
+        let before = self.groups.len();
+        self.groups.retain(|g| g.id != id);
+        self.groups.len() != before
+    }
+
+    /// Folder yang memuat fitur `id`.
+    pub fn group_of(&self, id: FeatureId) -> Option<&FeatureGroup> {
+        self.groups.iter().find(|g| g.members.contains(&id))
+    }
+
+    pub fn group_mut(&mut self, id: u64) -> Option<&mut FeatureGroup> {
+        self.groups.iter_mut().find(|g| g.id == id)
     }
 
     /// Ambil referensi ke fitur berdasarkan ID.
@@ -390,6 +603,14 @@ impl ParametricDag {
             // Re-index order
             for (idx, node) in self.nodes.iter_mut().enumerate() {
                 node.order_index = idx;
+            }
+            for g in &mut self.groups {
+                g.members.retain(|&m| m != id);
+            }
+            self.groups.retain(|g| !g.members.is_empty());
+            if let Some(m) = self.rollback_marker {
+                let m = if pos <= m { m.checked_sub(1) } else { Some(m) };
+                self.rollback_marker = m.filter(|m| m + 1 < self.nodes.len());
             }
             true
         } else {
@@ -540,12 +761,87 @@ impl ParametricDag {
         self.nodes.clear();
         self.next_id = 1;
         self.rollback_marker = None;
+        self.groups.clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn chain() -> (ParametricDag, FeatureId, FeatureId, FeatureId) {
+        let mut dag = ParametricDag::new();
+        let p = FeaturePayload::Custom { kind_name: "x".into(), description: "x".into() };
+        let a = dag.add_feature("A", p.clone(), vec![]);
+        let b = dag.add_feature("B", p.clone(), vec![a]);
+        let c = dag.add_feature("C", p, vec![]);
+        (dag, a, b, c)
+    }
+
+    #[test]
+    fn move_respects_dependencies() {
+        let (mut dag, a, b, c) = chain();
+        assert!(dag.move_feature(b, 0).is_err(), "B tidak boleh sebelum induknya A");
+        assert!(dag.move_feature(a, 2).is_err(), "A tidak boleh sesudah turunannya B");
+        assert_eq!(dag.position(a), Some(0));
+        dag.move_feature(c, 0).unwrap();
+        let order: Vec<_> = dag.nodes.iter().map(|n| n.id).collect();
+        assert_eq!(order, vec![c, a, b]);
+        assert_eq!(dag.nodes[2].order_index, 2);
+        assert!(dag.move_feature(999, 0).is_err());
+    }
+
+    #[test]
+    fn rename_paste_and_highlight() {
+        let (mut dag, a, b, _c) = chain();
+        assert!(dag.rename_feature(a, " Alas "));
+        assert_eq!(dag.get_feature(a).unwrap().name, "Alas");
+        assert!(!dag.rename_feature(a, "  "));
+        let copied: Vec<FeatureNode> = [a, b].iter().map(|i| dag.get_feature(*i).unwrap().clone()).collect();
+        let new_ids = dag.paste_features(&copied, Some(b));
+        assert_eq!(new_ids.len(), 2);
+        let pasted_b = dag.get_feature(new_ids[1]).unwrap();
+        assert_eq!(pasted_b.dependencies, vec![new_ids[0]], "dependensi dipetakan ke salinan");
+        assert_eq!(dag.position(new_ids[0]), Some(2));
+        let (down, up) = dag.dependency_highlight(a);
+        assert_eq!(down, vec![b]);
+        assert!(up.is_empty());
+        let (_, up) = dag.dependency_highlight(b);
+        assert_eq!(up, vec![a]);
+    }
+
+    #[test]
+    fn rollback_marker_inserts_new_features_at_marker() {
+        let (mut dag, a, b, c) = chain();
+        dag.set_rollback_after(Some(a));
+        assert!(dag.is_rolled_back(b) && dag.is_rolled_back(c) && !dag.is_rolled_back(a));
+        let p = FeaturePayload::Custom { kind_name: "y".into(), description: "y".into() };
+        let d = dag.add_feature("D", p, vec![a]);
+        assert_eq!(dag.position(d), Some(1));
+        assert!(!dag.is_rolled_back(d));
+        assert!(dag.is_rolled_back(b));
+        dag.set_rollback_after(None);
+        assert!(!dag.is_rolled_back(b));
+        dag.set_rollback_after(Some(c));
+        assert_eq!(dag.rollback_marker, None, "marker di akhir = tanpa marker");
+    }
+
+    #[test]
+    fn groups_follow_membership() {
+        let (mut dag, a, b, c) = chain();
+        let g1 = dag.create_group("Dasar", &[a, b]).unwrap();
+        let g2 = dag.create_group("", &[b, c]).unwrap();
+        assert_eq!(dag.group_of(a).unwrap().id, g1);
+        assert_eq!(dag.group_of(b).unwrap().id, g2);
+        assert!(dag.group_mut(g2).unwrap().name.starts_with("Folder"));
+        dag.remove_feature(a);
+        assert!(dag.groups.iter().all(|g| g.id != g1), "folder kosong dibuang");
+        assert!(dag.ungroup(g2));
+        assert!(dag.create_group("x", &[999]).is_none());
+        let json = serde_json::to_string(&dag).unwrap();
+        let back: ParametricDag = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.nodes.len(), dag.nodes.len());
+    }
 
     #[test]
     fn test_dag_creation_and_topological_sort() {

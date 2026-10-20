@@ -1001,6 +1001,13 @@ pub fn transform_entity(entity: &Entity, affine: kurbo::Affine) -> Entity {
                 is_construction: *is_construction,
             }
         }
+        Entity::Point {
+            pos,
+            is_construction,
+        } => Entity::Point {
+            pos: apply_affine(affine, *pos),
+            is_construction: *is_construction,
+        },
         Entity::Line {
             start,
             end,

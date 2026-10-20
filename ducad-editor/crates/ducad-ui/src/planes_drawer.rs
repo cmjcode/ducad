@@ -1,9 +1,11 @@
-//! Reference Planes Drawer — Panel Daftar Bidang Kerja 3D bergaya Shapr3D.
+//! Datum Drawer — Panel daftar geometri referensi 3D bergaya Shapr3D.
 //!
-//! Menampilkan daftar bidang referensi (Top, Front, Right, serta Datum Plane kustom)
-//! di pojok kanan bawah kanvas, lengkap dengan badge status aktif, tombol ganti bidang instan,
-//! tombol pembuatan bidang baru, dan penghapusan bidang kustom.
+//! Menampilkan bidang referensi (Top, Front, Right, serta Datum Plane kustom),
+//! sumbu datum, dan titik datum (Paritas Fase 1A butir 1.5) di pojok kanan
+//! bawah kanvas: badge status aktif, ganti bidang instan, buat datum baru,
+//! tampil/sembunyi, ganti nama (klik ganda / tombol edit), dan hapus.
 
+use crate::datum_hud::DatumKind;
 use crate::theme::{
     card_frame, glass_frame, ACCENT_BLUE, ACCENT_ORANGE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
     TEXT_SECONDARY,
@@ -13,7 +15,8 @@ use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
 };
 use egui_icons::icons::{
-    ICON_ADD, ICON_CLEAR, ICON_CLOSE, ICON_DELETE, ICON_GRID_4X4, ICON_LAYERS_OFF, ICON_SEARCH,
+    ICON_ADD, ICON_CLEAR, ICON_CLOSE, ICON_DELETE, ICON_EDIT, ICON_GRID_4X4, ICON_LAYERS_OFF,
+    ICON_SEARCH, ICON_VISIBILITY, ICON_VISIBILITY_OFF,
 };
 
 #[derive(Debug, Clone)]
@@ -23,6 +26,18 @@ pub struct PlaneItemInfo {
     pub is_active: bool,
     pub is_custom: bool,
     pub custom_id: Option<u32>,
+    /// Bidang kustom: tampil di viewport. Bidang standar selalu `true`.
+    pub visible: bool,
+}
+
+/// Sumbu atau titik datum di drawer (Paritas 1.5).
+#[derive(Debug, Clone)]
+pub struct DatumItemInfo {
+    /// `Axis` atau `Point` (bidang memakai [`PlaneItemInfo`]).
+    pub kind: DatumKind,
+    pub id: u32,
+    pub name: String,
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -31,12 +46,36 @@ pub enum PlanesDrawerEvent {
     DeletePlane(u32),
     CreateNewPlane,
     Close,
+    /// Buka tool Datum dengan jenis tertentu.
+    CreateDatum(DatumKind),
+    /// Tampil/sembunyikan datum `(jenis, id)`; bidang memakai id kustomnya.
+    ToggleVisible(DatumKind, u32),
+    /// Ganti nama datum `(jenis, id, nama baru)`.
+    Rename(DatumKind, u32, String),
+    /// Hapus sumbu/titik datum (bidang memakai [`Self::DeletePlane`]).
+    DeleteDatum(DatumKind, u32),
 }
 
 #[derive(Default)]
 pub struct PlanesDrawer {
     pub search_query: String,
     pub custom_height: Option<f32>,
+    /// Datum yang sedang diganti namanya: `(jenis, id, teks sunting)`.
+    pub renaming: Option<(DatumKind, u32, String)>,
+}
+
+/// Satu baris kartu datum generik (dipakai bidang, sumbu, titik).
+struct CardSpec<'a> {
+    kind: DatumKind,
+    /// `None` = bidang standar (tidak bisa disunting/dihapus/disembunyikan).
+    id: Option<u32>,
+    name: &'a str,
+    is_active: bool,
+    visible: bool,
+    icon: &'static str,
+    /// Klik nama → event ini (bidang: aktifkan).
+    on_click: Option<PlanesDrawerEvent>,
+    delete: Option<PlanesDrawerEvent>,
 }
 
 impl PlanesDrawer {
@@ -49,6 +88,7 @@ impl PlanesDrawer {
         &mut self,
         ui: &mut Ui,
         planes: &[PlaneItemInfo],
+        datums: &[DatumItemInfo],
         max_height: f32,
         _anchor_bottom_y: f32,
     ) -> Option<PlanesDrawerEvent> {
@@ -63,19 +103,20 @@ impl PlanesDrawer {
                 ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
 
                 let query = self.search_query.trim().to_lowercase();
-                let filtered: Vec<&PlaneItemInfo> = planes
+                let matches = |name: &str| query.is_empty() || name.to_lowercase().contains(&query);
+                let filtered: Vec<&PlaneItemInfo> =
+                    planes.iter().filter(|item| matches(&item.name)).collect();
+                let axes: Vec<&DatumItemInfo> = datums
                     .iter()
-                    .filter(|item| {
-                        if query.is_empty() {
-                            true
-                        } else {
-                            item.name.to_lowercase().contains(&query)
-                        }
-                    })
+                    .filter(|d| d.kind == DatumKind::Axis && matches(&d.name))
                     .collect();
+                let points: Vec<&DatumItemInfo> = datums
+                    .iter()
+                    .filter(|d| d.kind == DatumKind::Point && matches(&d.name))
+                    .collect();
+                let rows = filtered.len() + axes.len() + points.len() + 3;
 
-                let estimated_h =
-                    (100.0 + (filtered.len().max(1) as f32 * 46.0)).clamp(140.0, max_height);
+                let estimated_h = (100.0 + (rows as f32 * 40.0)).clamp(140.0, max_height);
                 let panel_h = self.custom_height.unwrap_or(estimated_h);
 
                 // =========================================================================
@@ -93,14 +134,14 @@ impl PlanesDrawer {
 
                     // Judul Panel
                     ui.label(
-                        RichText::new(t!("planes-drawer-title"))
+                        RichText::new(t!("datum-drawer-title"))
                             .size(12.0)
                             .strong()
                             .color(TEXT_PRIMARY),
                     );
 
                     // Badge Angka Lingkaran Total Bidang
-                    let count_str = planes.len().to_string();
+                    let count_str = (planes.len() + datums.len()).to_string();
                     let font_id = egui::FontId::proportional(9.0);
                     let galley = ui.painter().layout_no_wrap(
                         count_str.clone(),
@@ -218,7 +259,7 @@ impl PlanesDrawer {
                 ui.add_space(2.0);
 
                 // =========================================================================
-                // 3. DAFTAR KARTU BIDANG (SCROLL AREA)
+                // 3. DAFTAR DATUM (SCROLL AREA): Bidang, Sumbu, Titik
                 // =========================================================================
                 ScrollArea::vertical()
                     .id_salt("planes_drawer_scroll")
@@ -227,135 +268,61 @@ impl PlanesDrawer {
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
 
+                        // --- Bidang ---
+                        if let Some(ev) = Self::section_header(ui, DatumKind::Plane, filtered.len()) {
+                            event = Some(ev);
+                        }
                         if filtered.is_empty() {
-                            ui.add_space(10.0);
-                            ui.vertical_centered(|ui| {
-                                ui.label(
-                                    RichText::new(ICON_GRID_4X4.codepoint)
-                                        .size(24.0)
-                                        .color(TEXT_MUTED),
-                                );
-                                ui.add_space(3.0);
-                                ui.label(
-                                    RichText::new(t!("planes-drawer-empty"))
-                                        .size(10.5)
-                                        .color(TEXT_MUTED),
-                                );
-                            });
-                            ui.add_space(10.0);
-                        } else {
-                            for plane in filtered {
-                                ui.push_id(format!("plane_item_{}", plane.index), |ui| {
-                                    let is_active = plane.is_active;
+                            Self::empty_row(ui, &t!("planes-drawer-empty"));
+                        }
+                        for plane in filtered {
+                            let spec = CardSpec {
+                                kind: DatumKind::Plane,
+                                id: plane.custom_id,
+                                name: &plane.name,
+                                is_active: plane.is_active,
+                                visible: plane.visible,
+                                icon: if plane.is_custom {
+                                    ICON_GRID_4X4.codepoint
+                                } else {
+                                    ICON_LAYERS_OFF.codepoint
+                                },
+                                on_click: Some(PlanesDrawerEvent::SelectPlane(plane.index)),
+                                delete: plane.custom_id.map(PlanesDrawerEvent::DeletePlane),
+                            };
+                            if let Some(ev) = self.card(ui, &format!("plane_item_{}", plane.index), spec) {
+                                event = Some(ev);
+                            }
+                        }
 
-                                    let card_bg = if is_active {
-                                        Color32::from_rgb(18, 38, 68)
-                                    } else {
-                                        Color32::from_rgb(26, 29, 36)
-                                    };
-
-                                    let card_stroke = if is_active {
-                                        Stroke::new(1.0, ACCENT_BLUE)
-                                    } else {
-                                        Stroke::new(0.5, BORDER_SUBTLE)
-                                    };
-
-                                    card_frame()
-                                        .fill(card_bg)
-                                        .stroke(card_stroke)
-                                        .corner_radius(CornerRadius::same(5))
-                                        .inner_margin(Margin::symmetric(7, 5))
-                                        .show(ui, |ui| {
-                                            ui.set_width(ui.available_width());
-                                            ui.horizontal(|ui| {
-                                                ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
-
-                                                // Ikon Bidang
-                                                let icon = if plane.is_custom {
-                                                    ICON_GRID_4X4.codepoint
-                                                } else {
-                                                    ICON_LAYERS_OFF.codepoint
-                                                };
-                                                let icon_color = if is_active {
-                                                    ACCENT_BLUE
-                                                } else if plane.is_custom {
-                                                    ACCENT_ORANGE
-                                                } else {
-                                                    TEXT_SECONDARY
-                                                };
-
-                                                ui.label(
-                                                    RichText::new(icon)
-                                                        .size(12.5)
-                                                        .color(icon_color),
-                                                );
-
-                                                // Nama Bidang (Area klik untuk mengaktifkan bidang)
-                                                let text_color = if is_active {
-                                                    Color32::WHITE
-                                                } else {
-                                                    TEXT_PRIMARY
-                                                };
-                                                let name_resp = ui.add(
-                                                    egui::Label::new(
-                                                        RichText::new(&plane.name)
-                                                            .size(11.0)
-                                                            .strong()
-                                                            .color(text_color),
-                                                    )
-                                                    .sense(egui::Sense::click()),
-                                                );
-
-                                                if name_resp.hovered() {
-                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                                                }
-                                                if name_resp.clicked() {
-                                                    event = Some(PlanesDrawerEvent::SelectPlane(plane.index));
-                                                }
-
-                                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                                    // Tombol Hapus (khusus custom plane)
-                                                    if let Some(custom_id) = plane.custom_id {
-                                                        let del_btn = ui.add(
-                                                            egui::Button::new(
-                                                                RichText::new(ICON_DELETE.codepoint)
-                                                                    .size(13.0)
-                                                                    .color(Color32::from_rgb(240, 90, 90)),
-                                                            )
-                                                            .frame(false)
-                                                            .min_size(Vec2::new(18.0, 18.0)),
-                                                        );
-                                                        if del_btn
-                                                            .on_hover_text(t!("planes-drawer-delete-tooltip"))
-                                                            .clicked()
-                                                        {
-                                                            event = Some(PlanesDrawerEvent::DeletePlane(custom_id));
-                                                        }
-                                                    }
-
-                                                    // Badge Aktif
-                                                    if is_active {
-                                                        let badge_text = t!("planes-drawer-active");
-                                                        let badge_bg = Color32::from_rgb(14, 80, 160);
-                                                        let badge_fg = Color32::WHITE;
-
-                                                        Frame::NONE
-                                                            .fill(badge_bg)
-                                                            .corner_radius(CornerRadius::same(3))
-                                                            .inner_margin(Margin::symmetric(4, 1))
-                                                            .show(ui, |ui| {
-                                                                ui.label(
-                                                                    RichText::new(badge_text)
-                                                                        .size(9.0)
-                                                                        .strong()
-                                                                        .color(badge_fg),
-                                                                );
-                                                            });
-                                                    }
-                                                });
-                                            });
-                                        });
-                                });
+                        // --- Sumbu & Titik ---
+                        for (kind, list) in [(DatumKind::Axis, &axes), (DatumKind::Point, &points)] {
+                            ui.add_space(4.0);
+                            if let Some(ev) = Self::section_header(ui, kind, list.len()) {
+                                event = Some(ev);
+                            }
+                            if list.is_empty() {
+                                let empty = match kind {
+                                    DatumKind::Axis => t!("datum-drawer-no-axes"),
+                                    _ => t!("datum-drawer-no-points"),
+                                };
+                                Self::empty_row(ui, &empty);
+                            }
+                            for item in list.iter() {
+                                let spec = CardSpec {
+                                    kind,
+                                    id: Some(item.id),
+                                    name: &item.name,
+                                    is_active: false,
+                                    visible: item.visible,
+                                    icon: kind.icon(),
+                                    on_click: None,
+                                    delete: Some(PlanesDrawerEvent::DeleteDatum(kind, item.id)),
+                                };
+                                let salt = format!("datum_item_{kind:?}_{}", item.id);
+                                if let Some(ev) = self.card(ui, &salt, spec) {
+                                    event = Some(ev);
+                                }
                             }
                         }
                     });
@@ -363,5 +330,206 @@ impl PlanesDrawer {
         });
 
         event
+    }
+
+    /// Judul seksi (Bidang/Sumbu/Titik) + tombol tambah.
+    fn section_header(ui: &mut Ui, kind: DatumKind, count: usize) -> Option<PlanesDrawerEvent> {
+        let mut event = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(5.0, 0.0);
+            ui.label(RichText::new(kind.icon()).size(11.0).color(ACCENT_BLUE));
+            let title = match kind {
+                DatumKind::Plane => t!("datum-drawer-planes"),
+                DatumKind::Axis => t!("datum-drawer-axes"),
+                DatumKind::Point => t!("datum-drawer-points"),
+            };
+            ui.label(
+                RichText::new(format!("{title} ({count})"))
+                    .size(10.0)
+                    .strong()
+                    .color(TEXT_SECONDARY),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let tip = match kind {
+                    DatumKind::Plane => t!("planes-drawer-new"),
+                    DatumKind::Axis => t!("datum-drawer-new-axis"),
+                    DatumKind::Point => t!("datum-drawer-new-point"),
+                };
+                let add = ui.add(
+                    egui::Button::new(RichText::new(ICON_ADD.codepoint).size(12.0).color(ACCENT_BLUE))
+                        .frame(false)
+                        .min_size(Vec2::new(16.0, 16.0)),
+                );
+                if add.on_hover_text(tip).clicked() {
+                    event = Some(match kind {
+                        DatumKind::Plane => PlanesDrawerEvent::CreateNewPlane,
+                        k => PlanesDrawerEvent::CreateDatum(k),
+                    });
+                }
+            });
+        });
+        event
+    }
+
+    fn empty_row(ui: &mut Ui, text: &str) {
+        ui.label(RichText::new(text).size(10.0).color(TEXT_MUTED));
+    }
+
+    /// Kartu satu datum: ikon, nama (klik = aktifkan / klik ganda = ganti
+    /// nama), tombol tampil/sembunyi, edit nama, hapus, badge aktif.
+    fn card(&mut self, ui: &mut Ui, salt: &str, spec: CardSpec<'_>) -> Option<PlanesDrawerEvent> {
+        let mut event = None;
+        ui.push_id(salt, |ui| {
+            let is_active = spec.is_active;
+            let card_bg = if is_active {
+                Color32::from_rgb(18, 38, 68)
+            } else {
+                Color32::from_rgb(26, 29, 36)
+            };
+            let card_stroke = if is_active {
+                Stroke::new(1.0, ACCENT_BLUE)
+            } else {
+                Stroke::new(0.5, BORDER_SUBTLE)
+            };
+            card_frame()
+                .fill(card_bg)
+                .stroke(card_stroke)
+                .corner_radius(CornerRadius::same(5))
+                .inner_margin(Margin::symmetric(7, 4))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                        let icon_color = if is_active {
+                            ACCENT_BLUE
+                        } else if spec.id.is_some() {
+                            ACCENT_ORANGE
+                        } else {
+                            TEXT_SECONDARY
+                        };
+                        ui.label(RichText::new(spec.icon).size(12.5).color(icon_color));
+
+                        let renaming_this = matches!(
+                            &self.renaming,
+                            Some((k, id, _)) if *k == spec.kind && Some(*id) == spec.id
+                        );
+                        if renaming_this {
+                            if let Some((_, id, buf)) = self.renaming.as_mut() {
+                                let id = *id;
+                                let resp = ui.add(
+                                    egui::TextEdit::singleline(buf)
+                                        .font(egui::FontId::proportional(11.0))
+                                        .desired_width(150.0),
+                                );
+                                if !resp.has_focus() && !resp.lost_focus() {
+                                    resp.request_focus();
+                                }
+                                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                                if esc {
+                                    self.renaming = None;
+                                } else if enter || resp.lost_focus() {
+                                    let name = buf.trim().to_string();
+                                    if !name.is_empty() {
+                                        event = Some(PlanesDrawerEvent::Rename(spec.kind, id, name));
+                                    }
+                                    self.renaming = None;
+                                }
+                            }
+                            return;
+                        }
+
+                        let text_color = if is_active {
+                            Color32::WHITE
+                        } else if spec.visible {
+                            TEXT_PRIMARY
+                        } else {
+                            TEXT_MUTED
+                        };
+                        let name_resp = ui.add(
+                            egui::Label::new(
+                                RichText::new(spec.name).size(11.0).strong().color(text_color),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if name_resp.hovered() && spec.on_click.is_some() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if name_resp.double_clicked() {
+                            if let Some(id) = spec.id {
+                                self.renaming = Some((spec.kind, id, spec.name.to_string()));
+                            }
+                        } else if name_resp.clicked() {
+                            if let Some(ev) = spec.on_click.clone() {
+                                event = Some(ev);
+                            }
+                        }
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let Some(id) = spec.id else {
+                                Self::active_badge(ui, is_active);
+                                return;
+                            };
+                            if let Some(del) = spec.delete.clone() {
+                                let del_btn = ui.add(
+                                    egui::Button::new(
+                                        RichText::new(ICON_DELETE.codepoint)
+                                            .size(13.0)
+                                            .color(Color32::from_rgb(240, 90, 90)),
+                                    )
+                                    .frame(false)
+                                    .min_size(Vec2::new(18.0, 18.0)),
+                                );
+                                if del_btn.on_hover_text(t!("planes-drawer-delete-tooltip")).clicked() {
+                                    event = Some(del);
+                                }
+                            }
+                            let edit = ui.add(
+                                egui::Button::new(
+                                    RichText::new(ICON_EDIT.codepoint).size(12.0).color(TEXT_SECONDARY),
+                                )
+                                .frame(false)
+                                .min_size(Vec2::new(18.0, 18.0)),
+                            );
+                            if edit.on_hover_text(t!("datum-drawer-rename")).clicked() {
+                                self.renaming = Some((spec.kind, id, spec.name.to_string()));
+                            }
+                            let eye = if spec.visible {
+                                ICON_VISIBILITY.codepoint
+                            } else {
+                                ICON_VISIBILITY_OFF.codepoint
+                            };
+                            let vis = ui.add(
+                                egui::Button::new(RichText::new(eye).size(12.0).color(TEXT_SECONDARY))
+                                    .frame(false)
+                                    .min_size(Vec2::new(18.0, 18.0)),
+                            );
+                            if vis.on_hover_text(t!("datum-drawer-toggle-visible")).clicked() {
+                                event = Some(PlanesDrawerEvent::ToggleVisible(spec.kind, id));
+                            }
+                            Self::active_badge(ui, is_active);
+                        });
+                    });
+                });
+        });
+        event
+    }
+
+    fn active_badge(ui: &mut Ui, is_active: bool) {
+        if !is_active {
+            return;
+        }
+        Frame::NONE
+            .fill(Color32::from_rgb(14, 80, 160))
+            .corner_radius(CornerRadius::same(3))
+            .inner_margin(Margin::symmetric(4, 1))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(t!("planes-drawer-active"))
+                        .size(9.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                );
+            });
     }
 }

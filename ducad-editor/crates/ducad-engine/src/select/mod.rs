@@ -37,10 +37,13 @@ of(>Z)                      perimeter edges of the top face
 of(>Z) and |X               top edges parallel to X
 all except |Z               all edges except vertical ones
 all[kind=cylinder][r=2.75]  walls of M5 clearance holes
+DATUM REFERENCES (not face/edge selectors)
+axis:<id>   datum axis of op construct_axis (revolve.axis, pattern circular axis, lines)
+point:<id>  datum point of op construct_point (points such as through / two_points)
 ";
 
 pub use eval::{eval_edges, eval_faces, ANG_TOL_DEG};
-pub use parse::{parse, SelCtx, SelExpr};
+pub use parse::{parse, parse_datum_ref, DatumRef, SelCtx, SelExpr};
 
 use ducad_kernel::KernelShape;
 

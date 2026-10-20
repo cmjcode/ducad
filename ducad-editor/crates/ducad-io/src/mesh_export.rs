@@ -21,7 +21,7 @@ use std::path::Path;
 /// (bukan dipakai dari `mesh.normals`, yang per-VERTEX bukan per-FACET) —
 /// standar STL memang menyimpan satu normal per facet, dan menghitungnya
 /// dari geometri segitiga sendiri menjamin konsisten (tidak bergantung
-/// smoothing normal tessellation OCCT).
+/// smoothing normal tesselasi kernel).
 pub fn write_stl_binary(mesh: &KernelMesh, path: impl AsRef<Path>) -> Result<()> {
     let mut buf = Vec::with_capacity(84 + mesh.triangle_count() * 50);
 

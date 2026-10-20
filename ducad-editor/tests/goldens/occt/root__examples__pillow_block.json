@@ -1,0 +1,206 @@
+{
+  "schema": 1,
+  "source": "../examples/pillow_block.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 36,
+  "bodies": [
+    {
+      "name": "bearing",
+      "valid": true,
+      "volume": 19890.9939,
+      "area": 5788.3845,
+      "bbox": [
+        [
+          -23.5,
+          -7.0,
+          28.5073
+        ],
+        [
+          23.5,
+          7.0,
+          75.4927
+        ]
+      ],
+      "faces": 4,
+      "edges": 6,
+      "mesh": {
+        "vertices": 1012,
+        "triangles": 1008,
+        "sha": "86be07e156f64960"
+      }
+    },
+    {
+      "name": "bolt_a",
+      "valid": true,
+      "volume": 2990.1282,
+      "area": 1545.9976,
+      "bbox": [
+        [
+          -62.0,
+          -7.9975,
+          0.0
+        ],
+        [
+          -46.0,
+          7.9975,
+          26.0
+        ]
+      ],
+      "faces": 12,
+      "edges": 24,
+      "mesh": {
+        "vertices": 1048,
+        "triangles": 1028,
+        "sha": "515122e0766feb67"
+      }
+    },
+    {
+      "name": "bolt_b",
+      "valid": true,
+      "volume": 2990.1282,
+      "area": 1545.9976,
+      "bbox": [
+        [
+          46.0,
+          -7.9975,
+          0.0
+        ],
+        [
+          62.0,
+          7.9975,
+          26.0
+        ]
+      ],
+      "faces": 12,
+      "edges": 24,
+      "mesh": {
+        "vertices": 1048,
+        "triangles": 1028,
+        "sha": "a7d33f9d15e22cc7"
+      }
+    },
+    {
+      "name": "housing",
+      "valid": true,
+      "volume": 255397.0568,
+      "area": 38229.4301,
+      "bbox": [
+        [
+          -70.0,
+          -24.0,
+          0.0
+        ],
+        [
+          70.0,
+          24.0,
+          89.9882
+        ]
+      ],
+      "faces": 21,
+      "edges": 55,
+      "mesh": {
+        "vertices": 3102,
+        "triangles": 3072,
+        "sha": "fa28569c8ac65add"
+      }
+    },
+    {
+      "name": "shaft",
+      "valid": true,
+      "volume": 46989.5867,
+      "area": 9936.8225,
+      "bbox": [
+        [
+          -10.0,
+          -60.0,
+          42.0031
+        ],
+        [
+          10.0,
+          90.0,
+          61.9969
+        ]
+      ],
+      "faces": 5,
+      "edges": 7,
+      "mesh": {
+        "vertices": 1270,
+        "triangles": 1508,
+        "sha": "4953c152c653d556"
+      }
+    },
+    {
+      "name": "washer_a",
+      "valid": true,
+      "volume": 455.1382,
+      "area": 646.7754,
+      "bbox": [
+        [
+          -64.0,
+          -9.9969,
+          14.0
+        ],
+        [
+          -44.0,
+          9.9969,
+          16.0
+        ]
+      ],
+      "faces": 4,
+      "edges": 6,
+      "mesh": {
+        "vertices": 1012,
+        "triangles": 1008,
+        "sha": "ce9c87c73ac3be50"
+      }
+    },
+    {
+      "name": "washer_b",
+      "valid": true,
+      "volume": 455.1382,
+      "area": 646.7754,
+      "bbox": [
+        [
+          44.0,
+          -9.9969,
+          14.0
+        ],
+        [
+          64.0,
+          9.9969,
+          16.0
+        ]
+      ],
+      "faces": 4,
+      "edges": 6,
+      "mesh": {
+        "vertices": 1012,
+        "triangles": 1008,
+        "sha": "55466cc1c9127c48"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "stress_ok",
+      "status": "error"
+    },
+    {
+      "label": "stiff",
+      "status": "error"
+    },
+    {
+      "label": "safe",
+      "status": "error"
+    },
+    {
+      "label": "light",
+      "status": "pass"
+    },
+    {
+      "label": "no_clash",
+      "status": "pass"
+    }
+  ]
+}

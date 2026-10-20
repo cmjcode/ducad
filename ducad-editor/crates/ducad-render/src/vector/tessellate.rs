@@ -148,6 +148,8 @@ pub fn validate_subpaths_finite(subpaths: &[Subpath]) -> Result<(), TessError> {
 /// Ekstrak deretan `Subpath` representatif dari suatu `Entity`.
 pub fn entity_to_subpaths(entity: &Entity) -> Result<Vec<Subpath>, TessError> {
     match entity {
+        // Titik sketch tidak punya bentuk yang bisa diisi/digaris.
+        Entity::Point { .. } => Ok(Vec::new()),
         Entity::Path { subpaths, .. } => {
             validate_subpaths_finite(subpaths)?;
             Ok(subpaths.clone())

@@ -1,21 +1,13 @@
 //! Worker latar belakang untuk Import STEP (Fase 7 — "tessellation di
 //! thread terpisah" dari `docs/PLAN.md`). Import STEP adalah satu-satunya
 //! operasi kernel yang realistis blocking lama (file besar → `read_step` +
-//! `tessellate` bisa makan waktu berarti) yang juga punya jalur murah untuk
-//! di-background-kan tanpa memindahkan `KernelShape` lintas thread —
-//! `KernelShape` TERBUKTI TIDAK `Send` (lihat komentar `KERNEL_LOCK` di
-//! `ducad-kernel`), jadi worker di sini TIDAK PERNAH mengirim `KernelShape`
-//! lewat channel. Yang lewat cuma tipe `Send` murni: `PathBuf` masuk,
-//! `String` (teks STEP) + `KernelMesh` keluar — thread utama membangun
-//! `KernelShape` MILIKNYA SENDIRI dari string itu (`from_step_string`)
-//! untuk disimpan di `ModelDoc`, sesuai pola "raw types at the kernel
-//! boundary" yang sama dipakai `KernelMesh`/`Profile` sejak Fase 0/3.
+//! `tessellate` bisa makan waktu berarti). Worker membaca file lalu
+//! mengirim `KernelShape` + `KernelMesh` hasilnya lewat channel; UI thread
+//! mengambilnya tiap frame lewat [`ImportWorker::poll`].
 //!
-//! Aman dipanggil bersamaan dengan operasi kernel synchronous lain di UI
-//! thread (Extrude/Fillet/dst) karena `ducad-kernel::KERNEL_LOCK`
-//! menyerialkan SEMUA panggilan OCCT lintas thread — worker ini cuma
-//! membuat UI tidak *beku* menunggu, bukan membuat operasi kernel jalan
-//! paralel (OCCT memang tidak mendukung itu).
+//! Kernel tanpa kunci global (`ducad_kernel::THREAD_SAFE`, PLAN_MIGRASI_TRUCK
+//! 5.4): import berjalan sungguh paralel dengan operasi di UI thread (diuji di
+//! `ducad-kernel/tests/truck_concurrency.rs`).
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -98,6 +90,25 @@ fn import_one(path: &std::path::Path) -> Result<(KernelShape, KernelMesh), Strin
     if ext == "stl" {
         let mesh = ducad_io::read_stl(path).map_err(|e| e.to_string())?;
         let shape = ducad_kernel::KernelShape::empty();
+        Ok((shape, mesh))
+    } else if matches!(ext.as_str(), "3mf" | "obj" | "gltf" | "glb") {
+        // Paritas 3.10: mesh (tanpa B-rep); beberapa objek digabung jadi satu.
+        let meshes = ducad_io::mesh_formats::read_mesh_file(path).map_err(|e| e.to_string())?;
+        let refs: Vec<&KernelMesh> = meshes.iter().map(|m| &m.mesh).collect();
+        Ok((ducad_kernel::KernelShape::empty(), KernelMesh::merge(&refs)))
+    } else if matches!(ext.as_str(), "igs" | "iges") {
+        // Paritas 3.11: IGES → B-rep lewat penerjemah SolidCraft.
+        let (shapes, warnings) = ducad_kernel::iges::read_iges(path).map_err(|e| e.to_string())?;
+        for w in warnings {
+            log::warn!("IGES: {w}");
+        }
+        let shape = if shapes.len() == 1 {
+            shapes.into_iter().next().map(|(_, s)| s).ok_or("IGES kosong")?
+        } else {
+            let refs: Vec<&ducad_kernel::KernelShape> = shapes.iter().map(|(_, s)| s).collect();
+            ducad_kernel::make_compound(&refs).map_err(|e| e.to_string())?
+        };
+        let mesh = shape.tessellate();
         Ok((shape, mesh))
     } else {
         let shape = ducad_kernel::KernelShape::read_step(path).map_err(|e| e.to_string())?;

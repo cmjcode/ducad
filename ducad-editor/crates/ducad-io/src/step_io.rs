@@ -34,7 +34,7 @@ pub fn import(path: impl AsRef<Path>) -> Result<KernelShape> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::occt_test_lock::LOCK as TEST_LOCK;
+    use crate::test_lock::LOCK as TEST_LOCK;
     use ducad_kernel::{extrude_profile, Profile, ProfileSegment};
 
     fn rect_profile(w: f64, h: f64) -> Profile {
@@ -66,7 +66,10 @@ mod tests {
         export(&[&a, &b], &path).unwrap();
         let restored = import(&path).unwrap();
         let _ = std::fs::remove_file(&path);
-        assert!(restored.tessellate().positions.len() > a.tessellate().positions.len());
+        // Kedua solid ikut terbaca (jumlah vertex mesh tampilan tidak bisa
+        // dipakai: di backend truck body kecil bisa punya vertex lebih banyak).
+        let want = a.volume() + b.volume();
+        assert!((restored.volume() - want).abs() < 2e-4 * want, "{} vs {want}", restored.volume());
     }
 
     #[test]

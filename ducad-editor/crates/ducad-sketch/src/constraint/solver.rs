@@ -9,6 +9,7 @@ use crate::sketch::Sketch;
 fn entity_dof(entity: &Entity) -> usize {
     match entity {
         Entity::Line { .. } => 4,
+        Entity::Point { .. } => 2,
         Entity::Circle { .. } => 3,
         Entity::Arc { .. } => 5,
         Entity::Ellipse { .. } => 4,
@@ -20,6 +21,7 @@ fn entity_dof(entity: &Entity) -> usize {
 fn pack_entity(entity: &Entity, out: &mut Vec<f64>) {
     match entity {
         Entity::Line { start, end, .. } => out.extend([start.x, start.y, end.x, end.y]),
+        Entity::Point { pos, .. } => out.extend([pos.x, pos.y]),
         Entity::Circle { center, radius, .. } => out.extend([center.x, center.y, *radius]),
         Entity::Arc {
             center,
@@ -54,6 +56,9 @@ fn unpack_entity(entity: &mut Entity, params: &[f64]) {
         Entity::Line { start, end, .. } => {
             *start = DVec2::new(params[0], params[1]);
             *end = DVec2::new(params[2], params[3]);
+        }
+        Entity::Point { pos, .. } => {
+            *pos = DVec2::new(params[0], params[1]);
         }
         Entity::Circle { center, radius, .. } => {
             *center = DVec2::new(params[0], params[1]);
@@ -151,6 +156,10 @@ pub(crate) fn involved_entities(constraints: &[Constraint]) -> Vec<EntityId> {
                 push_unique(*a, &mut ids);
                 push_unique(*b, &mut ids);
             }
+            Constraint::Curvature { a, b } => {
+                push_unique(a.entity_id(), &mut ids);
+                push_unique(b.entity_id(), &mut ids);
+            }
         }
     }
     ids
@@ -168,9 +177,28 @@ fn is_radial(sketch: &Sketch, id: EntityId) -> bool {
     )
 }
 
+fn is_spline(sketch: &Sketch, id: EntityId) -> bool {
+    matches!(sketch.entities.get(id), Some(Entity::Spline { points, .. }) if points.len() >= 2)
+}
+
+/// Ujung kurva yang sah untuk `Curvature`: Start/End sebuah Spline (≥ 2
+/// titik) atau Arc.
+fn curve_end_resolvable(sketch: &Sketch, pr: &PointRef) -> bool {
+    matches!(pr, PointRef::LineStart(_) | PointRef::LineEnd(_))
+        && (is_spline(sketch, pr.entity_id())
+            || matches!(sketch.entities.get(pr.entity_id()), Some(Entity::Arc { .. })))
+}
+
 fn point_ref_resolvable(sketch: &Sketch, pr: &PointRef) -> bool {
     match (sketch.entities.get(pr.entity_id()), pr) {
-        (Some(Entity::Line { .. }), PointRef::LineStart(_) | PointRef::LineEnd(_)) => true,
+        (
+            Some(Entity::Line { .. } | Entity::Arc { .. }),
+            PointRef::LineStart(_) | PointRef::LineEnd(_),
+        ) => true,
+        (
+            Some(Entity::Point { .. }),
+            PointRef::Center(_) | PointRef::LineStart(_) | PointRef::LineEnd(_),
+        ) => true,
         (Some(Entity::Spline { points, .. }), PointRef::LineStart(_) | PointRef::LineEnd(_)) => {
             !points.is_empty()
         }
@@ -214,19 +242,33 @@ pub fn constraint_is_resolvable(sketch: &Sketch, c: &Constraint) -> bool {
         Constraint::Symmetric { a, b, axis } => pt(a) && pt(b) && line(axis),
         Constraint::PointOnCurve { point, curve } => pt(point) && (line(curve) || radial(curve)),
         Constraint::Midpoint { point, line: l } => pt(point) && line(l),
+        Constraint::Curvature { a, b } => {
+            a.entity_id() != b.entity_id()
+                && curve_end_resolvable(sketch, a)
+                && curve_end_resolvable(sketch, b)
+                && (is_spline(sketch, a.entity_id()) || is_spline(sketch, b.entity_id()))
+        }
     }
 }
 
 /// Pisahkan constraint yang bisa diselesaikan dari yang tidak. Mengembalikan
 /// indeks (pada `constraints`) constraint yang valid, plus jumlah yang dilewati.
+///
+/// Dimensi driven (Fase 1.16) sengaja tidak ikut: ia hanya mengukur, jadi
+/// tidak masuk solver maupun analisis DOF — dan tidak dihitung "dilewati".
 fn resolvable_indices(sketch: &Sketch, constraints: &[Constraint]) -> (Vec<usize>, usize) {
-    let valid: Vec<usize> = constraints
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| constraint_is_resolvable(sketch, c))
-        .map(|(i, _)| i)
-        .collect();
-    let skipped = constraints.len() - valid.len();
+    let mut valid = Vec::new();
+    let mut skipped = 0;
+    for (i, c) in constraints.iter().enumerate() {
+        if c.is_driven() {
+            continue;
+        }
+        if constraint_is_resolvable(sketch, c) {
+            valid.push(i);
+        } else {
+            skipped += 1;
+        }
+    }
     (valid, skipped)
 }
 
@@ -234,11 +276,14 @@ fn resolvable_indices(sketch: &Sketch, constraints: &[Constraint]) -> (Vec<usize
 enum EntityKind {
     Line,
     Radial,
+    /// Titik sketch (Fase 1.1) — hanya bisa dirujuk lewat `PointRef`.
+    Point,
 }
 
 fn entity_kind(entity: &Entity) -> EntityKind {
     match entity {
         Entity::Line { .. } => EntityKind::Line,
+        Entity::Point { .. } => EntityKind::Point,
         Entity::Circle { .. }
         | Entity::Arc { .. }
         | Entity::Ellipse { .. }
@@ -260,11 +305,28 @@ pub(crate) struct SolverOffsets {
     /// Jumlah parameter per entitas — `LineEnd` pada Spline membaca titik terakhir.
     pub len: HashMap<EntityId, usize>,
     pub path_sub: HashMap<(EntityId, u16), usize>,
+    /// Jenis kurva per entitas — dibutuhkan `Curvature` untuk menafsirkan
+    /// blok parameter (Arc vs Spline).
+    pub(crate) kind_hint: HashMap<EntityId, CurveHint>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CurveHint {
+    Arc,
+    Spline,
+    Other,
 }
 
 impl SolverOffsets {
     pub fn read_point_ref(&self, pr: &PointRef, x: &[f64]) -> DVec2 {
         let off = self.entity[&pr.entity_id()];
+        // Ujung busur: blok parameter [cx, cy, r, sudut_awal, sudut_akhir].
+        if self.kind_hint.get(&pr.entity_id()) == Some(&CurveHint::Arc) {
+            if let PointRef::LineStart(_) | PointRef::LineEnd(_) = pr {
+                let ang = if matches!(pr, PointRef::LineStart(_)) { x[off + 3] } else { x[off + 4] };
+                return DVec2::new(x[off], x[off + 1]) + DVec2::new(ang.cos(), ang.sin()) * x[off + 2];
+            }
+        }
         match pr {
             PointRef::LineStart(_) => DVec2::new(x[off], x[off + 1]),
             PointRef::LineEnd(id) => {
@@ -305,6 +367,28 @@ impl SolverOffsets {
         x[self.entity[&id] + 2]
     }
 
+    /// Keadaan ujung kurva (Spline/Arc) yang dirujuk `pr` dari vektor `x`.
+    pub(crate) fn curve_end(&self, pr: &PointRef, x: &[f64]) -> Option<CurveEnd> {
+        let id = pr.entity_id();
+        let off = *self.entity.get(&id)?;
+        let len = *self.len.get(&id)?;
+        let block = x.get(off..off + len)?;
+        let at_end = matches!(pr, PointRef::LineEnd(_));
+        match self.kind_hint.get(&id)? {
+            CurveHint::Arc => {
+                let [cx, cy, r, sa, ea] = block else {
+                    return None;
+                };
+                arc_end(DVec2::new(*cx, *cy), *r, if at_end { *ea } else { *sa })
+            }
+            CurveHint::Spline => {
+                let pts: Vec<DVec2> = block.chunks_exact(2).map(|c| DVec2::new(c[0], c[1])).collect();
+                spline_end(&pts, at_end)
+            }
+            CurveHint::Other => None,
+        }
+    }
+
     pub fn read_center(&self, id: EntityId, x: &[f64]) -> DVec2 {
         let off = self.entity[&id];
         DVec2::new(x[off], x[off + 1])
@@ -315,6 +399,7 @@ fn build_offsets_and_x0(entity_ids: &[EntityId], sketch: &Sketch) -> (SolverOffs
     let mut entity = HashMap::new();
     let mut len = HashMap::new();
     let mut path_sub = HashMap::new();
+    let mut kind_hint = HashMap::new();
     let mut x = Vec::new();
     for id in entity_ids {
         // Pemanggil hanya meneruskan entitas dari constraint yang lolos
@@ -333,12 +418,21 @@ fn build_offsets_and_x0(entity_ids: &[EntityId], sketch: &Sketch) -> (SolverOffs
         }
         pack_entity(e, &mut x);
         len.insert(*id, x.len() - start);
+        kind_hint.insert(
+            *id,
+            match e {
+                Entity::Arc { .. } => CurveHint::Arc,
+                Entity::Spline { .. } => CurveHint::Spline,
+                _ => CurveHint::Other,
+            },
+        );
     }
     (
         SolverOffsets {
             entity,
             len,
             path_sub,
+            kind_hint,
         },
         x,
     )
@@ -413,14 +507,14 @@ fn constraint_residuals(
             let p = offsets.read_point_ref(point, x);
             vec![p.x - target.x, p.y - target.y]
         }
-        Constraint::Distance { a, b, value } => {
+        Constraint::Distance { a, b, value, .. } => {
             let (pa, pb) = (offsets.read_point_ref(a, x), offsets.read_point_ref(b, x));
             vec![(pb - pa).length() - value]
         }
-        Constraint::Radius { entity, value } => {
+        Constraint::Radius { entity, value, .. } => {
             vec![offsets.read_radius_param(*entity, x) - value]
         }
-        Constraint::Angle { a, b, value } => {
+        Constraint::Angle { a, b, value, .. } => {
             let (da, db) = (offsets.line_dir(*a, x), offsets.line_dir(*b, x));
             let cross = da.x * db.y - da.y * db.x;
             let dot = da.dot(db);
@@ -469,7 +563,7 @@ fn constraint_residuals(
                     let r = offsets.read_radius_param(*curve, x);
                     vec![(p - c).length() - r]
                 }
-                None => vec![],
+                Some(EntityKind::Point) | None => vec![],
             }
         }
         Constraint::Midpoint { point, line } => {
@@ -493,7 +587,147 @@ fn constraint_residuals(
             let signed = |p: glam::DVec2| (da.x * (p.y - sa.y) - da.y * (p.x - sa.x)) / len;
             vec![signed(sb), signed(eb)]
         }
+        Constraint::Curvature { a, b } => {
+            let (Some(ja), Some(jb)) = (offsets.curve_end(a, x), offsets.curve_end(b, x)) else {
+                return vec![];
+            };
+            // `a` masuk ke sambungan, `b` keluar darinya: ujung "start" pada
+            // `a` dan ujung "end" pada `b` dibalik arahnya.
+            let ja = if matches!(a, PointRef::LineStart(_)) { ja.reversed() } else { ja };
+            let jb = if matches!(b, PointRef::LineEnd(_)) { jb.reversed() } else { jb };
+            let cross = ja.tangent.perp_dot(jb.tangent);
+            let dot = ja.tangent.dot(jb.tangent);
+            vec![
+                ja.pos.x - jb.pos.x,
+                ja.pos.y - jb.pos.y,
+                cross.atan2(dot),
+                ja.curvature - jb.curvature,
+            ]
+        }
     }
+}
+
+/// Keadaan diferensial sebuah kurva di salah satu ujungnya (Fase 1.20).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CurveEnd {
+    pub pos: DVec2,
+    /// Tangen satuan searah parameter kurva.
+    pub tangent: DVec2,
+    /// Kelengkungan bertanda (positif = belok kiri/CCW terhadap parameter).
+    pub curvature: f64,
+}
+
+impl CurveEnd {
+    /// Sama, tetapi dengan arah parameter dibalik.
+    fn reversed(self) -> Self {
+        Self {
+            pos: self.pos,
+            tangent: -self.tangent,
+            curvature: -self.curvature,
+        }
+    }
+
+    /// Dari turunan pertama & kedua (`d1`, `d2`) di titik `pos`.
+    fn from_derivatives(pos: DVec2, d1: DVec2, d2: DVec2) -> Option<Self> {
+        let speed = d1.length();
+        if speed.is_nan() || speed <= 1e-12 {
+            return None;
+        }
+        Some(Self {
+            pos,
+            tangent: d1 / speed,
+            curvature: d1.perp_dot(d2) / (speed * speed * speed),
+        })
+    }
+}
+
+/// Ujung Spline Catmull-Rom (sama persis dengan [`crate::entity::sample_catmull_rom`]:
+/// titik bayangan di ujung = titik ujung itu sendiri).
+pub(crate) fn spline_end(points: &[DVec2], at_end: bool) -> Option<CurveEnd> {
+    let n = points.len();
+    if n < 2 {
+        return None;
+    }
+    if !at_end {
+        // Segmen 0, t = 0: p0 = p1 = P0, p2 = P1, p3 = P2 (atau P1 bila n = 2).
+        let (p1, p2, p3) = (points[0], points[1], points[2.min(n - 1)]);
+        let d1 = (p2 - p1) * 0.5;
+        let d2 = -3.0 * p1 + 4.0 * p2 - p3;
+        CurveEnd::from_derivatives(p1, d1, d2)
+    } else {
+        // Segmen terakhir, t = 1: p3 = p2 = P[n-1].
+        let p0 = points[n.saturating_sub(3)];
+        let (p1, p2) = (points[n - 2], points[n - 1]);
+        let d1 = (p2 - p1) * 0.5;
+        let d2 = -p0 + 4.0 * p1 - 3.0 * p2;
+        CurveEnd::from_derivatives(p2, d1, d2)
+    }
+}
+
+/// Ujung Arc (parameter CCW dari `start_angle` ke `end_angle`).
+pub(crate) fn arc_end(center: DVec2, radius: f64, angle: f64) -> Option<CurveEnd> {
+    if radius.is_nan() || radius.abs() <= 1e-12 || !angle.is_finite() {
+        return None;
+    }
+    let dir = DVec2::new(angle.cos(), angle.sin());
+    Some(CurveEnd {
+        pos: center + dir * radius,
+        tangent: DVec2::new(-dir.y, dir.x),
+        curvature: 1.0 / radius,
+    })
+}
+
+/// Ukur nilai dimensi `c` dari geometri `sketch` saat ini — dipakai dimensi
+/// driven (Fase 1.16). `None` untuk constraint non-dimensi atau rujukan rusak.
+pub fn measured_value(sketch: &Sketch, c: &Constraint) -> Option<f64> {
+    use crate::constraint::types::point_ref_position;
+    let v = match c {
+        Constraint::Distance { a, b, .. } => {
+            (point_ref_position(sketch, b)? - point_ref_position(sketch, a)?).length()
+        }
+        Constraint::Radius { entity, .. } => match sketch.entities.get(*entity)? {
+            Entity::Circle { radius, .. } | Entity::Arc { radius, .. } => *radius,
+            Entity::Ellipse { radius_x, .. } => *radius_x,
+            _ => return None,
+        },
+        Constraint::Angle { a, b, .. } => {
+            let dir = |id: &EntityId| match sketch.entities.get(*id) {
+                Some(Entity::Line { start, end, .. }) => Some(*end - *start),
+                _ => None,
+            };
+            let (da, db) = (dir(a)?, dir(b)?);
+            if da.length() < 1e-12 || db.length() < 1e-12 {
+                return None;
+            }
+            da.perp_dot(db).atan2(da.dot(db))
+        }
+        _ => return None,
+    };
+    v.is_finite().then_some(v)
+}
+
+/// Perbarui `value` setiap dimensi driven di `sketch.constraints` dari
+/// geometri saat ini. Mengembalikan jumlah nilai yang berubah.
+pub fn refresh_driven_values(sketch: &mut Sketch) -> usize {
+    let mut changed = 0;
+    for i in 0..sketch.constraints.len() {
+        if !sketch.constraints[i].is_driven() {
+            continue;
+        }
+        let Some(m) = measured_value(sketch, &sketch.constraints[i]) else {
+            continue;
+        };
+        if let Constraint::Distance { value, .. }
+        | Constraint::Radius { value, .. }
+        | Constraint::Angle { value, .. } = &mut sketch.constraints[i]
+        {
+            if (*value - m).abs() > 1e-12 {
+                *value = m;
+                changed += 1;
+            }
+        }
+    }
+    changed
 }
 
 #[allow(clippy::needless_range_loop)]

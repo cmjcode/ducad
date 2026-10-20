@@ -9,6 +9,151 @@
       ],
       "type": "string"
     },
+    "AxisDef": {
+      "description": "How op `construct_axis` builds its axis (externally tagged).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Through point `a` toward point `b`.",
+          "properties": {
+            "two_points": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "$ref": "#/definitions/PointRef"
+                },
+                "b": {
+                  "$ref": "#/definitions/PointRef"
+                }
+              },
+              "required": [
+                "a",
+                "b"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "two_points"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Along one straight edge (a circle edge gives the axis of its circle).",
+          "properties": {
+            "edge": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "edge": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "edge"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "edge"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Normal of one planar face, through `through` projected onto the face (default: face centroid).",
+          "properties": {
+            "normal_to_face": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "face": {
+                  "type": "string"
+                },
+                "through": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/PointRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "body",
+                "face"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "normal_to_face"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Axis of one cylindrical or conical face.",
+          "properties": {
+            "through_cylinder": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "face": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "face"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "through_cylinder"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Intersection line of two non-parallel planes.",
+          "properties": {
+            "two_planes": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "$ref": "#/definitions/PlaneSpec"
+                },
+                "b": {
+                  "$ref": "#/definitions/PlaneSpec"
+                }
+              },
+              "required": [
+                "a",
+                "b"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "two_planes"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AxisSpec": {
       "anyOf": [
         {
@@ -41,7 +186,7 @@
           "type": "object"
         }
       ],
-      "description": "Revolve axis: `\"u\"`/`\"v\"` (sketch plane axis through the origin) or a 2D line in the sketch plane."
+      "description": "Revolve axis: `\"u\"`/`\"v\"` (sketch plane axis through the origin), `\"axis:<id>\"` (datum axis from `construct_axis`; it must lie in the sketch plane), or a 2D line in the sketch plane."
     },
     "BodyMode": {
       "enum": [
@@ -70,6 +215,14 @@
         "union",
         "subtract",
         "intersect"
+      ],
+      "type": "string"
+    },
+    "BoundingShape": {
+      "description": "Shape of op `bounding_solid`.",
+      "enum": [
+        "box",
+        "cylinder"
       ],
       "type": "string"
     },
@@ -1215,6 +1368,7 @@
         },
         {
           "additionalProperties": false,
+          "description": "`driven: true` = reference dimension: measured from geometry, ignored by the solver.",
           "properties": {
             "distance": {
               "additionalProperties": false,
@@ -1224,6 +1378,9 @@
                 },
                 "b": {
                   "type": "string"
+                },
+                "driven": {
+                  "type": "boolean"
                 },
                 "value": {
                   "$ref": "#/definitions/Num"
@@ -1248,6 +1405,9 @@
             "radius": {
               "additionalProperties": false,
               "properties": {
+                "driven": {
+                  "type": "boolean"
+                },
                 "entity": {
                   "type": "string"
                 },
@@ -1282,6 +1442,9 @@
                 },
                 "deg": {
                   "$ref": "#/definitions/Num"
+                },
+                "driven": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1426,8 +1589,43 @@
             "symmetric"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "G2 (curvature) continuity between two curve ends (spline–spline or spline–arc), e.g. `{\"a\": \"s1.end\", \"b\": \"s2.start\"}`; curve `a` enters the joint, `b` leaves it.",
+          "properties": {
+            "curvature": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "a",
+                "b"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "curvature"
+          ],
+          "type": "object"
         }
       ]
+    },
+    "ContinuitySpec": {
+      "description": "Continuity across a blend/match seam.",
+      "enum": [
+        "g0",
+        "g1",
+        "g2"
+      ],
+      "type": "string"
     },
     "DesignBrief": {
       "additionalProperties": false,
@@ -1509,6 +1707,40 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "EdgeRef": {
+      "additionalProperties": false,
+      "description": "Exactly one edge of a body: `{\"body\":\"b\",\"edge\":\"<edge selector>\"}`.",
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "edge": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "body",
+        "edge"
+      ],
+      "type": "object"
+    },
+    "EdgeSel": {
+      "additionalProperties": false,
+      "description": "Edges of one body: `{\"body\":\"s1\",\"edges\":\"all\"}`.",
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "edges": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "body",
+        "edges"
+      ],
       "type": "object"
     },
     "EntitySpec": {
@@ -2003,6 +2235,44 @@
         },
         {
           "additionalProperties": false,
+          "description": "Standalone sketch point (reference for snapping/constraints, no profile edge). Referenced in constraints as `\"<name>\"` or `\"<name>.center\"`.",
+          "properties": {
+            "point": {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "at"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "point"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "properties": {
             "path": {
               "additionalProperties": false,
@@ -2063,6 +2333,23 @@
         "symmetric"
       ],
       "type": "string"
+    },
+    "FaceRef": {
+      "additionalProperties": false,
+      "description": "Exactly one face of a body: `{\"body\":\"b\",\"face\":\"<face selector>\"}`.",
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "face": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "body",
+        "face"
+      ],
+      "type": "object"
     },
     "FitKind": {
       "description": "Character of an ISO 286 fit.",
@@ -2299,6 +2586,30 @@
         "principal_max"
       ],
       "type": "string"
+    },
+    "LineRef": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "edge": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "edge"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A straight line: `\"axis:<id>\"` (datum axis from op `construct_axis`) or one straight body edge `{\"body\":\"b\",\"edge\":\"|Z and >X and >Y\"}`."
     },
     "Load": {
       "description": "A load. `kind` selects the load type and its parameters, for example `{\"id\":\"f1\",\"faces\":\">Z\",\"kind\":\"force\",\"newton\":[0,0,-100]}`.",
@@ -2943,7 +3254,7 @@
                   "$ref": "#/definitions/PrimitiveSpec"
                 }
               ],
-              "description": "`{\"box\":{\"size\":[x,y,z]}}`, `{\"cylinder\":{\"r\":5,\"h\":10}}`, `{\"sphere\":{\"r\":5}}`, `{\"cone\":{\"r1\":5,\"r2\":0,\"h\":10}}`."
+              "description": "`{\"box\":{\"size\":[x,y,z]}}`, `{\"cylinder\":{\"r\":5,\"h\":10}}`, `{\"sphere\":{\"r\":5}}`, `{\"cone\":{\"r1\":5,\"r2\":0,\"h\":10}}`, `{\"torus\":{\"major\":10,\"minor\":2}}` (around +Z)."
             }
           },
           "required": [
@@ -3213,7 +3524,7 @@
                   "$ref": "#/definitions/PatternKind"
                 }
               ],
-              "description": "`{\"linear\":{\"count\":[nx,ny,nz],\"pitch\":[dx,dy,dz]}}` or `{\"circular\":{\"pivot\":[0,0,0],\"axis\":[0,0,1],\"count\":6,\"angle_deg\":360}}`. `count` includes the original."
+              "description": "`{\"linear\":{\"count\":[nx,ny,nz],\"pitch\":[dx,dy,dz]}}` or `{\"circular\":{\"pivot\":[0,0,0],\"axis\":[0,0,1],\"count\":6,\"angle_deg\":360}}` (or `\"axis\":\"axis:<id>\"` for a datum axis, without `pivot`), or `{\"path\":{\"path\":\"<sketch id>\"|{\"points\":[…]},\"count\":5,\"align\":true}}`. `count` includes the original."
             },
             "merge": {
               "default": false,
@@ -3777,7 +4088,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Sheet metal: create the base plate of a folded part from a sketch whose closed region is a straight-sided polygon. The body remembers thickness, bend radius and k-factor for later `edge_flange` / `hem` / `jog` / `unfold` / `flat_pattern` ops.",
+          "description": "Sheet metal: create the base plate of a folded part from a sketch with one closed region (lines, arcs and curves; arcs/curves are faceted). Holes inside the region become sheet cutouts that unfold with the part. The body remembers thickness, bend radius and k-factor for later `edge_flange` / `hem` / `jog` / `unfold` / `flat_pattern` ops.",
           "properties": {
             "bend_radius": {
               "anyOf": [
@@ -3810,7 +4121,7 @@
               "type": "string"
             },
             "sketch": {
-              "description": "Id of the sketch holding exactly one closed polygon (line segments only).",
+              "description": "Id of the sketch holding exactly one closed region (holes allowed).",
               "type": "string"
             },
             "thickness": {
@@ -3832,7 +4143,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Sheet metal: bend a flange up from one or more free straight edges of the base flange. The flange spans the full edge. Flanges on flanges are not supported yet.",
+          "description": "Sheet metal: bend a flange up from one or more free straight edges of the base flange, or from the free tip edge of an existing flange (the chain continues). The flange spans the full edge.",
           "properties": {
             "angle": {
               "anyOf": [
@@ -3851,7 +4162,7 @@
               "type": "string"
             },
             "edges": {
-              "description": "Edge selector resolving to outer straight edges of the base plate (top or bottom rim).",
+              "description": "Edge selector resolving to outer straight edges of the base plate (top or bottom rim) or to the tip edge of an existing flange.",
               "type": "string"
             },
             "id": {
@@ -3890,7 +4201,7 @@
                 }
               ],
               "default": "none",
-              "description": "Bend relief shape recorded for manufacturing notes: `none` (default), `rect`, `obround`. Not yet cut into the geometry."
+              "description": "Bend relief notch cut at both ends of the bend: `none` (default), `rect`, `obround`. Width = min(t, edge/3), depth = R + t into the base plate; also cut in the flat pattern."
             }
           },
           "required": [
@@ -4082,6 +4393,112 @@
         },
         {
           "additionalProperties": false,
+          "description": "Sheet metal: punch a grid of round holes into the base plate (perforated sheet). Holes keep `margin` from the plate edges, existing cutouts and relief notches; at most 2000 holes.",
+          "properties": {
+            "body": {
+              "description": "Name of a sheet metal body.",
+              "type": "string"
+            },
+            "d": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Hole diameter in mm."
+            },
+            "id": {
+              "type": "string"
+            },
+            "margin": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Minimum clear distance from hole edge to plate edge / other holes; default max(d, 2t + R)."
+            },
+            "op": {
+              "enum": [
+                "perforate"
+              ],
+              "type": "string"
+            },
+            "pitch": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Center-to-center distance in mm (> d)."
+            },
+            "stagger": {
+              "default": true,
+              "description": "`true` (default) = staggered 60° rows, `false` = straight grid.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "body",
+            "d",
+            "id",
+            "op",
+            "pitch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: turn an existing flat plate solid of uniform thickness (e.g. an imported STEP blank) into a sheet metal body, so flanges / perforation / flat pattern work on it. Round through holes become cutouts. A solid that is already bent is rejected; the error context lists the bend radii found.",
+          "properties": {
+            "bend_radius": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Default inner bend radius for later flanges; default = detected thickness."
+            },
+            "body": {
+              "description": "Name of the solid body; it keeps its name and becomes a sheet metal body.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "k_factor": {
+              "default": null,
+              "description": "Neutral-axis k-factor (0..1); default 0.44.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "convert_to_sheet"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Sheet metal: create a new body `id` holding the flat blank of `body` (the folded body is kept). The outcome `detail` lists the bend lines; export the blank with `ducad-cli build --formats flat`.",
           "properties": {
             "body": {
@@ -4232,6 +4649,122 @@
         },
         {
           "additionalProperties": false,
+          "description": "Add body geometry to an EXISTING sketch (creates no body). `mode` `project` (default): project the edges picked by `edges` and/or the boundary edges of the faces picked by `faces` onto the sketch plane. `intersect`: the intersection curve of `body` with the sketch plane (`edges`/`faces` must be omitted). New entities are named `<id>.1`, `<id>.2`, … and can be used by `extrude.profile` like any other entity.",
+          "properties": {
+            "body": {
+              "description": "Source body name.",
+              "type": "string"
+            },
+            "construction": {
+              "default": false,
+              "description": "Add the entities as construction geometry (reference only, not part of profiles).",
+              "type": "boolean"
+            },
+            "edges": {
+              "description": "Edge selector to project, e.g. `\"of(>Z)\"` (`project` mode).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "faces": {
+              "description": "Face selector whose boundary edges are projected, e.g. `\">Z\"` (`project` mode).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "mode": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProjectMode"
+                }
+              ],
+              "default": "project",
+              "description": "`project` (default) or `intersect`."
+            },
+            "op": {
+              "enum": [
+                "sketch_project"
+              ],
+              "type": "string"
+            },
+            "sketch": {
+              "description": "Id of the target sketch op; entities are appended to it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op",
+            "sketch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Datum axis named `id` (creates no body). Reference it as `\"axis:<id>\"` in `revolve.axis` (the axis must lie in the sketch plane), in a circular `pattern` axis, in plane `perpendicular_to` / `through_edges`, and in point `two_edges`.",
+          "properties": {
+            "by": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AxisDef"
+                }
+              ],
+              "description": "`{\"two_points\":{\"a\":[0,0,0],\"b\":[0,0,10]}}`, `{\"edge\":{\"body\":\"b\",\"edge\":\"|Z and >X and >Y\"}}`, `{\"normal_to_face\":{\"body\":\"b\",\"face\":\">Z\"}}`, `{\"through_cylinder\":{\"body\":\"b\",\"face\":\"all[kind=cylinder]\"}}`, `{\"two_planes\":{\"a\":\"XZ\",\"b\":{\"base\":\"YZ\",\"offset\":10}}}`."
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "construct_axis"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "by",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Datum point named `id` (creates no body). Reference it as `\"point:<id>\"` wherever a datum point is accepted (`two_points`, `through`).",
+          "properties": {
+            "by": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PointDef"
+                }
+              ],
+              "description": "`{\"vertex\":{\"body\":\"b\",\"near\":[30,20,10]}}`, `{\"center\":{\"body\":\"b\",\"edge\":\"...\"}}`, `{\"edge_plane\":{\"body\":\"b\",\"edge\":\"|Z\",\"plane\":{\"base\":\"XY\",\"offset\":5}}}`, `{\"two_edges\":{\"a\":{\"body\":\"b\",\"edge\":\"...\"},\"b\":\"axis:ax1\"}}`, `{\"three_planes\":{\"a\":\"XY\",\"b\":\"XZ\",\"c\":\"YZ\"}}`, `{\"along_path\":{\"body\":\"b\",\"edge\":\"...\",\"fraction\":0.25}}`."
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "construct_point"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "by",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Store a simulation study (fixtures, loads, mesh settings) in the design. Creates no body and does not run the solver: run it with tool `simulate_static` (or `ducad-cli sim`), then assert on the result with checks `max_stress`, `max_displacement`, `min_safety_factor` (kinds `static`, `thermal_stress`), `min_natural_frequency` (`frequency`), `min_buckling_factor` (`buckling`) or `max_temperature` (`thermal`). The body needs a mechanical material (op `set_material`) before the study can run.",
           "properties": {
             "id": {
@@ -4287,6 +4820,545 @@
             "setup"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Move faces along their normal; neighbours follow (direct edit, in place).",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "distance": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Offset distance (mm, non-zero; negative = inward)."
+            },
+            "faces": {
+              "description": "Face selector, e.g. `\">Z\"` or `\"all[kind=cylinder][r=5]\"`.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "offset_face"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "distance",
+            "faces",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Delete faces (fillet, boss, hole) and heal the gap (in place).",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "faces": {
+              "description": "Face selector of the faces to remove, e.g. `\"all[kind=cylinder][r=2]\"`.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "delete_face"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "faces",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Replace one planar face with a plane or another planar face (in place).",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "face": {
+              "description": "Selector of exactly 1 planar face.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "replace_face"
+              ],
+              "type": "string"
+            },
+            "with": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PlaneSpec"
+                }
+              ],
+              "description": "Target plane (same forms as `sketch.plane`); must not be perpendicular to the face."
+            }
+          },
+          "required": [
+            "body",
+            "face",
+            "id",
+            "op",
+            "with"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Circle swept along a path; `wall` makes a tube.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "mode": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BodyMode"
+                }
+              ],
+              "default": "new",
+              "description": "`new` (default), `add`, `cut` (see `extrude.mode`)."
+            },
+            "op": {
+              "enum": [
+                "pipe"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SweepPath"
+                }
+              ],
+              "description": "Id of a sketch holding an open chain, or `{\"points\":[[x,y,z],…]}`."
+            },
+            "r": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Outer radius (> 0)."
+            },
+            "target": {
+              "default": null,
+              "description": "Body name for `add`/`cut` mode.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "wall": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Wall thickness (0 < wall < r) for a hollow tube; omitted = solid rod."
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "path",
+            "r"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Thin walls along the lines of a sketch, unioned into `body`.",
+          "properties": {
+            "body": {
+              "description": "Name of the body that receives the walls.",
+              "type": "string"
+            },
+            "depth": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Wall height from the sketch plane (> 0)."
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "web"
+              ],
+              "type": "string"
+            },
+            "reverse": {
+              "default": false,
+              "description": "Grow against the sketch normal.",
+              "type": "boolean"
+            },
+            "sketch": {
+              "description": "Id of a sketch with line entities (each line = one wall).",
+              "type": "string"
+            },
+            "thickness": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Wall thickness (> 0), centered on the line."
+            }
+          },
+          "required": [
+            "body",
+            "depth",
+            "id",
+            "op",
+            "sketch",
+            "thickness"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Raise (or engrave with `deboss`) closed sketch regions on a body.",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "deboss": {
+              "default": false,
+              "description": "Engrave instead of raise.",
+              "type": "boolean"
+            },
+            "depth": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Height / engraving depth (> 0)."
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "emboss"
+              ],
+              "type": "string"
+            },
+            "profile": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProfileSel"
+                }
+              ],
+              "default": "all",
+              "description": "Regions to use (see `extrude.profile`); default all."
+            },
+            "sketch": {
+              "description": "Id of the sketch with the closed regions (text outlines, logos, any shape).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "depth",
+            "id",
+            "op",
+            "sketch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Move a body so its face meets a face of another body (coplanar/coaxial).",
+          "properties": {
+            "body": {
+              "description": "Name of the body to move.",
+              "type": "string"
+            },
+            "flip": {
+              "default": false,
+              "description": "Planar faces: keep both normals pointing the same way.",
+              "type": "boolean"
+            },
+            "from": {
+              "description": "Selector of 1 planar or cylindrical face on `body`.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "offset": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Gap along the target face normal (planar) or along the axis (cylindrical)."
+            },
+            "op": {
+              "enum": [
+                "align"
+              ],
+              "type": "string"
+            },
+            "to": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/FaceRef"
+                }
+              ],
+              "description": "Target face `{\"body\":\"b2\",\"face\":\">Z\"}` (same kind as `from`)."
+            }
+          },
+          "required": [
+            "body",
+            "from",
+            "id",
+            "op",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "New body filling the cell of `bodies` that holds each point (overlap or cavity).",
+          "properties": {
+            "bodies": {
+              "description": "Bounding bodies (≥ 1).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "boundary_fill"
+              ],
+              "type": "string"
+            },
+            "points": {
+              "description": "One point per cell to fill (≥ 1).",
+              "items": {
+                "items": {
+                  "$ref": "#/definitions/Num"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "bodies",
+            "id",
+            "op",
+            "points"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "New box/cylinder enclosing a body, grown by `margin`.",
+          "properties": {
+            "axis": {
+              "default": [
+                0.0,
+                0.0,
+                1.0
+              ],
+              "description": "Cylinder axis direction (default +Z).",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "body": {
+              "description": "Name of the body to enclose.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "margin": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Extra clearance on every side (≥ 0, default 0)."
+            },
+            "op": {
+              "enum": [
+                "bounding_solid"
+              ],
+              "type": "string"
+            },
+            "shape": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BoundingShape"
+                }
+              ],
+              "default": "box",
+              "description": "`box` (default) or `cylinder`."
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Split faces along a plane or sketch curves; solid unchanged.",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "faces": {
+              "description": "Face selector of the faces to split; default every face the tool crosses (plane) / every face (sketch).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "split_face"
+              ],
+              "type": "string"
+            },
+            "tool": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SplitFaceTool"
+                }
+              ],
+              "description": "`{\"plane\": <plane spec>}` or `{\"sketch\": \"<sketch id>\"}`."
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Surface (sheet) modeling: open-profile extrude/revolve/sweep/loft, patch, boundary, ruled, offset, extend, trim/untrim, stitch/unstitch, thicken, blend, match, fair, reverse.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "make": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SurfaceSpec"
+                }
+              ],
+              "description": "One surface operation, e.g. `{\"extrude\":{\"sketch\":\"sk\",\"end\":10}}`."
+            },
+            "op": {
+              "enum": [
+                "surface"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "make",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Injection-molded plastic features on `body` (boss, lip/groove, snap fit, rest); omitted sizes default to the active `dfm-injection` rules (draft, wall, radius).",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "make": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PlasticSpec"
+                }
+              ],
+              "description": "One feature, e.g. `{\"boss\":{\"face\":\">Z\",\"at\":[[0,0]],\"height\":10,\"hole_d\":3}}`."
+            },
+            "op": {
+              "enum": [
+                "plastic"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "make",
+            "op"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -4328,6 +5400,22 @@
         }
       },
       "type": "object"
+    },
+    "PatternAxis": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "Circular pattern axis: a direction `[x,y,z]` or `\"axis:<id>\"`."
     },
     "PatternKind": {
       "oneOf": [
@@ -4378,12 +5466,12 @@
                   "$ref": "#/definitions/Num"
                 },
                 "axis": {
-                  "items": {
-                    "$ref": "#/definitions/Num"
-                  },
-                  "maxItems": 3,
-                  "minItems": 3,
-                  "type": "array"
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/PatternAxis"
+                    }
+                  ],
+                  "description": "Direction `[x,y,z]` through `pivot`, or `\"axis:<id>\"` (datum axis)."
                 },
                 "count": {
                   "format": "uint32",
@@ -4391,6 +5479,12 @@
                   "type": "integer"
                 },
                 "pivot": {
+                  "default": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "description": "Point on the axis; default origin. Must be omitted (or zero) with a datum axis.",
                   "items": {
                     "$ref": "#/definitions/Num"
                   },
@@ -4402,14 +5496,52 @@
               "required": [
                 "angle_deg",
                 "axis",
-                "count",
-                "pivot"
+                "count"
               ],
               "type": "object"
             }
           },
           "required": [
             "circular"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Copies spaced evenly along a path (first copy = original at the path start), e.g. `{\"path\":{\"path\":\"rail\",\"count\":5,\"align\":true}}`.",
+          "properties": {
+            "path": {
+              "additionalProperties": false,
+              "properties": {
+                "align": {
+                  "default": false,
+                  "description": "Rotate each copy with the path tangent (default: translate only).",
+                  "type": "boolean"
+                },
+                "count": {
+                  "description": "Total instances including the original (≥ 2).",
+                  "format": "uint32",
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "path": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/SweepPath"
+                    }
+                  ],
+                  "description": "Id of a sketch holding an open chain, or `{\"points\":[[x,y,z],…]}`."
+                }
+              },
+              "required": [
+                "count",
+                "path"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "path"
           ],
           "type": "object"
         }
@@ -4451,9 +5583,642 @@
             "face"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plane halfway between two parallel planes (normal of the first).",
+          "properties": {
+            "midplane": {
+              "description": "Exactly two parallel planes, e.g. `[{\"body\":\"b\",\"face\":\">Z\"},{\"body\":\"b\",\"face\":\"<Z\"}]`.",
+              "items": {
+                "$ref": "#/definitions/PlaneSpec"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "midplane"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plane perpendicular to a straight edge or datum axis, through a point.",
+          "properties": {
+            "perpendicular_to": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/LineRef"
+                }
+              ],
+              "description": "`\"axis:<id>\"` or `{\"body\":\"b\",\"edge\":\"...\"}` (straight edge)."
+            },
+            "through": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PointRef"
+                }
+              ],
+              "description": "`[x,y,z]` or `\"point:<id>\"`."
+            }
+          },
+          "required": [
+            "perpendicular_to",
+            "through"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plane tangent to one cylindrical face. Give `angle_deg` (around the cylinder axis, CCW from world +X projected onto the cross-section; +Y when the axis is parallel to X) or `through` (tangent at the surface point nearest to it); neither = angle 0.",
+          "properties": {
+            "angle_deg": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tangent_to": {
+              "$ref": "#/definitions/FaceRef"
+            },
+            "through": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/PointRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "tangent_to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plane normal to a line/circle edge at `fraction` of its length (0 = start, 1 = end).",
+          "properties": {
+            "along": {
+              "$ref": "#/definitions/EdgeRef"
+            },
+            "fraction": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "along",
+            "fraction"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plane through two coplanar straight edges/datum axes, or through one of them and `through`.",
+          "properties": {
+            "through": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/PointRef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required when `through_edges` has one element."
+            },
+            "through_edges": {
+              "description": "One or two `\"axis:<id>\"` / `{\"body\":\"b\",\"edge\":\"...\"}` (straight edges).",
+              "items": {
+                "$ref": "#/definitions/LineRef"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "through_edges"
+          ],
+          "type": "object"
         }
       ],
-      "description": "Sketch plane: a name (`\"XY\"`/`\"XZ\"`/`\"YZ\"`, aliases `\"top\"`/`\"front\"`/`\"right\"`, case-insensitive), an offset named plane, or a planar face of a body."
+      "description": "Sketch plane: a name (`\"XY\"`/`\"XZ\"`/`\"YZ\"`, aliases `\"top\"`/`\"front\"`/`\"right\"`, case-insensitive), an offset named plane, a planar face of a body, or a construction plane: `{\"midplane\":[A,B]}`, `{\"perpendicular_to\":LINE,\"through\":POINT}`, `{\"tangent_to\":{\"body\":\"b\",\"face\":\"...\"},\"angle_deg\":90}`, `{\"along\":{\"body\":\"b\",\"edge\":\"...\"},\"fraction\":0.5}`, `{\"through_edges\":[LINE,LINE]}`. Every variant has its own key set, so the form is never ambiguous."
+    },
+    "PlasticSpec": {
+      "description": "Feature of op `plastic` (externally tagged). Points use the `hole` convention: `at` local (u, v) on the face, or `at_world` projected onto it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Drafted (hollow) screw boss standing on a planar face.",
+          "properties": {
+            "boss": {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "default": [],
+                  "items": {
+                    "items": {
+                      "$ref": "#/definitions/Num"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "at_world": {
+                  "default": [],
+                  "items": {
+                    "items": {
+                      "$ref": "#/definitions/Num"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "draft_deg": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Default: rule min_draft_deg."
+                },
+                "face": {
+                  "type": "string"
+                },
+                "fillet": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Base fillet; default: rule min_internal_radius."
+                },
+                "height": {
+                  "$ref": "#/definitions/Num"
+                },
+                "hole_d": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Hole diameter (0 or omitted = solid post)."
+                },
+                "outer_d": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Default: hole_d + 4 × rule min_wall."
+                }
+              },
+              "required": [
+                "face",
+                "height"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "boss"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Lip raised along the inner loop of a planar rim face (`groove`: cut instead, grown by `clearance`).",
+          "properties": {
+            "lip": {
+              "additionalProperties": false,
+              "properties": {
+                "clearance": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "face": {
+                  "type": "string"
+                },
+                "groove": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "height": {
+                  "$ref": "#/definitions/Num"
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Default: rule min_wall."
+                }
+              },
+              "required": [
+                "face",
+                "height"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "lip"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Cantilever snap fit with a hook at the tip; reports the bending strain.",
+          "properties": {
+            "snap_fit": {
+              "additionalProperties": false,
+              "properties": {
+                "angle_deg": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Hook ramp angle (default 30°)."
+                },
+                "at": {
+                  "default": [],
+                  "items": {
+                    "items": {
+                      "$ref": "#/definitions/Num"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "at_world": {
+                  "default": [],
+                  "items": {
+                    "items": {
+                      "$ref": "#/definitions/Num"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "direction": {
+                  "description": "Hook direction in the face plane (default face u axis).",
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "face": {
+                  "type": "string"
+                },
+                "hook": {
+                  "$ref": "#/definitions/Num"
+                },
+                "length": {
+                  "$ref": "#/definitions/Num"
+                },
+                "thickness": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Default: 1.5 × rule min_wall."
+                },
+                "width": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "face",
+                "hook",
+                "length",
+                "width"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "snap_fit"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Flat round pad on a (curved) surface: top `height` above `at` along `direction`.",
+          "properties": {
+            "rest": {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "diameter": {
+                  "$ref": "#/definitions/Num"
+                },
+                "direction": {
+                  "description": "Default +Z.",
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "height": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    }
+                  ],
+                  "default": 0.0
+                }
+              },
+              "required": [
+                "at",
+                "diameter"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "rest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PointDef": {
+      "description": "How op `construct_point` builds its point (externally tagged).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A body vertex: the `end` (`start` default / `end`) of one edge picked by `edge`, or the vertex nearest to `near` [x,y,z]. Give exactly one of `edge` / `near`.",
+          "properties": {
+            "vertex": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "edge": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "end": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/VertexEnd"
+                    }
+                  ],
+                  "default": "start"
+                },
+                "near": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "body"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "vertex"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Center of one circle/arc edge (`edge`) or of one sphere/torus face (`face`); give exactly one.",
+          "properties": {
+            "center": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "edge": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "face": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "body"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "center"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Intersection of one edge with a plane (a straight edge is extended to a full line).",
+          "properties": {
+            "edge_plane": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "edge": {
+                  "type": "string"
+                },
+                "plane": {
+                  "$ref": "#/definitions/PlaneSpec"
+                }
+              },
+              "required": [
+                "body",
+                "edge",
+                "plane"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "edge_plane"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Intersection (or the midpoint of the closest approach) of two straight lines.",
+          "properties": {
+            "two_edges": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "$ref": "#/definitions/LineRef"
+                },
+                "b": {
+                  "$ref": "#/definitions/LineRef"
+                }
+              },
+              "required": [
+                "a",
+                "b"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "two_edges"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Intersection of three planes.",
+          "properties": {
+            "three_planes": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "$ref": "#/definitions/PlaneSpec"
+                },
+                "b": {
+                  "$ref": "#/definitions/PlaneSpec"
+                },
+                "c": {
+                  "$ref": "#/definitions/PlaneSpec"
+                }
+              },
+              "required": [
+                "a",
+                "b",
+                "c"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "three_planes"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Point at `fraction` (0..1) of the length of one line/circle edge.",
+          "properties": {
+            "along_path": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "edge": {
+                  "type": "string"
+                },
+                "fraction": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "body",
+                "edge",
+                "fraction"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "along_path"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PointRef": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "A point: `[x,y,z]` (numbers or expressions) or `\"point:<id>\"` (datum point from op `construct_point`)."
     },
     "PrimitiveSpec": {
       "description": "Externally tagged: `{\"box\": {...}}`.",
@@ -4562,6 +6327,32 @@
             "cone"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Torus around +Z centered on `at`: `major` = tube center radius, `minor` = tube radius (`major > minor > 0`).",
+          "properties": {
+            "torus": {
+              "additionalProperties": false,
+              "properties": {
+                "major": {
+                  "$ref": "#/definitions/Num"
+                },
+                "minor": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "major",
+                "minor"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "torus"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -4658,6 +6449,25 @@
         }
       ],
       "description": "Profile selection: `\"all\"`, `{\"names\": [...]}` (sketch entity names), or `{\"at\": [u, v]}` (smallest region containing the point)."
+    },
+    "ProjectMode": {
+      "description": "`sketch_project` mode.",
+      "oneOf": [
+        {
+          "description": "Project selected edges / face boundaries onto the sketch plane.",
+          "enum": [
+            "project"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Intersection curve of the body with the sketch plane.",
+          "enum": [
+            "intersect"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "ReliefSpec": {
       "description": "Bend relief shape.",
@@ -5019,6 +6829,35 @@
       ],
       "type": "object"
     },
+    "SplitFaceTool": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "plane": {
+              "$ref": "#/definitions/PlaneSpec"
+            }
+          },
+          "required": [
+            "plane"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sketch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "sketch"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Tool of op `split_face`: `{\"plane\": <plane spec>}` or `{\"sketch\": \"<sketch id>\"}`."
+    },
     "SplitKeep": {
       "enum": [
         "both",
@@ -5198,6 +7037,613 @@
       ],
       "type": "object"
     },
+    "SurfaceSpec": {
+      "description": "Surface operation of op `surface` (externally tagged). Creating forms make body `id`; `extend`, `trim`, `untrim`, `thicken`, `reverse`, `fair`, `match` change `body` in place; `stitch` consumes `bodies`; `unstitch` keeps the rest in `body` and makes `id.1`, `id.2`, ….",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Extrude every curve of a sketch (open or closed) from `start` to `end` along its normal.",
+          "properties": {
+            "extrude": {
+              "additionalProperties": false,
+              "properties": {
+                "end": {
+                  "$ref": "#/definitions/Num"
+                },
+                "sketch": {
+                  "type": "string"
+                },
+                "start": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    }
+                  ],
+                  "default": 0.0
+                }
+              },
+              "required": [
+                "end",
+                "sketch"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "extrude"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Revolve the sketch curves about a sketch axis (`\"u\"`/`\"v\"` or a 2D line).",
+          "properties": {
+            "revolve": {
+              "additionalProperties": false,
+              "properties": {
+                "angle_deg": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    }
+                  ],
+                  "default": 360.0
+                },
+                "axis": {
+                  "$ref": "#/definitions/AxisSpec"
+                },
+                "sketch": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "axis",
+                "sketch"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "revolve"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sweep the sketch curves along a path (sketch id or points).",
+          "properties": {
+            "sweep": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "$ref": "#/definitions/SweepPath"
+                },
+                "sketch": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "sketch"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "sweep"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Loft through the first curve chain of each sketch (≥ 2).",
+          "properties": {
+            "loft": {
+              "additionalProperties": false,
+              "properties": {
+                "sections": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "sections"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "loft"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Fill the hole bounded by the selected open edges of `body`.",
+          "properties": {
+            "patch": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "edges": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "edges"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "patch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Surface through `u` curves (and `v`: Coons 2×2 / Gordon), each a list of 3D points.",
+          "properties": {
+            "boundary": {
+              "additionalProperties": false,
+              "properties": {
+                "u": {
+                  "items": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/definitions/Num"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "v": {
+                  "default": [],
+                  "items": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/definitions/Num"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "u"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "boundary"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Strip `distance` wide from edges, along the face normal (default), the face tangent, or a fixed `direction`.",
+          "properties": {
+            "ruled": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "direction": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "distance": {
+                  "$ref": "#/definitions/Num"
+                },
+                "edges": {
+                  "type": "string"
+                },
+                "flip": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "tangent": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "body",
+                "distance",
+                "edges"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ruled"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "New surface offset from faces by `distance`.",
+          "properties": {
+            "offset": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "distance": {
+                  "$ref": "#/definitions/Num"
+                },
+                "faces": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "distance",
+                "faces"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "offset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Faces of a body copied out as a new surface.",
+          "properties": {
+            "copy_faces": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "faces": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "faces"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "copy_faces"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Surface joining edges of two bodies with `continuity` on both sides.",
+          "properties": {
+            "blend": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "$ref": "#/definitions/EdgeSel"
+                },
+                "b": {
+                  "$ref": "#/definitions/EdgeSel"
+                },
+                "continuity": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/ContinuitySpec"
+                    }
+                  ],
+                  "default": "g1"
+                }
+              },
+              "required": [
+                "a",
+                "b"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "blend"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Extend boundary edges by `distance` (in place).",
+          "properties": {
+            "extend": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "distance": {
+                  "$ref": "#/definitions/Num"
+                },
+                "edges": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "distance",
+                "edges"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "extend"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Trim with a plane, keeping the side holding `keep` (in place).",
+          "properties": {
+            "trim": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "keep": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "plane": {
+                  "$ref": "#/definitions/PlaneSpec"
+                }
+              },
+              "required": [
+                "body",
+                "keep",
+                "plane"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "trim"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Remove every hole of one face (in place).",
+          "properties": {
+            "untrim": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "face": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "face"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "untrim"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Thicken a surface into a solid (in place).",
+          "properties": {
+            "thicken": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "symmetric": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "thickness": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "body",
+                "thickness"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "thicken"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Flip the normals of faces (in place).",
+          "properties": {
+            "reverse": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "faces": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "faces"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "reverse"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Smooth faces (in place).",
+          "properties": {
+            "fair": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "faces": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "faces"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "fair"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Reshape faces to meet a target edge with `continuity` (in place).",
+          "properties": {
+            "match": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "continuity": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/ContinuitySpec"
+                    }
+                  ],
+                  "default": "g1"
+                },
+                "faces": {
+                  "type": "string"
+                },
+                "target": {
+                  "$ref": "#/definitions/EdgeSel"
+                }
+              },
+              "required": [
+                "body",
+                "faces",
+                "target"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "match"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sew surfaces into one body `id` (closed result = solid). The inputs are consumed.",
+          "properties": {
+            "stitch": {
+              "additionalProperties": false,
+              "properties": {
+                "bodies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "tolerance": {
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Num"
+                    }
+                  ],
+                  "default": 0.01
+                }
+              },
+              "required": [
+                "bodies"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "stitch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Detach faces into their own surfaces `id.1`, `id.2`, …; the rest stays in `body`.",
+          "properties": {
+            "unstitch": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "faces": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body",
+                "faces"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "unstitch"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SweepPath": {
       "anyOf": [
         {
@@ -5367,6 +7813,14 @@
           "type": "string"
         }
       ]
+    },
+    "VertexEnd": {
+      "description": "Which end of the edge for `construct_point.vertex`.",
+      "enum": [
+        "start",
+        "end"
+      ],
+      "type": "string"
     }
   },
   "description": "Ops file content: `{ \"params\": {...}, \"ops\": [...], \"checks\"?: [...] }`.",

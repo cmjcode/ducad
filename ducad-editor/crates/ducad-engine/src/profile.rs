@@ -55,7 +55,7 @@ fn reverse_segment(seg: ProfileSegment) -> ProfileSegment {
 ///
 /// Bila entitas membawa kurva EKSAK (`exact`) — misalnya outline glyph font —
 /// kurvanya diteruskan apa adanya sebagai [`ProfileSegment::Bezier`], sehingga
-/// OCCT membangun satu permukaan melengkung per segmen. Inilah yang membuat
+/// kernel membangun satu permukaan melengkung per segmen. Inilah yang membuat
 /// teks hasil extrude berdinding mulus; sebelumnya kurva selalu dicacah jadi
 /// puluhan ruas lurus dan tiap ruas menjadi face datar tersendiri.
 ///
@@ -130,7 +130,7 @@ fn cubic_is_straight(p0: DVec2, c1: DVec2, c2: DVec2, p3: DVec2) -> bool {
 }
 
 /// Konversi Spline (Catmull-Rom) menjadi kurva-kurva Arc parametrik analitik halus (Bi-Arc / 3-point Arcs)
-/// agar saat diextrude oleh OpenCASCADE menghasilkan permukaan silinder B-Rep yang kontinu dan mulus
+/// agar saat diextrude oleh kernel menghasilkan permukaan silinder B-Rep yang kontinu dan mulus
 /// (bukan jajaran prisma segi banyak terpatah-patah).
 pub fn convert_spline_to_smooth_segments(points: &[DVec2]) -> Vec<(DVec2, DVec2, ProfileSegment)> {
     if points.len() < 2 {
@@ -401,7 +401,7 @@ pub fn path_regions(entity: &Entity, rule: FillRule) -> Result<Vec<RegionWithHol
         let s_area = sub.signed_area();
         let winding = if s_area >= 0.0 { 1i32 } else { -1i32 };
 
-        // Normalisasi arah profil ke CCW (positif) agar konsisten dengan konvensi OCCT/ducad-kernel.
+        // Normalisasi arah profil ke CCW (positif) agar konsisten dengan konvensi ducad-kernel.
         // Pada ducad-kernel `build_face_on_plane`, wire lubang selalu dibalik otomatis dari arah profil.
         let normalized_sub;
         let sub_ref = if s_area < 0.0 {
@@ -698,7 +698,8 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
                         .to_string(),
                 )
             }
-            None => {}
+            // Titik sketch tidak punya tepi — diabaikan saat merakit profil.
+            Some(Entity::Point { .. }) | None => {}
         }
     }
 
@@ -937,7 +938,7 @@ pub fn extrude_selection_with_holes_on_plane(
         };
 
         // Potong setiap lubang tengah (Boolean Subtract) dengan tool yang diperluas di kedua ujung
-        // agar tidak terjadi kegagalan coplanar Boolean pada OpenCASCADE.
+        // agar tidak terjadi kegagalan boolean coplanar di kernel.
         for h_idx in hole_indices {
             let hole_reg = &sorted_regions[h_idx];
             let hole_prof = convert_region_to_exact_profile(sketch, hole_reg);
@@ -1003,7 +1004,7 @@ pub fn extrude_selection_with_holes_on_plane(
 /// Bangun kurva jalur (spine path) untuk Sweep dari seleksi entitas sketch (Line, Arc, Spline, Circle)
 /// dengan transformasi ke koordinat 3D dunia berdasarkan `SketchPlane`.
 /// Spline Catmull-Rom dipecah menjadi busur-busur analitik kontinu tangensial (smooth arcs)
-/// agar tidak terbentuk patahan/miter tajam saat disapu oleh OpenCASCADE.
+/// agar tidak terbentuk patahan/miter tajam saat disapu oleh kernel.
 pub fn build_path_from_selection_on_plane(
     sketch: &Sketch,
     ids: &HashSet<EntityId>,
@@ -1116,7 +1117,7 @@ pub fn build_path_from_selection_on_plane(
                     },
                 });
             }
-            Some(Entity::Ellipse { .. }) | None => {}
+            Some(Entity::Ellipse { .. }) | Some(Entity::Point { .. }) | None => {}
         }
     }
 
@@ -1231,6 +1232,12 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
         if let Some(e) = sketch.entities.get(*id) {
             count += 1;
             match e {
+                Entity::Point { pos, .. } => {
+                    min_x = min_x.min(pos.x);
+                    max_x = max_x.max(pos.x);
+                    min_y = min_y.min(pos.y);
+                    max_y = max_y.max(pos.y);
+                }
                 Entity::Line { start, end, .. } => {
                     min_x = min_x.min(start.x.min(end.x));
                     max_x = max_x.max(start.x.max(end.x));
@@ -1292,6 +1299,8 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
 pub fn entity_to_subpaths(entity: &Entity) -> Vec<Subpath> {
     match entity {
         Entity::Path { subpaths, .. } => subpaths.clone(),
+        // Titik sketch tidak punya ruas.
+        Entity::Point { .. } => Vec::new(),
         Entity::Line { start, end, .. } => vec![Subpath {
             start: *start,
             segs: vec![PathSeg::Line { end: *end }],

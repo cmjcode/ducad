@@ -1,9 +1,11 @@
 name: release
 
 # Paket rilis Windows + Linux: aplikasi GUI (`ducad`) beserta binary
-# headless (`ducad-cli` + `ducad-mcp`). Kompilasi OCCT ±15 menit membuat
-# `cargo install` di runner pengguna tidak layak, jadi tarball `ducad-tools-*`
-# juga dipakai templat `ducad-editor/docs/ci/ducad-build.yml`.
+# headless (`ducad-cli` + `ducad-mcp`). Tarball `ducad-tools-*` juga dipakai
+# templat `ducad-editor/docs/ci/ducad-build.yml`.
+#
+# Kernel geometri SolidCraft/truck adalah Rust murni: tidak ada cmake,
+# submodule, atau kompilasi C++ (PLAN_MIGRASI_TRUCK F6.4).
 #
 # Pembaruan otomatis di aplikasi (`crates/ducad-update`) membaca rilis
 # `latest` dan mencocokkan NAMA aset — ubah pola nama di sini = ubah juga
@@ -33,7 +35,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 defaults:
   run:
@@ -82,15 +83,7 @@ jobs:
             exe: ".exe"
     runs-on: ${{ matrix.os }}
     steps:
-      # Pohon sumber OCCT punya path yang melewati batas MAX_PATH Windows.
-      - name: Izinkan path panjang (Windows)
-        if: runner.os == 'Windows'
-        working-directory: .
-        run: git config --global core.longpaths true
-
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Pasang dependensi sistem Linux
         if: runner.os == 'Linux'
@@ -98,42 +91,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build \
             libgtk-3-dev \
             libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
             libxkbcommon-dev libwayland-dev \
             libgl1-mesa-dev
 
-      # ducad-editor/.cargo/config.toml mengunci generator ke VS 2022 (untuk
-      # mesin dev), padahal image runner bisa membawa VS versi lain. Env proses
-      # menang atas [env] Cargo, jadi pilih generator sesuai VS yang terpasang.
-      - name: Pilih generator CMake sesuai Visual Studio runner
-        if: runner.os == 'Windows'
-        working-directory: .
-        shell: pwsh
-        run: |
-          # Generator bertanda `*` di `cmake --help` = VS terbaru yang terpasang.
-          # (Jangan merakit nama dari vswhere: VS 2026 melaporkan
-          # catalog_productLineVersion "18", bukan "2026".)
-          $line = cmake --help | Select-String '^\*\s+(Visual Studio \d+ \d{4})' | Select-Object -First 1
-          if (-not $line) { throw 'Generator Visual Studio default tidak ditemukan di cmake --help' }
-          $gen = $line.Matches[0].Groups[1].Value
-          Write-Host "Generator CMake: $gen"
-          "CMAKE_GENERATOR_x86_64_pc_windows_msvc=$gen" >> $env:GITHUB_ENV
+      - uses: dtolnay/rust-toolchain@1.96.1
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Resolusi revisi OCCT
-        id: occt
-        run: echo "sha=$(git -C vendors/opencascade-rs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache artefak build OCCT
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: ducad-editor/target/release/build
-          key: occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-${{ hashFiles('ducad-editor/Cargo.lock') }}
-          restore-keys: |
-            occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-
+          workspaces: ducad-editor
+          key: release-${{ matrix.platform }}
 
       - name: Build
         run: cargo build --release -p ducad-app -p ducad-cli -p ducad-mcp

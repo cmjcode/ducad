@@ -2,7 +2,7 @@
 //! CADCraft). Peta crate di `CLAUDE.md` adalah kontrak: setiap crate hanya
 //! boleh bergantung pada crate DUCAD yang tercantum di tabel ini, crate UI
 //! (egui/eframe/wgpu/winit/rfd) hanya boleh muncul di lapisan GUI, dan
-//! `opencascade` hanya di `ducad-kernel`. Menambah panah baru = ubah tabel
+//! `solidcraft-*`/`truck-*` hanya di `ducad-kernel` (OpenCASCADE dilarang sejak 0.6.0). Menambah panah baru = ubah tabel
 //! ini DAN peta di `CLAUDE.md`.
 //!
 //! Dijalankan dari `ducad-core` karena crate ini paling bawah dan paling
@@ -224,16 +224,30 @@ fn ui_toolkits_stay_in_the_gui_layer() {
     }
 }
 
+/// OpenCASCADE dihapus di 0.6.0 (PLAN_MIGRASI_TRUCK F6.4): tidak ada crate
+/// yang boleh menariknya kembali.
 #[test]
-fn only_the_kernel_links_opencascade() {
+fn no_crate_links_opencascade() {
     for (name, text) in manifests() {
         let uses = dependency_names(&text)
             .iter()
-            .any(|d| d.starts_with("opencascade"));
+            .any(|d| d.starts_with("opencascade") || d.starts_with("occt"));
+        assert!(!uses, "`{name}`: OpenCASCADE sudah dihapus (F6.4)");
+    }
+}
+
+/// SolidCraft & truck terkurung di ducad-kernel — tipe mereka tidak boleh
+/// bocor ke crate lain.
+#[test]
+fn only_the_kernel_links_solidcraft_or_truck() {
+    for (name, text) in manifests() {
+        let uses = dependency_names(&text)
+            .iter()
+            .any(|d| d.starts_with("solidcraft") || d.starts_with("truck-"));
         assert_eq!(
             uses,
             name == "ducad-kernel",
-            "`{name}`: hanya ducad-kernel yang boleh bergantung pada opencascade"
+            "`{name}`: hanya ducad-kernel yang boleh bergantung pada solidcraft/truck"
         );
     }
 }

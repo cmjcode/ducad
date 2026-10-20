@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "source": "../examples/design-package/sensor_bracket.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 7,
+  "bodies": [
+    {
+      "name": "bracket",
+      "valid": true,
+      "volume": 26560.9182,
+      "area": 10504.1703,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          60.0,
+          40.0,
+          40.0
+        ]
+      ],
+      "faces": 11,
+      "edges": 27,
+      "mesh": {
+        "vertices": 1178,
+        "triangles": 1164,
+        "sha": "9741ad487fb2b312"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "envelope",
+      "status": "pass"
+    },
+    {
+      "label": "sensor_holes",
+      "status": "pass"
+    },
+    {
+      "label": "mass",
+      "status": "pass"
+    },
+    {
+      "label": "strength",
+      "status": "error"
+    },
+    {
+      "label": "dfm-cnc/hole-depth",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-cnc/internal-radius",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-cnc/min-wall",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-cnc/hole-web",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-cnc/thread-engagement",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-cnc/general-tolerance",
+      "status": "pass"
+    }
+  ]
+}

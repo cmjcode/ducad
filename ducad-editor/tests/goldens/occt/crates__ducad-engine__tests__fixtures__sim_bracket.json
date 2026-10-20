@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/sim_bracket.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 5,
+  "bodies": [
+    {
+      "name": "bracket",
+      "valid": true,
+      "volume": 13750.0,
+      "area": 6550.0,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          50.0,
+          30.0,
+          30.0
+        ]
+      ],
+      "faces": 8,
+      "edges": 18,
+      "mesh": {
+        "vertices": 36,
+        "triangles": 20,
+        "sha": "7c20b66f637f2b70"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "stress_ok",
+      "status": "error"
+    },
+    {
+      "label": "stiff_enough",
+      "status": "error"
+    },
+    {
+      "label": "safe",
+      "status": "error"
+    }
+  ]
+}

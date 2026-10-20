@@ -4,7 +4,7 @@
 # Includes macOS codesign, notarization, App Store pkg
 ############################################
 
-.PHONY: all help install-deps clean clean-no-occt create-dirs \
+.PHONY: all help install-deps clean create-dirs \
         build-macos build-linux build-windows \
         bundle-macos bundle-linux bundle-windows pkg-macos-store \
         build-ipad archive-ipad ipa-ipad publish-ipad publish-all publish-apple-all \
@@ -50,7 +50,7 @@ help:
 	@echo "  bundle-macos       Create .app & .dmg (codesign/notarize optional)"
 	@echo "  pkg-macos-store    Create signed .pkg (App Store / distribution)"
 	@echo "  build-ipad         Build iPadOS target / XCFramework"
-	@echo "  android-check      cargo check untuk aarch64-linux-android (OCCT via NDK)"
+	@echo "  android-check      cargo check untuk aarch64-linux-android"
 	@echo "  android-so         Build libducad_android.so ke android/app/src/main/jniLibs"
 	@echo "  android-apk        android-so + gradle assembleDebug (APK tablet)"
 	@echo "  build-linux        Build Linux binaries"
@@ -61,7 +61,7 @@ help:
 	@echo "  notarize           Notarize existing .app and .dmg"
 	@echo "  notarize-check     Check notarization status"
 	@echo "Dev Helpers:"
-	@echo "  run / dev / test / check / fmt / info / clean-no-occt"
+	@echo "  run / dev / test / check / fmt / info"
 	@echo "Environment (macOS signing/notarization):"
 	@echo "  APPLE_IDENTITY='Developer ID Application: Name (TEAMID)'"
 	@echo "  APPLE_IDENTITY_INS='Developer ID Installer: Name (TEAMID)'"
@@ -87,9 +87,6 @@ clean:
 	rm -rf $(BUILD_DIR)/$(MACOS_ARM_TARGET)/release/bundle
 	rm -rf $(BUILD_DIR)/$(MACOS_X86_TARGET)/release/bundle
 	@echo "✅ Clean done."
-
-clean-no-occt:
-	@./clean_no_occt.sh $(ARGS)
 
 create-dirs:
 	@mkdir -p $(MACOS_DIR) $(LINUX_DIR) $(WINDOWS_DIR) $(IOS_DIR)
@@ -143,11 +140,11 @@ bundle-macos: create-dirs
 	find "$(MACOS_DIR)/$(APP_NAME).app" -name ".DS_Store" -delete 2>/dev/null || true
 	@if [ -n "$$APPLE_APP_IDENTITY" ]; then \
 		echo "🔏 Codesign with App Store entitlements (binary + app)..."; \
-		codesign --force --timestamp --options runtime --entitlements macos/DUCAD.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_APP_IDENTITY" "$$(find $(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS -type f | head -n1)" 2>/dev/null || true; \
+		find "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS" -type f | while read -r bin; do codesign --force --timestamp --options runtime --entitlements macos/DUCAD.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_APP_IDENTITY" "$$bin" 2>/dev/null || true; done; \
 		codesign --force --timestamp --options runtime --entitlements macos/DUCAD.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_APP_IDENTITY" -v "$(MACOS_DIR)/$(APP_NAME).app"; \
 	elif [ -n "$$APPLE_IDENTITY" ]; then \
 		echo "🔏 Codesign with Developer ID entitlements (binary + app)..."; \
-		codesign --force --timestamp --options runtime --entitlements macos/DUCAD-DeveloperID.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_IDENTITY" "$$(find $(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS -type f | head -n1)" 2>/dev/null || true; \
+		find "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS" -type f | while read -r bin; do codesign --force --timestamp --options runtime --entitlements macos/DUCAD-DeveloperID.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_IDENTITY" "$$bin" 2>/dev/null || true; done; \
 		codesign --force --timestamp --options runtime --entitlements macos/DUCAD-DeveloperID.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_IDENTITY" -v "$(MACOS_DIR)/$(APP_NAME).app"; \
 	else \
 		echo "⚠️  No APPLE_IDENTITY: ad-hoc signing (set APPLE_IDENTITY or APPLE_APP_IDENTITY for Developer ID)."; \
@@ -219,7 +216,7 @@ pkg-macos-store: bundle-macos
 	xattr -cr $$APP_PATH 2>/dev/null || true; \
 	find $$APP_PATH -name ".DS_Store" -delete 2>/dev/null || true; \
 	echo "🔏 Re-codesign with Mac App Store entitlements"; \
-	codesign --force --timestamp --options runtime --entitlements macos/DUCAD.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APP_IDENTITY" "$$(find $$APP_PATH/Contents/MacOS -type f | head -n1)" 2>/dev/null || true; \
+	find $$APP_PATH/Contents/MacOS -type f | while read -r bin; do codesign --force --timestamp --options runtime --entitlements macos/DUCAD.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APP_IDENTITY" "$$bin" 2>/dev/null || true; done; \
 	codesign --force --timestamp --options runtime --entitlements macos/DUCAD.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APP_IDENTITY" -v $$APP_PATH; \
 	echo "📦 Create installer package"; \
 	productbuild --component $$APP_PATH /Applications "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).pkg" --sign "$$INS_IDENTITY" --identifier "$$APPLE_BUNDLE_ID"; \
@@ -288,7 +285,8 @@ android-check:
 android-so:
 	@echo "🤖 build libducad_android.so (release)"
 	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) -o $(ANDROID_JNI_DIR) build --release -p ducad-android
-	@# libc++_shared.so: OCCT ditautkan ke STL bersama (android-toolchain.cmake).
+	@# libc++_shared.so: disalin agar dependensi native yang menautkan runtime
+	@# C++ NDK tidak gagal saat dimuat.
 	@cp "$$(ls -d $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/*)/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" $(ANDROID_JNI_DIR)/arm64-v8a/
 
 android-apk: android-so
@@ -310,7 +308,7 @@ dev:
 	cargo build -p $(PKG_NAME)
 
 test:
-	cargo test
+	cargo test --workspace
 
 check:
 	cargo check -p $(PKG_NAME)

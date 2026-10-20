@@ -50,6 +50,7 @@ pub struct ViewportCallback {
     pub studio_config: StudioConfig,
     pub zebra_config: ZebraConfig,
     pub draft_config: DraftConfig,
+    pub curvature_config: ducad_render::CurvatureConfig,
 }
 
 impl egui_wgpu::CallbackTrait for ViewportCallback {
@@ -91,6 +92,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
             scene.set_studio_config(self.studio_config);
             scene.set_zebra_config(self.zebra_config);
             scene.set_draft_config(self.draft_config);
+            scene.set_curvature_config(self.curvature_config);
             scene.prepare(queue, self.view_proj, self.eye);
         }
         if self.glass {

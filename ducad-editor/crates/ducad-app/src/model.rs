@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(solids.len(), 1);
         let (name, geo) = &solids[0];
         assert_eq!(name, "Solid");
-        // OpenCASCADE true analytical cylinder has exact faces & non-empty mesh
+        // Analytic B-rep cylinder: exact faces & non-empty mesh
         assert!(geo.mesh.triangle_count() > 0);
     }
 

@@ -112,16 +112,25 @@ fn tool(name: &str, title: &str, description: &str, input: Value) -> Value {
     })
 }
 
-/// Skema satu Op yang RINGKAS: hanya `op` (enum jenis) dan `id`. Skema
-/// penuh (±33 KB) sengaja tidak ditanam di sini — agent mengambil detail
-/// per jenis lewat `get_schema {"op": …}`, dan engine memvalidasi setiap op
-/// dengan error yang menyebut `op_index` serta field yang sah.
-fn op_item() -> Value {
+/// Skema satu Op yang RINGKAS: hanya `op` dan `id`. Skema penuh (±33 KB)
+/// sengaja tidak ditanam di sini — agent mengambil detail per jenis lewat
+/// `get_schema {"op": …}`, dan engine memvalidasi setiap op dengan error
+/// yang menyebut `op_index` serta field yang sah.
+///
+/// `with_kinds`: sertakan enum jenis op. Hanya untuk larik `ops` (run_ops,
+/// propose_ops); `replace_op`/`replace` cukup merujuk ke sana, supaya
+/// `tools/list` tidak membengkak setiap kali op baru ditambahkan.
+fn op_item(with_kinds: bool) -> Value {
+    let op = if with_kinds {
+        json!({ "type": "string", "enum": op_kinds() })
+    } else {
+        json!({ "type": "string", "description": "Op kind, as in run_ops." })
+    };
     json!({
         "type": "object",
         "description": "One Op: {\"op\":<kind>,\"id\":<name>, …fields of that kind}. Fields per kind: get_schema {\"op\":\"<kind>\"}.",
         "properties": {
-            "op": { "type": "string", "enum": op_kinds() },
+            "op": op,
             "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" }
         },
         "required": ["op", "id"],
@@ -130,7 +139,7 @@ fn op_item() -> Value {
 }
 
 fn ops_prop(description: &str) -> Value {
-    json!({ "type": "array", "items": op_item(), "description": description })
+    json!({ "type": "array", "items": op_item(true), "description": description })
 }
 
 fn params_prop() -> Value {
@@ -149,7 +158,7 @@ fn ref_schema() -> Value {
     })
 }
 
-const BATCH_RESULT: &str = "Returns a BatchReport: committed, outcomes[] (created/modified/removed per op), summary (volume/bbox per body), checks. On failure → isError with error{code, message, hint, op_index, op_id, context, fixes[]}; when fixes is present, resend with patched_op.";
+const BATCH_RESULT: &str = "Returns a BatchReport: committed, outcomes[] (created/modified/removed/warnings per op; a `boolean_retry:` warning means the kernel had to nudge or scale a tool to finish a boolean, so the result may differ slightly from the exact one: verify it with inspect/run_checks), summary (volume/bbox per body), checks. On failure → isError with error{code, message, hint, op_index, op_id, context, fixes[]}; when fixes is present, resend with patched_op.";
 
 /// Daftar tool untuk `tools/list`.
 pub fn definitions() -> Vec<Value> {
@@ -234,7 +243,7 @@ pub fn definitions() -> Vec<Value> {
                 json!({
                     "session": session_prop(),
                     "id": { "type": "string", "description": "Id of the op to replace (see get_oplog)." },
-                    "op": op_item(),
+                    "op": op_item(false),
                     "dry_run": { "type": "boolean", "description": "Test the replay without changing the part; summary = proposed state." }
                 }),
                 &["id", "op"],
@@ -373,7 +382,7 @@ pub fn definitions() -> Vec<Value> {
                     "ops": ops_prop("Ops appended to the end of the oplog."),
                     "params": params_prop(),
                     "replace": { "type": "array", "description": "Ops to replace: [{id, op}].",
-                                 "items": schema(json!({ "id": { "type": "string" }, "op": op_item() }), &["id", "op"]) },
+                                 "items": schema(json!({ "id": { "type": "string" }, "op": op_item(false) }), &["id", "op"]) },
                     "remove": { "type": "array", "items": { "type": "string" }, "description": "Ids of the ops to remove." }
                 }),
                 &[],

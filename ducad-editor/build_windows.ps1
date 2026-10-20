@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     Automates building, version syncing, packaging, and cleaning of the DUCAD CAD editor
-    on Windows (x86_64 MSVC). Supports preserving precompiled OpenCASCADE (OCCT)
-    artifacts to prevent long recompilations.
+    on Windows (x86_64 MSVC). The geometry kernel (SolidCraft/truck) is pure
+    Rust: no CMake or C++ kernel build is needed.
 
 .PARAMETER Target
     Build target:
@@ -16,20 +16,17 @@
       - 'check'     : Run cargo check across the workspace
       - 'test'      : Run cargo test across workspace crates
       - 'run'       : Build (if needed) and run ducad.exe immediately
-      - 'clean'     : Clean build artifacts while preserving target/OCCT
-      - 'clean-all' : Deep clean entire target/ directory (including OCCT)
+      - 'clean'     : Clean build artifacts (cargo clean + dist/windows)
+      - 'clean-all' : Deep clean entire target/ and dist/ directories
 
 .PARAMETER Profile
     Cargo build profile: 'release' (default) or 'debug'.
 
 .PARAMETER Clean
-    Clean build artifacts before building (preserves target/OCCT).
+    Clean build artifacts before building.
 
 .PARAMETER CleanAll
-    Deep clean everything (including target/OCCT) before building.
-
-.PARAMETER CleanNoOcct
-    Explicit clean of target/ artifacts while strictly preserving target/OCCT.
+    Deep clean everything before building.
 
 .PARAMETER Zip
     Compress build output and assets into a ZIP file in dist/windows.
@@ -60,7 +57,7 @@
 
 .EXAMPLE
     .\build_windows.ps1 clean
-    # Safely cleans cargo target cache while preserving OpenCASCADE C++ compilation.
+    # Cleans the cargo target cache and dist/windows.
 #>
 
 [CmdletBinding()]
@@ -74,7 +71,6 @@ param(
 
     [switch]$Clean,
     [switch]$CleanAll,
-    [switch]$CleanNoOcct,
     [switch]$Zip,
     [switch]$Run,
     [switch]$Deps,
@@ -183,28 +179,6 @@ Write-Status "Target          : $Target | Profil: $Profile"
 
 # --- Setup Visual Studio / MSVC Build Environment ---
 function Initialize-MsvcEnvironment {
-    # Pastikan default CMAKE_GENERATOR kompatibel jika belum diset
-    if (-not $env:CMAKE_GENERATOR) {
-        $env:CMAKE_GENERATOR = "Visual Studio 17 2022"
-    }
-
-    # Sinkronkan cache CMake di target/OCCT/build jika ada perbedaan generator sebelumnya
-    $occtCache = Join-Path $TargetDir "OCCT\build\CMakeCache.txt"
-    $occtCMakeFiles = Join-Path $TargetDir "OCCT\build\CMakeFiles"
-    if (Test-Path $occtCache) {
-        $cacheContent = Get-Content $occtCache -Raw -ErrorAction SilentlyContinue
-        if ($cacheContent -and ($cacheContent -match "CMAKE_GENERATOR:INTERNAL=(.*)")) {
-            $prevGen = $matches[1].Trim()
-            if ($prevGen -and ($prevGen -ne $env:CMAKE_GENERATOR)) {
-                Write-Status "Menyelaraskan generator CMake ($prevGen -> $($env:CMAKE_GENERATOR))..."
-                Remove-Item -Force $occtCache -ErrorAction SilentlyContinue
-                if (Test-Path $occtCMakeFiles) {
-                    Remove-Item -Recurse -Force $occtCMakeFiles -ErrorAction SilentlyContinue
-                }
-            }
-        }
-    }
-
     if (Get-Command cl.exe -ErrorAction SilentlyContinue) {
         return
     }
@@ -237,9 +211,6 @@ function Check-Prerequisites {
         exit 1
     }
 
-    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-        Write-Warning "CMake tidak ditemukan di PATH. Crate native seperti OpenCASCADE membutuhkan CMake."
-    }
 
     Initialize-MsvcEnvironment
     Write-Success "Dependensi dasar siap."
@@ -294,8 +265,6 @@ function Clean-Build([bool]$deepClean) {
     }
 
     if ($deepClean) {
-        Write-Warning "PERINGATAN: Membersihkan SELURUH target/ termasuk OpenCASCADE C++ kernel!"
-        Write-Warning "Kompilasi ulang OpenCASCADE dapat memakan waktu 10-30 menit."
         Remove-Item -Recurse -Force $TargetDir -ErrorAction SilentlyContinue
         if (Test-Path $DistDir) {
             Remove-Item -Recurse -Force $DistDir -ErrorAction SilentlyContinue
@@ -304,38 +273,12 @@ function Clean-Build([bool]$deepClean) {
         return
     }
 
-    Write-Guard "Menjalankan pembersihan aman (melindungi target/OCCT)..."
-    
-    # 1. Bersihkan dist/windows
     if (Test-Path $WindowsDistDir) {
         Remove-Item -Recurse -Force $WindowsDistDir -ErrorAction SilentlyContinue
     }
-
-    # 2. Bersihkan target profil tertentu atau workspace
-    $occtBackup = Join-Path ([System.IO.Path]::GetTempPath()) ("ducad_occt_backup_" + [System.IO.Path]::GetRandomFileName())
-    $occtPath = Join-Path $TargetDir "OCCT"
-    $hasOcct = Test-Path $occtPath
-
-    if ($hasOcct) {
-        Write-Status "Mengamankan target/OCCT ke $occtBackup..."
-        Move-Item -Path $occtPath -Destination $occtBackup -Force
-    }
-
-    try {
-        Write-Status "Membersihkan cache build Rust via cargo clean..."
-        cargo clean --manifest-path (Join-Path $EditorDir "Cargo.toml")
-    } finally {
-        if ($hasOcct -and (Test-Path $occtBackup)) {
-            if (-not (Test-Path $TargetDir)) {
-                New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
-            }
-            Write-Status "Mengembalikan target/OCCT..."
-            Move-Item -Path $occtBackup -Destination $occtPath -Force
-            Write-Success "target/OCCT berhasil dipertahankan!"
-        }
-    }
-
-    Write-Success "Pembersihan aman selesai."
+    Write-Status "Membersihkan cache build Rust via cargo clean..."
+    cargo clean --manifest-path (Join-Path $EditorDir "Cargo.toml")
+    Write-Success "Pembersihan selesai."
 }
 
 # --- Format File Size ---
@@ -449,7 +392,7 @@ if ($SyncVersion) {
 if ($CleanAll -or ($Target -eq "clean-all")) {
     Clean-Build -deepClean $true
     if ($Target -eq "clean" -or $Target -eq "clean-all") { exit 0 }
-} elseif ($Clean -or $CleanNoOcct -or ($Target -eq "clean")) {
+} elseif ($Clean -or ($Target -eq "clean")) {
     Clean-Build -deepClean $false
     if ($Target -eq "clean") { exit 0 }
 }

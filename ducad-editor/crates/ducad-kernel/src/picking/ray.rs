@@ -4,7 +4,7 @@ use glam::{dvec3, DVec3};
 /// picking edge/face 3D di viewport.
 ///
 /// SENGAJA disimpan APA ADANYA oleh pemanggil (`ducad-app`) — BUKAN
-/// index posisi di `shape.edges()`/`shape.faces()` atau handle OCCT
+/// index posisi di `shape.edges()`/`shape.faces()` atau handle backend
 /// mentah. `fillet_edges`/`chamfer_edges`/`shell_hollow_faces` semua
 /// harus `deep_clone` shape dulu sebelum memutasi (pola sama dengan
 /// `fillet_all`/`chamfer_all`/`shell_hollow`, supaya shape asli pemanggil
@@ -39,9 +39,7 @@ impl PickRay {
 /// clamp bersama di kedua parameter dalam loop iteratif) — pendekatan
 /// dua-langkah standar yang cukup untuk hit-testing interaktif: cari `s`
 /// (parameter di segmen) dari closest-point line-line lalu clamp ke
-/// [0,1], baru proyeksikan balik ke ray. `opencascade-rs` tidak punya
-/// primitif ray-vs-edge (beda dari `faces_along_ray` yang sudah ada untuk
-/// face) — ditulis sendiri, konsisten dengan pola project (solver LM,
+/// [0,1], baru proyeksikan balik ke ray. Ditulis sendiri, konsisten dengan pola project (solver LM,
 /// snap engine, DXF writer semua ditulis sendiri).
 pub(crate) fn closest_point_ray_segment(
     ray_origin: DVec3,

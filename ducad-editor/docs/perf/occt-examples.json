@@ -1,0 +1,901 @@
+[
+  {
+    "source": "../examples/design-package/plate_review.ops.json",
+    "total_ms": 149.726625,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "sketch",
+        "ms": 6.288792
+      },
+      {
+        "id": "plate",
+        "kind": "extrude",
+        "ms": 19.029667
+      },
+      {
+        "id": "f1",
+        "kind": "fillet",
+        "ms": 29.84075
+      },
+      {
+        "id": "h1",
+        "kind": "hole",
+        "ms": 75.144458
+      },
+      {
+        "id": "mat",
+        "kind": "set_material",
+        "ms": 7.431166999999999
+      }
+    ]
+  },
+  {
+    "source": "../examples/design-package/sensor_bracket.ops.json",
+    "total_ms": 57.210667,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "primitive",
+        "ms": 1.801125
+      },
+      {
+        "id": "wall",
+        "kind": "primitive",
+        "ms": 2.427166
+      },
+      {
+        "id": "bracket",
+        "kind": "boolean",
+        "ms": 7.627666
+      },
+      {
+        "id": "fold",
+        "kind": "fillet",
+        "ms": 6.3065
+      },
+      {
+        "id": "sensor_holes",
+        "kind": "hole",
+        "ms": 27.182959
+      },
+      {
+        "id": "bracket_mat",
+        "kind": "set_material",
+        "ms": 4.7347090000000005
+      },
+      {
+        "id": "handling",
+        "kind": "study",
+        "ms": 6.682791000000001
+      }
+    ]
+  },
+  {
+    "source": "../examples/design-package/tray.ops.json",
+    "total_ms": 177.085541,
+    "ops": [
+      {
+        "id": "blank_sk",
+        "kind": "sketch",
+        "ms": 0.048875
+      },
+      {
+        "id": "tray",
+        "kind": "base_flange",
+        "ms": 2.5667910000000003
+      },
+      {
+        "id": "wall_x",
+        "kind": "edge_flange",
+        "ms": 36.871042
+      },
+      {
+        "id": "wall_y",
+        "kind": "edge_flange",
+        "ms": 112.765125
+      },
+      {
+        "id": "tray_mat",
+        "kind": "set_material",
+        "ms": 24.45075
+      }
+    ]
+  },
+  {
+    "source": "../examples/industrial-demo/model.ducad",
+    "total_ms": 18.271375,
+    "ops": []
+  },
+  {
+    "source": "../examples/industrial-demo/mounting_bracket.ducad",
+    "total_ms": 783.5259159999999,
+    "ops": []
+  },
+  {
+    "source": "../examples/industrial-demo/mounting_bracket.ops.json",
+    "total_ms": 998.540375,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "primitive",
+        "ms": 2.7894170000000003
+      },
+      {
+        "id": "bolt_holes",
+        "kind": "hole",
+        "ms": 16.633
+      },
+      {
+        "id": "wall",
+        "kind": "primitive",
+        "ms": 4.725917
+      },
+      {
+        "id": "bracket",
+        "kind": "boolean",
+        "ms": 15.560333
+      },
+      {
+        "id": "bracket_mat",
+        "kind": "set_material",
+        "ms": 3.47975
+      },
+      {
+        "id": "washer_a",
+        "kind": "standard_part",
+        "ms": 14.258
+      },
+      {
+        "id": "washer_b",
+        "kind": "standard_part",
+        "ms": 21.965083
+      },
+      {
+        "id": "bolt_a",
+        "kind": "standard_part",
+        "ms": 39.214290999999996
+      },
+      {
+        "id": "bolt_b",
+        "kind": "standard_part",
+        "ms": 96.853458
+      },
+      {
+        "id": "washer_a_mat",
+        "kind": "set_material",
+        "ms": 35.20725
+      },
+      {
+        "id": "washer_b_mat",
+        "kind": "set_material",
+        "ms": 26.784375
+      },
+      {
+        "id": "bolt_a_mat",
+        "kind": "set_material",
+        "ms": 17.902375000000003
+      },
+      {
+        "id": "bolt_b_mat",
+        "kind": "set_material",
+        "ms": 16.426416
+      },
+      {
+        "id": "bolt_a_thread",
+        "kind": "thread",
+        "ms": 23.41675
+      },
+      {
+        "id": "bolt_b_thread",
+        "kind": "thread",
+        "ms": 18.959291
+      },
+      {
+        "id": "tray_sk",
+        "kind": "sketch",
+        "ms": 16.529083
+      },
+      {
+        "id": "tray",
+        "kind": "base_flange",
+        "ms": 20.578667
+      },
+      {
+        "id": "tray_wall_x",
+        "kind": "edge_flange",
+        "ms": 43.671667
+      },
+      {
+        "id": "tray_wall_y",
+        "kind": "edge_flange",
+        "ms": 77.19325
+      },
+      {
+        "id": "tray_mat",
+        "kind": "set_material",
+        "ms": 30.409417
+      },
+      {
+        "id": "side_load",
+        "kind": "study",
+        "ms": 39.67275
+      },
+      {
+        "id": "vibration",
+        "kind": "study",
+        "ms": 38.470916
+      },
+      {
+        "id": "crush",
+        "kind": "study",
+        "ms": 42.305833
+      },
+      {
+        "id": "hot_base",
+        "kind": "study",
+        "ms": 36.384083
+      }
+    ]
+  },
+  {
+    "source": "../examples/pillow_block.ops.json",
+    "total_ms": 1272.917209,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "primitive",
+        "ms": 2.529125
+      },
+      {
+        "id": "mount_holes",
+        "kind": "hole",
+        "ms": 19.434041
+      },
+      {
+        "id": "neck",
+        "kind": "primitive",
+        "ms": 7.77725
+      },
+      {
+        "id": "barrel",
+        "kind": "primitive",
+        "ms": 8.137291
+      },
+      {
+        "id": "barrel_rot",
+        "kind": "transform",
+        "ms": 9.247417
+      },
+      {
+        "id": "barrel_pos",
+        "kind": "transform",
+        "ms": 11.021415999999999
+      },
+      {
+        "id": "lower",
+        "kind": "boolean",
+        "ms": 17.806542
+      },
+      {
+        "id": "solid",
+        "kind": "boolean",
+        "ms": 18.436708
+      },
+      {
+        "id": "bore_tool",
+        "kind": "primitive",
+        "ms": 9.08825
+      },
+      {
+        "id": "bore_rot",
+        "kind": "transform",
+        "ms": 9.021459
+      },
+      {
+        "id": "bore_pos",
+        "kind": "transform",
+        "ms": 10.780916
+      },
+      {
+        "id": "housing",
+        "kind": "boolean",
+        "ms": 17.251792
+      },
+      {
+        "id": "base_corners",
+        "kind": "fillet",
+        "ms": 33.012208
+      },
+      {
+        "id": "neck_blend",
+        "kind": "fillet",
+        "ms": 30.320166999999998
+      },
+      {
+        "id": "bore_break",
+        "kind": "chamfer",
+        "ms": 33.5625
+      },
+      {
+        "id": "housing_mat",
+        "kind": "set_material",
+        "ms": 11.84025
+      },
+      {
+        "id": "bearing",
+        "kind": "standard_part",
+        "ms": 22.666959000000002
+      },
+      {
+        "id": "bearing_rot",
+        "kind": "transform",
+        "ms": 98.091375
+      },
+      {
+        "id": "bearing_pos",
+        "kind": "transform",
+        "ms": 28.732459
+      },
+      {
+        "id": "bearing_mat",
+        "kind": "set_material",
+        "ms": 15.374374999999999
+      },
+      {
+        "id": "shaft",
+        "kind": "primitive",
+        "ms": 25.452959
+      },
+      {
+        "id": "shaft_rot",
+        "kind": "transform",
+        "ms": 17.715374999999998
+      },
+      {
+        "id": "shaft_pos",
+        "kind": "transform",
+        "ms": 18.534416
+      },
+      {
+        "id": "shaft_ends",
+        "kind": "chamfer",
+        "ms": 28.700583
+      },
+      {
+        "id": "shaft_mat",
+        "kind": "set_material",
+        "ms": 16.262208
+      },
+      {
+        "id": "washer_a",
+        "kind": "standard_part",
+        "ms": 26.773000000000003
+      },
+      {
+        "id": "washer_b",
+        "kind": "standard_part",
+        "ms": 44.552
+      },
+      {
+        "id": "bolt_a",
+        "kind": "standard_part",
+        "ms": 69.164542
+      },
+      {
+        "id": "bolt_b",
+        "kind": "standard_part",
+        "ms": 73.14058399999999
+      },
+      {
+        "id": "washer_a_mat",
+        "kind": "set_material",
+        "ms": 46.933542
+      },
+      {
+        "id": "washer_b_mat",
+        "kind": "set_material",
+        "ms": 54.427749999999996
+      },
+      {
+        "id": "bolt_a_mat",
+        "kind": "set_material",
+        "ms": 50.086083
+      },
+      {
+        "id": "bolt_b_mat",
+        "kind": "set_material",
+        "ms": 64.942083
+      },
+      {
+        "id": "radial_load",
+        "kind": "study",
+        "ms": 77.604542
+      },
+      {
+        "id": "vibration",
+        "kind": "study",
+        "ms": 171.156666
+      },
+      {
+        "id": "hot_bearing",
+        "kind": "study",
+        "ms": 72.65625
+      }
+    ]
+  },
+  {
+    "source": "../examples/vector_logo.ops.json",
+    "total_ms": 2.5721670000000003,
+    "ops": [
+      {
+        "id": "vector_sketch",
+        "kind": "sketch",
+        "ms": 0.054666
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/bracket.ops.json",
+    "total_ms": 99.18425,
+    "ops": [
+      {
+        "id": "base_sk",
+        "kind": "sketch",
+        "ms": 0.0305
+      },
+      {
+        "id": "base",
+        "kind": "extrude",
+        "ms": 3.6567499999999997
+      },
+      {
+        "id": "wall",
+        "kind": "primitive",
+        "ms": 3.091
+      },
+      {
+        "id": "bracket",
+        "kind": "boolean",
+        "ms": 33.33975
+      },
+      {
+        "id": "fold",
+        "kind": "fillet",
+        "ms": 10.113957999999998
+      },
+      {
+        "id": "holes",
+        "kind": "hole",
+        "ms": 48.846917
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/enclosure.ops.json",
+    "total_ms": 287.44937500000003,
+    "ops": [
+      {
+        "id": "box",
+        "kind": "primitive",
+        "ms": 3.6648330000000002
+      },
+      {
+        "id": "corners",
+        "kind": "fillet",
+        "ms": 19.228875
+      },
+      {
+        "id": "hollow",
+        "kind": "shell",
+        "ms": 74.57133300000001
+      },
+      {
+        "id": "port_sk",
+        "kind": "sketch",
+        "ms": 16.230999999999998
+      },
+      {
+        "id": "port",
+        "kind": "extrude",
+        "ms": 66.386167
+      },
+      {
+        "id": "vents",
+        "kind": "hole",
+        "ms": 107.07066599999999
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/flange.ops.json",
+    "total_ms": 285.404875,
+    "ops": [
+      {
+        "id": "profile",
+        "kind": "sketch",
+        "ms": 0.056666999999999995
+      },
+      {
+        "id": "flange",
+        "kind": "revolve",
+        "ms": 18.813291
+      },
+      {
+        "id": "bolt",
+        "kind": "primitive",
+        "ms": 11.284
+      },
+      {
+        "id": "bolts",
+        "kind": "pattern",
+        "ms": 91.984625
+      },
+      {
+        "id": "part",
+        "kind": "boolean",
+        "ms": 104.605583
+      },
+      {
+        "id": "ch",
+        "kind": "chamfer",
+        "ms": 58.494499999999995
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/loft_helix.ops.json",
+    "total_ms": 8208.197917,
+    "ops": [
+      {
+        "id": "s_base",
+        "kind": "sketch",
+        "ms": 0.04075
+      },
+      {
+        "id": "s_top",
+        "kind": "sketch",
+        "ms": 0.019834
+      },
+      {
+        "id": "funnel",
+        "kind": "loft",
+        "ms": 94.47762499999999
+      },
+      {
+        "id": "spring",
+        "kind": "helix",
+        "ms": 7129.539624999999
+      },
+      {
+        "id": "funnel_m",
+        "kind": "mirror",
+        "ms": 983.394458
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/mass_bracket.ops.json",
+    "total_ms": 26.051000000000002,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "primitive",
+        "ms": 1.624417
+      },
+      {
+        "id": "wall",
+        "kind": "primitive",
+        "ms": 2.396042
+      },
+      {
+        "id": "bracket",
+        "kind": "boolean",
+        "ms": 6.306708
+      },
+      {
+        "id": "bracket_mat",
+        "kind": "set_material",
+        "ms": 1.589292
+      },
+      {
+        "id": "pin",
+        "kind": "primitive",
+        "ms": 5.551042
+      },
+      {
+        "id": "pin_pos",
+        "kind": "transform",
+        "ms": 5.572042
+      },
+      {
+        "id": "pin_mat",
+        "kind": "set_material",
+        "ms": 2.780542
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/plate.ops.json",
+    "total_ms": 62.653583999999995,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "sketch",
+        "ms": 0.036292
+      },
+      {
+        "id": "plate",
+        "kind": "extrude",
+        "ms": 2.601666
+      },
+      {
+        "id": "f1",
+        "kind": "fillet",
+        "ms": 16.471542
+      },
+      {
+        "id": "h1",
+        "kind": "hole",
+        "ms": 43.340208
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/sheet_box.ops.json",
+    "total_ms": 108.776292,
+    "ops": [
+      {
+        "id": "blank_sk",
+        "kind": "sketch",
+        "ms": 0.035500000000000004
+      },
+      {
+        "id": "tray",
+        "kind": "base_flange",
+        "ms": 2.447
+      },
+      {
+        "id": "wall_x",
+        "kind": "edge_flange",
+        "ms": 24.0035
+      },
+      {
+        "id": "wall_y",
+        "kind": "edge_flange",
+        "ms": 54.111084
+      },
+      {
+        "id": "blank",
+        "kind": "flat_pattern",
+        "ms": 27.503292
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/sim_bracket.ops.json",
+    "total_ms": 13.528875,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "primitive",
+        "ms": 1.4725000000000001
+      },
+      {
+        "id": "wall",
+        "kind": "primitive",
+        "ms": 2.247042
+      },
+      {
+        "id": "bracket",
+        "kind": "boolean",
+        "ms": 5.7703750000000005
+      },
+      {
+        "id": "bracket_mat",
+        "kind": "set_material",
+        "ms": 1.5405
+      },
+      {
+        "id": "tip_load",
+        "kind": "study",
+        "ms": 2.2415830000000003
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/sim_modes.ops.json",
+    "total_ms": 6.972125,
+    "ops": [
+      {
+        "id": "beam",
+        "kind": "primitive",
+        "ms": 1.394958
+      },
+      {
+        "id": "beam_mat",
+        "kind": "set_material",
+        "ms": 0.738292
+      },
+      {
+        "id": "modes",
+        "kind": "study",
+        "ms": 0.926292
+      },
+      {
+        "id": "column",
+        "kind": "study",
+        "ms": 1.0975
+      },
+      {
+        "id": "heat",
+        "kind": "study",
+        "ms": 1.217791
+      },
+      {
+        "id": "clamped_hot",
+        "kind": "study",
+        "ms": 1.386417
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/toolbox_joint.ops.json",
+    "total_ms": 72.43683300000001,
+    "ops": [
+      {
+        "id": "plate",
+        "kind": "primitive",
+        "ms": 1.3845
+      },
+      {
+        "id": "bore",
+        "kind": "hole",
+        "ms": 7.265834
+      },
+      {
+        "id": "washer",
+        "kind": "standard_part",
+        "ms": 11.253041999999999
+      },
+      {
+        "id": "bolt",
+        "kind": "standard_part",
+        "ms": 21.554166
+      },
+      {
+        "id": "nut",
+        "kind": "standard_part",
+        "ms": 18.099375000000002
+      },
+      {
+        "id": "bolt_thread",
+        "kind": "thread",
+        "ms": 12.686209
+      }
+    ]
+  },
+  {
+    "source": "crates/ducad-engine/tests/fixtures/valve_body.ops.json",
+    "total_ms": 963.8435,
+    "ops": [
+      {
+        "id": "run_sk",
+        "kind": "sketch",
+        "ms": 0.052125
+      },
+      {
+        "id": "body",
+        "kind": "revolve",
+        "ms": 10.902459
+      },
+      {
+        "id": "branch",
+        "kind": "primitive",
+        "ms": 6.500916
+      },
+      {
+        "id": "valve",
+        "kind": "boolean",
+        "ms": 24.65325
+      },
+      {
+        "id": "oval_sk",
+        "kind": "sketch",
+        "ms": 6.540542
+      },
+      {
+        "id": "top_flange",
+        "kind": "extrude",
+        "ms": 29.874667000000002
+      },
+      {
+        "id": "neck_fillet",
+        "kind": "fillet",
+        "ms": 88.14325000000001
+      },
+      {
+        "id": "run_bore_sk",
+        "kind": "sketch",
+        "ms": 10.284082999999999
+      },
+      {
+        "id": "run_bore",
+        "kind": "revolve",
+        "ms": 72.5
+      },
+      {
+        "id": "top_bore_sk",
+        "kind": "sketch",
+        "ms": 12.420791000000001
+      },
+      {
+        "id": "top_bore",
+        "kind": "revolve",
+        "ms": 84.95920899999999
+      },
+      {
+        "id": "bolts_right",
+        "kind": "hole",
+        "ms": 169.399416
+      },
+      {
+        "id": "bolts_left",
+        "kind": "hole",
+        "ms": 185.120709
+      },
+      {
+        "id": "bolts_top",
+        "kind": "hole",
+        "ms": 233.309417
+      },
+      {
+        "id": "mat",
+        "kind": "set_material",
+        "ms": 28.03825
+      }
+    ]
+  },
+  {
+    "source": "evals/fixtures/plate_param.ops.json",
+    "total_ms": 59.322709,
+    "ops": [
+      {
+        "id": "base",
+        "kind": "sketch",
+        "ms": 0.047209
+      },
+      {
+        "id": "plate",
+        "kind": "extrude",
+        "ms": 2.704125
+      },
+      {
+        "id": "f1",
+        "kind": "fillet",
+        "ms": 15.032125
+      },
+      {
+        "id": "h1",
+        "kind": "hole",
+        "ms": 41.138291
+      }
+    ]
+  },
+  {
+    "source": "examples/vector_logo.ops.json",
+    "total_ms": 13.210083,
+    "ops": [
+      {
+        "id": "vector_sketch",
+        "kind": "sketch",
+        "ms": 0.039708
+      },
+      {
+        "id": "logo3d",
+        "kind": "extrude",
+        "ms": 12.285458
+      }
+    ]
+  }
+]

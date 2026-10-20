@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/toolbox_joint.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 6,
+  "bodies": [
+    {
+      "name": "bolt",
+      "valid": true,
+      "volume": 971.7737,
+      "area": 774.5278,
+      "bbox": [
+        [
+          15.0,
+          10.0016,
+          -10.4
+        ],
+        [
+          25.0,
+          19.9984,
+          15.6
+        ]
+      ],
+      "faces": 12,
+      "edges": 24,
+      "mesh": {
+        "vertices": 1048,
+        "triangles": 1028,
+        "sha": "6fd05f30affa452d"
+      }
+    },
+    {
+      "name": "nut",
+      "valid": true,
+      "volume": 303.3067,
+      "area": 394.8074,
+      "bbox": [
+        [
+          14.2265,
+          10.0,
+          -5.2
+        ],
+        [
+          25.7735,
+          20.0,
+          0.0
+        ]
+      ],
+      "faces": 9,
+      "edges": 21,
+      "mesh": {
+        "vertices": 542,
+        "triangles": 528,
+        "sha": "d4e369b5f8afcc2c"
+      }
+    },
+    {
+      "name": "plate",
+      "valid": true,
+      "volume": 9326.3044,
+      "area": 3617.4522,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          40.0,
+          30.0,
+          8.0
+        ]
+      ],
+      "faces": 7,
+      "edges": 15,
+      "mesh": {
+        "vertices": 530,
+        "triangles": 520,
+        "sha": "1058941f24f1b783"
+      }
+    },
+    {
+      "name": "washer",
+      "valid": true,
+      "volume": 129.4839,
+      "area": 254.3433,
+      "bbox": [
+        [
+          14.0,
+          9.0019,
+          8.0
+        ],
+        [
+          26.0,
+          20.9981,
+          9.6
+        ]
+      ],
+      "faces": 4,
+      "edges": 6,
+      "mesh": {
+        "vertices": 1012,
+        "triangles": 1008,
+        "sha": "09771bb4ab6a3fa3"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "four_parts",
+      "status": "pass"
+    },
+    {
+      "label": "bolt_clears_plate",
+      "status": "pass"
+    }
+  ]
+}

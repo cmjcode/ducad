@@ -5,7 +5,7 @@
 //! - Outliner drawer pohon item (`items_drawer`)
 //! - Pohon fitur parametrik & inspektor 3D (`feature_inspector`)
 //! - Modular tool popups pojok kanan bawah (`tool_popups`)
-//! - Strip ikon constraint mengambang (`constraint_strip`)
+//! - Baris ikon constraint di context bar bawah (`constraint_strip`)
 //! - In-Canvas HUD & Dimension Pills (`canvas_hud`)
 //! - Modern top bar & title header (`top_bar`)
 //! - Command palette (`command_palette`)
@@ -29,6 +29,7 @@ pub mod cmf_drawer;
 pub mod command_palette;
 pub mod constraint_strip;
 pub mod context_bar;
+pub mod datum_hud;
 pub mod drawing_sheet_view;
 pub mod assist_dialog;
 pub mod error_card;
@@ -61,7 +62,7 @@ pub use account_drawer::{paint_avatar, AccountAvatar, AccountDrawer, AccountDraw
 pub use assembly_drawer::{AssemblyDrawer, AssemblyDrawerEvent};
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, ChainHudAction, DatumPlaneHudAction,
-    DatumPlaneMode,
+    DatumPlaneMode, DatumPlanePicks,
     DraftHudAction, DraftInspectionHudAction, DraftPullDir, GizmoConfirmAction, LoftHudAction,
     MateHudAction,
     PatternAxisPreset, PatternHudAction, PatternKind, PolygonHudAction, RenamePopupEvent,
@@ -108,7 +109,7 @@ pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
     InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
 };
-pub use feature_tree_drawer::{FeatureTreeDrawer, FeatureTreeEvent};
+pub use feature_tree_drawer::{FeatureTreeDrawer, FeatureTreeEvent, TimelineInfo};
 pub use history_drawer::{
     ActivityItemInfo, ActivityKindUi, HistoryDrawer, HistoryDrawerEvent,
 };
@@ -126,7 +127,10 @@ pub use onboarding::{
     OnboardingStep, OnboardingStepKind, OnboardingTarget, OverviewPage, MOD_KEY,
     PALETTE_DEMO_COMMAND, STEPS as ONBOARDING_STEPS,
 };
-pub use planes_drawer::{PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent};
+pub use datum_hud::{
+    DatumAxisMode, DatumKind, DatumPointMode, DatumRefHudAction, DatumRefHudInput,
+};
+pub use planes_drawer::{DatumItemInfo, PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent};
 pub use radial_menu::RadialMenu;
 pub use revolve_dialog::{
     AlertModal, AlertModalState, RevolveAxisPreset, RevolveDialog, RevolveDialogEvent,
@@ -153,6 +157,10 @@ pub use tool_popups::{
     HistoryPopupState, HoleOperationMode, HolePopup, HolePopupState, LoftPopup,
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
     ShellPopupState, TextPopup, TextPopupState, ToolPopupEvent,
+};
+pub use tool_popups::body_tools_popup::{
+    snap_angle_15, BodyToolEvent, BodyToolsPopup, MirrorBodyPopupState, MirrorPlaneChoice,
+    PrimitiveKind, PrimitivePopupState, RotateAxisChoice, RotateBodyPopupState,
 };
 pub use top_bar::{
     TopBar, TopBarCommand, TopBarCommandGroup, TopBarEvent, TopBarFileOp, TopBarState,

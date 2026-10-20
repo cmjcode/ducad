@@ -1,7 +1,7 @@
 //! Pagar panik terakhir (prinsip "jangan pernah crash").
 //!
 //! Pengguna mempercayakan modelnya ke DUCAD; satu `panic!` di dalam op
-//! (OCCT, index di luar batas, `unwrap` yang terlewat) tidak boleh
+//! (kernel, index di luar batas, `unwrap` yang terlewat) tidak boleh
 //! menjatuhkan GUI, server MCP, atau CLI. Setiap op dalam batch
 //! (`SessionCore::run_with`) dan setiap pemanggilan tool
 //! (`tooling::call_core_tool`, `call_stateless_tool`) dijalankan lewat

@@ -4,6 +4,7 @@ pub mod face_sketch;
 pub mod operations;
 pub mod parametric_engine;
 pub mod rounding;
+pub mod shell_worker;
 pub mod swap_model;
 
 #[cfg(test)]

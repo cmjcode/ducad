@@ -218,6 +218,12 @@ impl DuCADApp {
     }
 
     pub fn apply_create_datum_plane(&mut self) {
+        // Mode Paritas 1.4 (Midplane, Perpendicular, …) dibangun dari pilihan
+        // geometri lewat `ducad_engine::datum` (datum_tools.rs).
+        if self.datum_mode.is_pick_based() {
+            self.apply_create_pick_datum_plane();
+            return;
+        }
         let offset_val = self.datum_offset_input.trim().parse::<f64>().unwrap_or(20.0);
         let angle_val = self.datum_angle_input.trim().parse::<f64>().unwrap_or(45.0);
 
@@ -274,6 +280,8 @@ impl DuCADApp {
                     return;
                 }
             }
+            // Sudah ditangani `apply_create_pick_datum_plane` di atas.
+            _ => return,
         };
 
         let new_id = self.create_datum_plane(name.clone(), plane);
@@ -366,7 +374,7 @@ impl DuCADApp {
             _ => &name,
         };
 
-        // Pagar panik (ADR 0009): command yang panik (OCCT, index di luar
+        // Pagar panik (ADR 0009): command yang panik (kernel, index di luar
         // batas) tidak boleh menutup aplikasi bersama pekerjaan pengguna.
         // Panik lazim terjadi saat menghitung shape, sebelum body disentuh,
         // jadi model biasanya utuh; pengguna diberi tahu dan bisa menyimpan.
@@ -376,6 +384,8 @@ impl DuCADApp {
         if let Err(payload) = applied {
             let msg = ducad_engine::guard::panic_message(&*payload);
             log::error!("panik tertangkap pada command model '{name}': {msg}");
+            // Paritas 3.14: laporan crash + salinan dokumen untuk replay.
+            self.record_crash(&name, &msg);
             self.file_status = Some(format!(
                 "{} ({name}: {msg})",
                 ducad_i18n::t!("model-command-internal-error")
@@ -585,6 +595,7 @@ impl DuCADApp {
         self.sketch_set.reset();
         self.datum_planes.clear();
         self.datum_plane_counter = 0;
+        self.datums.clear_document();
         self.selected.clear();
         self.hovered = None;
         self.pending_points.clear();
@@ -674,6 +685,9 @@ impl DuCADApp {
                     mechanical: meta.mechanical.clone(),
                     shape,
                     round_history,
+                    // Body GUI tidak dijamin direproduksi oplog: STEP tetap
+                    // otoritatif (format v1–v3).
+                    derived: false,
                 })
             })
             .collect()
@@ -990,6 +1004,62 @@ mod tests {
         assert!(!app.can_redo());
         app.undo();
         assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+    }
+
+    fn write_v4_part(tag: &str, keep_cache: bool) -> std::path::PathBuf {
+        let mut s = ducad_engine::Session::new();
+        let ops: Vec<ducad_engine::ops::Op> = serde_json::from_str(
+            r#"[{"op":"primitive","id":"plate","shape":{"box":{"size":[30,20,4]}}}]"#,
+        )
+        .unwrap();
+        assert!(s.run(ops, false).committed);
+        let path = std::env::temp_dir().join(format!(
+            "ducad-app-v4-{tag}-{}.ducad",
+            std::process::id()
+        ));
+        s.save(&path).unwrap();
+        if !keep_cache {
+            let mut v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            for b in v["bodies"].as_array_mut().unwrap() {
+                b.as_object_mut().unwrap().remove("brep");
+            }
+            std::fs::write(&path, v.to_string()).unwrap();
+        }
+        path
+    }
+
+    /// Format v4 (F1): GUI membuka body turunan oplog lewat cache maupun replay.
+    #[test]
+    fn open_native_v4_from_cache_and_from_replay() {
+        for keep_cache in [true, false] {
+            let path = write_v4_part(if keep_cache { "cache" } else { "replay" }, keep_cache);
+            let mut app = DuCADApp::new_for_test();
+            app.open_native_path(path.clone());
+            let _ = std::fs::remove_file(&path);
+            let bodies: Vec<_> = app.model.doc.bodies.iter().collect();
+            assert_eq!(bodies.len(), 1, "cache={keep_cache}: {:?}", app.file_status);
+            let (id, meta) = bodies[0];
+            assert_eq!(meta.name, "plate");
+            let v = app.model.geometry.get(id).unwrap().shape.volume().abs();
+            assert!((v - 2400.0).abs() < 1e-6, "cache={keep_cache}: {v}");
+        }
+    }
+
+    #[test]
+    fn external_part_from_v4_file_without_cache_is_replayed() {
+        let path = write_v4_part("ext", false);
+        let mut app = DuCADApp::new_for_test();
+        let created = app.add_external_part(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(created.len(), 1);
+        let v: f64 = app
+            .model
+            .geometry
+            .values()
+            .map(|g| g.shape.volume().abs())
+            .sum();
+        assert!((v - 2400.0).abs() < 1e-6, "{v}");
     }
 }
 

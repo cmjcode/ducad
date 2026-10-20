@@ -25,7 +25,7 @@ pub enum OpErrorCode {
     ConstraintUnsolved,
     /// `analyze_dof` melaporkan redundant/konflik.
     OverConstrained,
-    /// OCCT mengembalikan error / shape tidak valid.
+    /// Kernel geometri mengembalikan error / shape tidak valid.
     KernelFailed,
     /// Operasi sukses tapi volume hasil ≈ 0.
     EmptyResult,
@@ -196,7 +196,21 @@ impl OpError {
     }
 
     /// `code = KernelFailed`, `message = "{op} gagal: {err:#}"`.
+    ///
+    /// Galat [`ducad_kernel::Unsupported`] (operasi belum didukung backend
+    /// kernel yang aktif, PLAN_MIGRASI_TRUCK §0 butir 4) dipetakan ke
+    /// `code = Unsupported` dengan hint, bukan `KernelFailed`: parameternya
+    /// tidak salah, jadi agent tidak perlu mencoba nilai lain.
     pub fn kernel(op: &str, err: anyhow::Error) -> Self {
+        if let Some(u) = err.downcast_ref::<ducad_kernel::Unsupported>() {
+            return Self::new(OpErrorCode::Unsupported, format!("{op} gagal: {u}")).with_hint(
+                format!(
+                    "operasi `{}` belum tersedia di backend kernel `{}`; ubah model agar \
+                     tidak memakai operasi ini (alternatif per op: `get_schema`)",
+                    u.operation, u.backend
+                ),
+            );
+        }
         Self::new(OpErrorCode::KernelFailed, format!("{op} gagal: {err:#}"))
     }
 
@@ -302,5 +316,16 @@ mod tests {
         let e = OpError::kernel("Fillet", anyhow::anyhow!("radius terlalu besar"));
         assert_eq!(e.code, OpErrorCode::KernelFailed);
         assert_eq!(e.message, "Fillet gagal: radius terlalu besar");
+    }
+
+    #[test]
+    fn kernel_maps_unsupported_backend_op() {
+        let err = anyhow::Error::new(ducad_kernel::Unsupported {
+            operation: "fillet_edges_by_index",
+            backend: "truck",
+        });
+        let e = OpError::kernel("Fillet", err);
+        assert_eq!(e.code, OpErrorCode::Unsupported);
+        assert!(e.hint.as_deref().is_some_and(|h| h.contains("fillet_edges_by_index")));
     }
 }

@@ -1,6 +1,6 @@
 # Panduan Pemakaian DuCAD
 
-Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dari pemodelan dasar hingga fitur lanjutan (Fase 1 hingga Fase 12): sketsa 2D parametrik, *datum workplanes*, pemodelan solid 3D B-Rep OpenCASCADE, *fastener hole wizard*, kurva spiral/pegas, gambar kerja teknik 2D (*engineering drawing sheet* & potongan *section view*), perakitan (*assembly*) & deteksi tabrakan (*clash detection*), *parametric history timeline*, hingga ekspor berbagai format industri (STEP, GLB/GLTF, SVG, PDF, DXF, STL, OBJ).
+Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dari pemodelan dasar hingga fitur lanjutan (Fase 1 hingga Fase 12): sketsa 2D parametrik, *datum workplanes*, pemodelan solid 3D B-Rep, *fastener hole wizard*, kurva spiral/pegas, gambar kerja teknik 2D (*engineering drawing sheet* & potongan *section view*), perakitan (*assembly*) & deteksi tabrakan (*clash detection*), *parametric history timeline*, hingga ekspor berbagai format industri (STEP, GLB/GLTF, SVG, PDF, DXF, STL, OBJ).
 
 ---
 
@@ -10,7 +10,7 @@ Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dar
 cargo run -p ducad-app
 ```
 
-> **Catatan Kompilasi Pertama**: Build pertama kali akan mengompilasi pustaka OpenCASCADE (OCCT) dari *source* (~8-15 menit). Kompilasi selanjutnya di-cache di folder `target/` sehingga aplikasi akan langsung terbuka secara instan.
+> **Kernel geometri**: DuCAD memakai kernel B-rep SolidCraft/truck (Rust murni, tanpa kompilasi C++), sehingga build pertama hanya mengompilasi kode Rust. Setiap panik kernel dicatat di `~/.ducad/logs/panics.jsonl` (lokal saja, tidak dikirim ke mana pun); lampirkan berkas itu saat melaporkan masalah.
 
 ---
 
@@ -99,16 +99,40 @@ Panel **Constraint** muncul di sebelah kanan saat tool **Pilih** aktif dan ada e
 
 Memungkinkan pembuatan sketsa dan geometri pada sudut atau posisi sembarang di ruang 3D:
 
-1. **Akses**: Buka drawer **Datum Planes** dari toolbar atau menu pop-up.
-2. **Metode Pembuatan Bidang Baru**:
+1. **Akses**: Buka drawer **Datum** (palette "Drawer Datum", atau tombol bidang di toolbar). Drawer berisi
+   tiga seksi — **Bidang**, **Sumbu**, **Titik** — masing-masing dengan tombol **+** untuk membuat datum baru.
+2. **Metode Pembuatan Bidang Baru** (tool Datum Plane, jenis **Bidang**):
    - **Offset Plane**: Masukkan jarak offset $d$ mm dari face planar atau plane acuan.
    - **Angled Plane**: Putar sebesar sudut $\theta^\circ$ terhadap edge acuan.
    - **3-Point Plane**: Klik 3 titik vertex di ruang 3D untuk membentuk bidang datar.
-3. **Mengaktifkan Bidang**: Klik tombol *Set Active* pada daftar bidang untuk mulai menggambar sketsa pada bidang tersebut.
+   - Combo **Lainnya…**: **Bidang tengah** (dua face datar sejajar / bidang dari "+ Bidang"),
+     **Tegak lurus edge** (klik edge di titik yang dilalui), **Singgung silinder** (face silinder + sudut),
+     **Sepanjang lintasan** (edge + pecahan 0..1), **Melalui dua edge** (dua edge lurus sebidang).
+3. **Sumbu datum** (jenis **Sumbu** di HUD, atau palette "Sumbu Datum"): Dua titik, Sepanjang edge, Normal face,
+   Sumbu silinder, Dua bidang. **Titik datum** (jenis **Titik**, palette "Titik Datum"): Vertex, Pusat
+   (lingkaran/bola), Edge x bidang, Dua edge, Tiga bidang, Sepanjang edge. Klik geometri di viewport (pilihan
+   disorot hijau, pratinjau biru), lalu **Buat** atau Enter. Masukan degenerat (bidang sejajar, titik berimpit)
+   menghasilkan pesan, tidak membuat datum.
+4. **Mengelola datum**: klik nama bidang untuk mengaktifkannya sebagai bidang sketsa; ikon mata = tampil/sembunyi;
+   klik ganda nama atau ikon pensil = ganti nama; ikon tong sampah = hapus. Datum (termasuk sketsa di bidang datum)
+   ikut tersimpan di berkas `.ducad` (field `datums`; berkas lama tetap terbuka).
+5. **Memakai sumbu datum**: saat ada sumbu datum, panel "Sumbu: datum" muncul untuk **Revolve** (sumbu harus
+   terletak di bidang XY tempat revolve GUI dibangun), **Pattern** 3D melingkar, dan **Mate Concentric**
+   (setelah memilih satu face silinder; part ground lain menjadi jangkar sumbu).
+6. **Lewat MCP/CLI (oplog)** — geometri konstruksi tersedia sebagai op (`get_schema {"op":"construct_axis"}`,
+   contoh lengkap `{"example":"datum_axis"}`):
+   - `construct_axis` (`by`: `two_points`, `edge`, `normal_to_face`, `through_cylinder`, `two_planes`) →
+     dirujuk sebagai `"axis:<id>"` di `revolve.axis` (sumbu harus terletak di bidang sketch) dan
+     `pattern` melingkar (`"axis":"axis:<id>"` tanpa `pivot`).
+   - `construct_point` (`by`: `vertex`, `center`, `edge_plane`, `two_edges`, `three_planes`, `along_path`) →
+     dirujuk sebagai `"point:<id>"`.
+   - Bidang sketch konstruksi (`plane`): `{"midplane":[A,B]}`, `{"perpendicular_to":L,"through":P}`,
+     `{"tangent_to":{"body":B,"face":F},"angle_deg":a}`, `{"along":{"body":B,"edge":E},"fraction":f}`,
+     `{"through_edges":[L1,L2]}` / `{"through_edges":[L],"through":P}`.
 
 ---
 
-## 🧊 Pemodelan Solid 3D (OpenCASCADE B-Rep)
+## 🧊 Pemodelan Solid 3D (B-Rep)
 
 ### 1. Extrude (Ekstrusi)
 * Pilih profil tertutup di sketsa $\rightarrow$ Klik **Extrude** di panel atau Bottom Context Bar $\rightarrow$ Tentukan jarak (mm) dan arah (Satu arah, Simetris dua arah).

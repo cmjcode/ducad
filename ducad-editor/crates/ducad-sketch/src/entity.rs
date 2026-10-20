@@ -65,6 +65,13 @@ pub enum Entity {
         #[serde(default)]
         is_construction: bool,
     },
+    /// Titik sketch mandiri (Fase 1.1) — tidak menyumbang tepi profil/region,
+    /// hanya jadi acuan snap & constraint. Dirujuk lewat `PointRef::Center(id)`.
+    Point {
+        pos: DVec2,
+        #[serde(default)]
+        is_construction: bool,
+    },
 }
 
 /// Satu rangkaian segmen bersambung. `closed = true` berarti ada ruas
@@ -451,6 +458,19 @@ impl Entity {
         }
     }
 
+    /// Konstruktor helper untuk titik sketch biasa.
+    pub fn point(pos: DVec2) -> Self {
+        Self::Point {
+            pos,
+            is_construction: false,
+        }
+    }
+
+    /// Cek apakah entitas adalah titik sketch.
+    pub fn is_point(&self) -> bool {
+        matches!(self, Entity::Point { .. })
+    }
+
     /// Cek apakah entitas adalah Path vektor.
     pub fn is_path(&self) -> bool {
         matches!(self, Entity::Path { .. })
@@ -461,6 +481,8 @@ impl Entity {
     pub fn flatten_all(&self, tol: f64) -> Vec<Vec<DVec2>> {
         match self {
             Entity::Path { subpaths, .. } => subpaths.iter().map(|sub| sub.flatten(tol)).collect(),
+            // Titik tidak punya tepi — tidak ikut region/profil.
+            Entity::Point { .. } => vec![],
             Entity::Line { start, end, .. } => {
                 vec![vec![*start, *end]]
             }
@@ -632,6 +654,9 @@ impl Entity {
             }
             | Entity::Path {
                 is_construction, ..
+            }
+            | Entity::Point {
+                is_construction, ..
             } => *is_construction,
         }
     }
@@ -656,6 +681,9 @@ impl Entity {
             }
             | Entity::Path {
                 is_construction, ..
+            }
+            | Entity::Point {
+                is_construction, ..
             } => *is_construction = construction,
         }
     }
@@ -670,6 +698,7 @@ impl Entity {
     pub fn endpoints(&self) -> Vec<DVec2> {
         match self {
             Entity::Line { start, end, .. } => vec![*start, *end],
+            Entity::Point { pos, .. } => vec![*pos],
             Entity::Circle { center, radius, .. } => vec![
                 *center + DVec2::new(*radius, 0.0),
                 *center + DVec2::new(0.0, *radius),
@@ -769,6 +798,7 @@ impl Entity {
             Entity::Circle { center, .. }
             | Entity::Arc { center, .. }
             | Entity::Ellipse { center, .. } => Some(*center),
+            Entity::Point { pos, .. } => Some(*pos),
             Entity::Spline { points, .. } => {
                 if points.is_empty() {
                     None
@@ -785,6 +815,7 @@ impl Entity {
     /// Menghitung bounding box 2D (min, max) dari entitas ini.
     pub fn bounding_box(&self) -> Option<(DVec2, DVec2)> {
         match self {
+            Entity::Point { pos, .. } => Some((*pos, *pos)),
             Entity::Line { start, end, .. } => {
                 let min = DVec2::new(start.x.min(end.x), start.y.min(end.y));
                 let max = DVec2::new(start.x.max(end.x), start.y.max(end.y));
@@ -849,6 +880,7 @@ impl Entity {
     /// Sama seperti `endpoints()`, tapi berpasangan dengan `PointRef` sumbernya.
     pub fn endpoint_refs(&self, id: EntityId) -> Vec<(PointRef, DVec2)> {
         match self {
+            Entity::Point { pos, .. } => vec![(PointRef::Center(id), *pos)],
             Entity::Line { start, end, .. } => vec![
                 (PointRef::LineStart(id), *start),
                 (PointRef::LineEnd(id), *end),
@@ -930,6 +962,7 @@ impl Entity {
     pub fn distance_to(&self, p: DVec2) -> f64 {
         match self {
             Entity::Line { start, end, .. } => distance_point_segment(p, *start, *end),
+            Entity::Point { pos, .. } => (p - *pos).length(),
             Entity::Circle { center, radius, .. } => ((p - *center).length() - radius).abs(),
             Entity::Arc {
                 center,

@@ -16,7 +16,8 @@ use crate::app::DuCADApp;
 use crate::model::BooleanKind;
 use crate::types::{PickMode, ToolKind};
 
-const REL_TOL: f64 = 1e-6;
+/// Volume dari tesselasi konvergen, ±1e-4 relatif (PLAN_MIGRASI_TRUCK §3.1).
+const REL_TOL: f64 = 1e-4;
 
 fn assert_volume(label: &str, got: f64, want: f64) {
     println!("{label}: {got:.9}");
@@ -81,7 +82,9 @@ const EXTRUDE_VOLUME: f64 = 19200.0;
 const REVOLVE_VOLUME: f64 = 1963.495408494;
 const UNION_VOLUME: f64 = 1500.0;
 const FILLET_VOLUME: f64 = 7804.696111128;
-const CHAMFER_VOLUME: f64 = 7562.666666667;
+/// Chamfer 2 mm semua tepi kubus 20 mm. Sudut tempat tiga chamfer bertemu
+/// dimitre (`blend::chamfer` SolidCraft) → 8000 − 12·(2²/2)·18 = 7568.
+const CHAMFER_VOLUME: f64 = 7568.0;
 const SHELL_VOLUME: f64 = 3392.0;
 const HOLE_VOLUME: f64 = 19009.933644458;
 const PATTERN_VOLUME: f64 = 6000.0;
@@ -425,6 +428,7 @@ fn adapter_apply_constraint_commits_or_reports_residual() {
         a: p,
         b: p,
         value: 5.0,
+        driven: false,
     });
     let status = app.constraint_status.clone().expect("harus gagal");
     assert!(

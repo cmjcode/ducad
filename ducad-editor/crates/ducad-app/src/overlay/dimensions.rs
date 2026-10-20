@@ -59,6 +59,29 @@ impl DuCADApp {
         }
     }
 
+    /// Garis penunjuk tipis dari posisi bawaan label ke label yang sudah
+    /// digeser pengguna (Paritas 1.17). Tidak menggambar apa pun bila label
+    /// belum pernah dipindah.
+    fn paint_dim_leader(
+        &self,
+        ui: &egui::Ui,
+        rect: egui::Rect,
+        anchor: DVec2,
+        offset: DVec2,
+        label_2d: egui::Pos2,
+    ) {
+        if offset.length() < 1e-9 {
+            return;
+        }
+        let Some(a) = world_to_screen_pos(&self.camera, rect, self.active_plane.to_world(anchor, 0.0)) else {
+            return;
+        };
+        ui.painter().line_segment(
+            [a, label_2d],
+            egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(120, 160, 220, 160)),
+        );
+    }
+
     /// Terapkan hasil edit satu pill dimensi (Fase 3 — "Tampilkan Semua Ukuran" interaktif).
     /// Line yg jadi bagian dari rectangle tertutup di-resize lewat `ResizeRectangle` (P atau L,
     /// anchor Center) supaya sisi lainnya ikut konsisten, bukan cuma menggeser 1 endpoint sendirian.
@@ -93,6 +116,8 @@ impl DuCADApp {
                     Entity::line(start, new_end).with_construction(is_construction),
                 )));
             }
+            Entity::Circle { .. } | Entity::Arc { .. }
+                if self.commit_radius_via_constraint(id, new_value_mm) => {}
             Entity::Circle { center, is_construction, .. } => {
                 self.execute_sketch_command(Box::new(UpdateEntity::new(
                     "Ubah Radius Lingkaran",
@@ -109,7 +134,10 @@ impl DuCADApp {
             }
             // Ellipse punya 2 angka (Rx/Ry) sekaligus — popup 1-angka tidak pas, jadi
             // sengaja tetap pill statis (non-interaktif), lihat loop render di bawah.
-            Entity::Ellipse { .. } | Entity::Spline { .. } | Entity::Path { .. } => {}
+            Entity::Ellipse { .. }
+            | Entity::Spline { .. }
+            | Entity::Path { .. }
+            | Entity::Point { .. } => {}
         }
     }
 
@@ -307,7 +335,9 @@ impl DuCADApp {
             };
             let angle = self.screen_line_angle(rect, center, edge);
 
-            let text = format!("R {}", self.unit.format_precise(radius));
+            let diameter = self.sketch_dims.show_diameter;
+            let shown = if diameter { radius * 2.0 } else { radius };
+            let text = format!("{} {}", if diameter { "Ø" } else { "R" }, self.unit.format_precise(shown));
             let is_editing = self.editing_dimension_entity == Some(id);
             let resp = ui
                 .push_id(("ducad-dim-pill-circle-radius", id.data().as_ffi()), |ui| {
@@ -315,17 +345,23 @@ impl DuCADApp {
                         ui, pos_2d, angle, &text, is_editing,
                     )
                 })
-                .inner;
+                .inner
+                .on_hover_text(t!("dim-toggle-diameter-tip"));
+            // Klik kanan: ganti tampilan R ↔ Ø untuk semua lingkaran.
+            if resp.secondary_clicked() {
+                self.sketch_dims.show_diameter = !diameter;
+            }
             if resp.clicked() && !is_editing {
                 self.editing_dimension_entity = Some(id);
-                self.editing_dimension_input = format!("{:.2}", self.unit.to_display_val(radius));
+                self.editing_dimension_input = format!("{:.2}", self.unit.to_display_val(shown));
             }
             if is_editing {
                 self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
             }
         }
 
-        if let Some((id, radius_mm)) = commit {
+        if let Some((id, value_mm)) = commit {
+            let radius_mm = if self.sketch_dims.show_diameter { value_mm * 0.5 } else { value_mm };
             self.commit_dimension_pill_edit(id, radius_mm);
         }
     }
@@ -455,10 +491,19 @@ impl DuCADApp {
                         }
                     }
 
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                    // Paritas 1.17: label boleh digeser pengguna (offset tersimpan di sketch).
+                    let text_key = ducad_sketch::DimKey::Entity(id);
+                    let text_off = if self.is_sketching {
+                        self.sketch().dim_text_offset(&text_key)
+                    } else {
+                        DVec2::ZERO
+                    };
+                    let label_3d_shown = self.active_plane.to_world(mid + text_off, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d_shown) {
                         if self.is_sketching {
                             let is_editing = self.editing_dimension_entity == Some(id);
                             let text = self.unit.format_precise(len);
+                            self.paint_dim_leader(ui, rect, mid, text_off, pos_2d);
                             let resp = ui
                                 .push_id(("ducad-dim-pill-line", id.data().as_ffi()), |ui| {
                                     CanvasHud::render_interactive_dimension_pill(
@@ -466,6 +511,7 @@ impl DuCADApp {
                                     )
                                 })
                                 .inner;
+                            self.handle_dim_text_drag(&resp, rect, text_key, mid);
                             if resp.clicked() && !is_editing {
                                 self.editing_dimension_entity = Some(id);
                                 self.editing_dimension_input =
@@ -586,7 +632,7 @@ impl DuCADApp {
                         CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
                     }
                 }
-                Entity::Spline { .. } | Entity::Path { .. } => {}
+                Entity::Spline { .. } | Entity::Path { .. } | Entity::Point { .. } => {}
             }
         }
 
@@ -599,16 +645,23 @@ impl DuCADApp {
         let constraints = self.sketch().constraints.clone();
         let mut constraint_commit: Option<(usize, ducad_sketch::constraint::Constraint)> = None;
 
+        let mut toggle_driven: Option<usize> = None;
         for (c_idx, c) in constraints.iter().enumerate() {
-            if let ducad_sketch::constraint::Constraint::Distance { a, b, value } = c {
+            if let ducad_sketch::constraint::Constraint::Distance { a, b, value, driven } = c {
                 let pos_a = ducad_sketch::constraint::point_ref_position(self.sketch(), a);
                 let pos_b = ducad_sketch::constraint::point_ref_position(self.sketch(), b);
                 if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
                     let mid = (pa + pb) * 0.5;
-                    let label_3d = self.active_plane.to_world(mid, 0.0);
+                    // Paritas 1.17: offset teks dimensi tersimpan di sketch.
+                    let text_key = ducad_sketch::DimKey::Distance(*a, *b);
+                    let text_off = self.sketch().dim_text_offset(&text_key);
+                    let label_3d = self.active_plane.to_world(mid + text_off, 0.0);
                     if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
-                        let text = self.unit.format_precise(*value);
+                        // Paritas 1.16: dimensi driven menampilkan nilai terukur, dalam kurung.
+                        let shown = if *driven { (pb - pa).length() } else { *value };
+                        let text = crate::sketch_dims::dim_label(self.unit.format_precise(shown), *driven);
                         let is_editing = self.editing_constraint_idx == Some(c_idx);
+                        self.paint_dim_leader(ui, rect, mid, text_off, pos_2d);
                         let resp = ui
                             .push_id(("ducad-dim-pill-constraint", c_idx), |ui| {
                                 CanvasHud::render_interactive_dimension_pill(
@@ -616,7 +669,13 @@ impl DuCADApp {
                                 )
                             })
                             .inner;
-                        if resp.clicked() && !is_editing {
+                        self.handle_dim_text_drag(&resp, rect, text_key, mid);
+                        let resp = resp.on_hover_text(ducad_i18n::t!("dim-pill-hint"));
+                        if resp.secondary_clicked() {
+                            toggle_driven = Some(c_idx);
+                        }
+                        // Dimensi driven tidak bisa diketik nilainya.
+                        if resp.clicked() && !is_editing && !*driven {
                             self.editing_constraint_idx = Some(c_idx);
                             self.editing_dimension_input =
                                 format!("{:.2}", self.unit.to_display_val(*value));
@@ -648,6 +707,7 @@ impl DuCADApp {
                                                         a: *a,
                                                         b: *b,
                                                         value: new_val_mm,
+                                                        driven: false,
                                                     },
                                                 ));
                                             }
@@ -666,6 +726,9 @@ impl DuCADApp {
         if let Some((c_idx, new_c)) = constraint_commit {
             self.update_constraint(c_idx, new_c);
             self.editing_constraint_idx = None;
+        }
+        if let Some(c_idx) = toggle_driven {
+            self.toggle_dimension_driven(c_idx);
         }
 
         // 3. Jika di mode sketch (`is_sketching`), render dimensi rusuk 3D yang TIDAK berhimpit dengan sketch
@@ -939,8 +1002,15 @@ impl DuCADApp {
         }
         // Lingkaran: garis + ukuran radius selalu tampil saat sketching.
         self.render_circle_radius_dimensions(ui, rect);
+        self.render_sketch_angle_dimension(ui, rect);
         self.paint_sim_overlay(ui, rect);
         self.paint_mass_marker(ui, rect);
+        self.paint_loose_ends(ui, rect);
+        self.paint_motion_trace(ui, rect);
+        self.paint_inspect_overlay(ui, rect);
+        self.paint_linked_entities(ui, rect);
+        self.show_constraint_glyphs(ui, rect);
+        self.paint_datum_labels(ui, rect);
 
         // Mate HUD sekarang di-render oleh show_mate_hud_ctx() di luar CentralPanel
         // agar klik tombol Apply tidak terblokir oleh Sense::click_and_drag canvas.
@@ -1358,6 +1428,9 @@ impl DuCADApp {
                     }
                 }
             }
+        } else if self.tool == ToolKind::DatumPlane && self.datums.kind != ducad_ui::DatumKind::Plane {
+            // Sumbu / titik datum (Paritas 1.2/1.3).
+            self.show_datum_ref_hud(ui, rect);
         } else if self.tool == ToolKind::DatumPlane {
             let offset_val = self.datum_offset_input.trim().parse::<f64>().unwrap_or(20.0);
             let angle_val = self.datum_angle_input.trim().parse::<f64>().unwrap_or(45.0);
@@ -1365,6 +1438,12 @@ impl DuCADApp {
             let points_count = self.datum_selected_points.len();
             let has_edge = !self.selected_edges.is_empty();
             let has_face = self.active_face.is_some();
+            let (pick_status, picks_ready) = self.datum_pick_status();
+            let picks = ducad_ui::DatumPlanePicks {
+                status: &pick_status,
+                ready: picks_ready,
+                has_picks: !self.datums.picks.is_empty(),
+            };
 
             if let Some(action) = CanvasHud::render_datum_plane_hud(
                 ui,
@@ -1380,10 +1459,23 @@ impl DuCADApp {
                 points_count,
                 has_edge,
                 has_face,
+                &picks,
+                &mut self.datums.fraction_input,
             ) {
                 match action {
                     ducad_ui::DatumPlaneHudAction::SetMode(m) => {
                         self.datum_mode = m;
+                        self.datums.picks.clear();
+                    }
+                    ducad_ui::DatumPlaneHudAction::SwitchKind(k) => {
+                        self.datums.kind = k;
+                        self.datums.picks.clear();
+                    }
+                    ducad_ui::DatumPlaneHudAction::AddPlane(idx) => {
+                        self.datum_add_plane_pick(idx);
+                    }
+                    ducad_ui::DatumPlaneHudAction::SetFraction(f) => {
+                        self.datums.fraction_input = format!("{f}");
                     }
                     ducad_ui::DatumPlaneHudAction::SetBasePlane(idx) => {
                         self.datum_base_plane_idx = idx;
@@ -1399,6 +1491,7 @@ impl DuCADApp {
                     }
                     ducad_ui::DatumPlaneHudAction::ClearPoints => {
                         self.datum_selected_points.clear();
+                        self.datums.picks.clear();
                     }
                     ducad_ui::DatumPlaneHudAction::Commit => {
                         self.apply_create_datum_plane();
@@ -1450,6 +1543,8 @@ impl DuCADApp {
                         None
                     }
                 }
+                // Mode Paritas 1.4: pratinjau dari pilihan geometri.
+                _ => self.datum_pick_plane_preview(),
             };
 
             if self.datum_mode == ducad_ui::DatumPlaneMode::ThreePoints {
@@ -1499,10 +1594,15 @@ impl DuCADApp {
 
                     // Label badge interaktif dengan dukungan drag
                     let center_pos = egui::pos2((s1.x + s2.x + s3.x + s4.x) * 0.25, (s1.y + s2.y + s3.y + s4.y) * 0.25);
+                    // Teks polos tanpa glyph Unicode (aturan ikon global).
                     let label_text = match self.datum_mode {
-                        ducad_ui::DatumPlaneMode::Offset => format!("✨ Datum Plane ({:+0.1} mm) ↕ Drag", offset_val),
-                        ducad_ui::DatumPlaneMode::Angled => format!("✨ Datum Plane ({:0.1}°) ↕ Drag", angle_val),
-                        ducad_ui::DatumPlaneMode::ThreePoints => "✨ 3-Point Datum Plane Preview".to_string(),
+                        ducad_ui::DatumPlaneMode::Offset => {
+                            t!("datum-preview-offset", value = format!("{offset_val:+0.1}"))
+                        }
+                        ducad_ui::DatumPlaneMode::Angled => {
+                            t!("datum-preview-angled", value = format!("{angle_val:0.1}"))
+                        }
+                        m => t!("datum-preview-mode", mode = m.label()),
                     };
                     let gal = painter.layout_no_wrap(label_text, egui::FontId::proportional(11.0), egui::Color32::WHITE);
                     let bg_r = egui::Rect::from_center_size(center_pos, gal.size() + egui::vec2(14.0, 8.0));
@@ -2150,6 +2250,9 @@ impl DuCADApp {
                         self.polygon_sides = sides.clamp(3, 64);
                     }
                     ducad_ui::PolygonHudAction::SetMode(mode) => {
+                        if mode != self.polygon_mode {
+                            self.cancel_pending_points();
+                        }
                         self.polygon_mode = mode;
                     }
                 }
@@ -2173,6 +2276,9 @@ impl DuCADApp {
             ) {
                 match action {
                     ducad_ui::SlotHudAction::SetMode(mode) => {
+                        if mode != self.slot_mode {
+                            self.cancel_pending_points();
+                        }
                         self.slot_mode = mode;
                     }
                     ducad_ui::SlotHudAction::SetWidth(w) => {
@@ -2190,6 +2296,9 @@ impl DuCADApp {
                 ui.input(|i| i.time),
             );
         } else {
+            if self.is_sketching {
+                self.render_draw_mode_hud(ui, rect);
+            }
             ToolGuides::render_tool_guide(
                 ui,
                 rect,
@@ -2206,6 +2315,8 @@ impl DuCADApp {
             let offset_dist = (14.0 * world_scale).max(8.0);
 
             match self.tool {
+                // Mode gambar Fase 1B: pill bawaan tool tidak berlaku.
+                _ if self.custom_draw_mode_active() => {}
                 ToolKind::Line if self.pending_points.len() == 1 => {
                     let start = self.pending_points[0];
                     let len = (effective - start).length();
@@ -2224,7 +2335,7 @@ impl DuCADApp {
                     }
                 }
                 ToolKind::Rectangle if self.pending_points.len() == 1 => {
-                    let first = self.pending_points[0];
+                    let first = self.rect_first_corner(self.pending_points[0], effective);
                     let min = first.min(effective);
                     let max = first.max(effective);
                     let w = (max.x - min.x).abs();
@@ -2276,6 +2387,7 @@ impl DuCADApp {
                         let mode_str = match self.polygon_mode {
                             ducad_sketch::PolygonMode::Inscribed => ducad_i18n::t!("dim-polygon-inscribed"),
                             ducad_sketch::PolygonMode::Circumscribed => ducad_i18n::t!("dim-polygon-circumscribed"),
+                            ducad_sketch::PolygonMode::Edge => ducad_i18n::t!("dim-polygon-edge"),
                         };
                         CanvasHud::render_dimension_pill(
                             ui,
@@ -2294,6 +2406,10 @@ impl DuCADApp {
                         let mode_str = match self.slot_mode {
                             ducad_sketch::SlotMode::CenterToCenter => ducad_i18n::t!("dim-slot-c2c"),
                             ducad_sketch::SlotMode::Overall => ducad_i18n::t!("dim-slot-overall"),
+                            ducad_sketch::SlotMode::CenterPoint => ducad_i18n::t!("dim-slot-center-point"),
+                            ducad_sketch::SlotMode::ArcCenter | ducad_sketch::SlotMode::ArcThreePoint => {
+                                ducad_i18n::t!("dim-slot-arc")
+                            }
                         };
                         CanvasHud::render_dimension_pill(
                             ui,

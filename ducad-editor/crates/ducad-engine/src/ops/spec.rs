@@ -105,7 +105,7 @@ pub enum Op {
     Primitive {
         id: String,
         /// `{"box":{"size":[x,y,z]}}`, `{"cylinder":{"r":5,"h":10}}`, `{"sphere":{"r":5}}`,
-        /// `{"cone":{"r1":5,"r2":0,"h":10}}`.
+        /// `{"cone":{"r1":5,"r2":0,"h":10}}`, `{"torus":{"major":10,"minor":2}}` (around +Z).
         shape: PrimitiveSpec,
         /// World position [x,y,z]; default origin.
         #[serde(default)]
@@ -190,7 +190,9 @@ pub enum Op {
         /// Name of the source body.
         body: String,
         /// `{"linear":{"count":[nx,ny,nz],"pitch":[dx,dy,dz]}}` or
-        /// `{"circular":{"pivot":[0,0,0],"axis":[0,0,1],"count":6,"angle_deg":360}}`. `count`
+        /// `{"circular":{"pivot":[0,0,0],"axis":[0,0,1],"count":6,"angle_deg":360}}` (or
+        /// `"axis":"axis:<id>"` for a datum axis, without `pivot`), or
+        /// `{"path":{"path":"<sketch id>"|{"points":[…]},"count":5,"align":true}}`. `count`
         /// includes the original.
         kind: PatternKind,
         /// Union the copies into the source body.
@@ -347,12 +349,13 @@ pub enum Op {
         /// "yield_strength_mpa": 355, "ultimate_strength_mpa": 510}}`.
         material: MechMaterialSpec,
     },
-    /// Sheet metal: create the base plate of a folded part from a sketch whose closed region is a
-    /// straight-sided polygon. The body remembers thickness, bend radius and k-factor for later
+    /// Sheet metal: create the base plate of a folded part from a sketch with one closed region
+    /// (lines, arcs and curves; arcs/curves are faceted). Holes inside the region become sheet
+    /// cutouts that unfold with the part. The body remembers thickness, bend radius and k-factor for later
     /// `edge_flange` / `hem` / `jog` / `unfold` / `flat_pattern` ops.
     BaseFlange {
         id: String,
-        /// Id of the sketch holding exactly one closed polygon (line segments only).
+        /// Id of the sketch holding exactly one closed region (holes allowed).
         sketch: String,
         /// Sheet thickness in mm (> 0); the plate grows along the sketch plane normal.
         thickness: Num,
@@ -364,13 +367,15 @@ pub enum Op {
         #[serde(default)]
         k_factor: Option<f64>,
     },
-    /// Sheet metal: bend a flange up from one or more free straight edges of the base flange. The
-    /// flange spans the full edge. Flanges on flanges are not supported yet.
+    /// Sheet metal: bend a flange up from one or more free straight edges of the base flange, or
+    /// from the free tip edge of an existing flange (the chain continues). The flange spans the
+    /// full edge.
     EdgeFlange {
         id: String,
         /// Name of a body created by `base_flange`.
         body: String,
-        /// Edge selector resolving to outer straight edges of the base plate (top or bottom rim).
+        /// Edge selector resolving to outer straight edges of the base plate (top or bottom rim) or
+        /// to the tip edge of an existing flange.
         edges: String,
         /// Straight length of the flange after the bend, in mm.
         length: Num,
@@ -381,8 +386,9 @@ pub enum Op {
         /// Inner bend radius; default = the body's default bend radius.
         #[serde(default)]
         radius: Option<Num>,
-        /// Bend relief shape recorded for manufacturing notes: `none` (default), `rect`,
-        /// `obround`. Not yet cut into the geometry.
+        /// Bend relief notch cut at both ends of the bend: `none` (default), `rect`, `obround`.
+        /// Width = min(t, edge/3), depth = R + t into the base plate; also cut in the flat
+        /// pattern.
         #[serde(default)]
         relief: ReliefSpec,
     },
@@ -433,6 +439,39 @@ pub enum Op {
         id: String,
         /// Name of a sheet metal body that was unfolded.
         body: String,
+    },
+    /// Sheet metal: punch a grid of round holes into the base plate (perforated sheet). Holes keep
+    /// `margin` from the plate edges, existing cutouts and relief notches; at most 2000 holes.
+    Perforate {
+        id: String,
+        /// Name of a sheet metal body.
+        body: String,
+        /// Hole diameter in mm.
+        d: Num,
+        /// Center-to-center distance in mm (> d).
+        pitch: Num,
+        /// Minimum clear distance from hole edge to plate edge / other holes; default
+        /// max(d, 2t + R).
+        #[serde(default)]
+        margin: Option<Num>,
+        /// `true` (default) = staggered 60° rows, `false` = straight grid.
+        #[serde(default = "default_true")]
+        stagger: bool,
+    },
+    /// Sheet metal: turn an existing flat plate solid of uniform thickness (e.g. an imported STEP
+    /// blank) into a sheet metal body, so flanges / perforation / flat pattern work on it. Round
+    /// through holes become cutouts. A solid that is already bent is rejected; the error context
+    /// lists the bend radii found.
+    ConvertToSheet {
+        id: String,
+        /// Name of the solid body; it keeps its name and becomes a sheet metal body.
+        body: String,
+        /// Default inner bend radius for later flanges; default = detected thickness.
+        #[serde(default)]
+        bend_radius: Option<Num>,
+        /// Neutral-axis k-factor (0..1); default 0.44.
+        #[serde(default)]
+        k_factor: Option<f64>,
     },
     /// Sheet metal: create a new body `id` holding the flat blank of `body` (the folded body is
     /// kept). The outcome `detail` lists the bend lines; export the blank with
@@ -487,6 +526,52 @@ pub enum Op {
         #[serde(default = "default_true")]
         cosmetic: bool,
     },
+    /// Add body geometry to an EXISTING sketch (creates no body). `mode` `project` (default):
+    /// project the edges picked by `edges` and/or the boundary edges of the faces picked by
+    /// `faces` onto the sketch plane. `intersect`: the intersection curve of `body` with the
+    /// sketch plane (`edges`/`faces` must be omitted). New entities are named `<id>.1`,
+    /// `<id>.2`, … and can be used by `extrude.profile` like any other entity.
+    SketchProject {
+        id: String,
+        /// Id of the target sketch op; entities are appended to it.
+        sketch: String,
+        /// Source body name.
+        body: String,
+        /// Edge selector to project, e.g. `"of(>Z)"` (`project` mode).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        edges: Option<String>,
+        /// Face selector whose boundary edges are projected, e.g. `">Z"` (`project` mode).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        faces: Option<String>,
+        /// `project` (default) or `intersect`.
+        #[serde(default)]
+        mode: ProjectMode,
+        /// Add the entities as construction geometry (reference only, not part of profiles).
+        #[serde(default)]
+        construction: bool,
+    },
+    /// Datum axis named `id` (creates no body). Reference it as `"axis:<id>"` in `revolve.axis`
+    /// (the axis must lie in the sketch plane), in a circular `pattern` axis, in plane
+    /// `perpendicular_to` / `through_edges`, and in point `two_edges`.
+    ConstructAxis {
+        id: String,
+        /// `{"two_points":{"a":[0,0,0],"b":[0,0,10]}}`, `{"edge":{"body":"b","edge":"|Z and >X and >Y"}}`,
+        /// `{"normal_to_face":{"body":"b","face":">Z"}}`,
+        /// `{"through_cylinder":{"body":"b","face":"all[kind=cylinder]"}}`,
+        /// `{"two_planes":{"a":"XZ","b":{"base":"YZ","offset":10}}}`.
+        by: AxisDef,
+    },
+    /// Datum point named `id` (creates no body). Reference it as `"point:<id>"` wherever a
+    /// datum point is accepted (`two_points`, `through`).
+    ConstructPoint {
+        id: String,
+        /// `{"vertex":{"body":"b","near":[30,20,10]}}`, `{"center":{"body":"b","edge":"..."}}`,
+        /// `{"edge_plane":{"body":"b","edge":"|Z","plane":{"base":"XY","offset":5}}}`,
+        /// `{"two_edges":{"a":{"body":"b","edge":"..."},"b":"axis:ax1"}}`,
+        /// `{"three_planes":{"a":"XY","b":"XZ","c":"YZ"}}`,
+        /// `{"along_path":{"body":"b","edge":"...","fraction":0.25}}`.
+        by: PointDef,
+    },
     /// Store a simulation study (fixtures, loads, mesh settings) in the design. Creates no body
     /// and does not run the solver: run it with tool `simulate_static` (or `ducad-cli sim`), then
     /// assert on the result with checks `max_stress`, `max_displacement`, `min_safety_factor`
@@ -508,12 +593,158 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modes: Option<u32>,
     },
+    // --- Fase 2: solid & direct editing (PLAN_PARITAS_SOLIDCRAFT §2). ---
+    /// Move faces along their normal; neighbours follow (direct edit, in place).
+    OffsetFace {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Face selector, e.g. `">Z"` or `"all[kind=cylinder][r=5]"`.
+        faces: String,
+        /// Offset distance (mm, non-zero; negative = inward).
+        distance: Num,
+    },
+    /// Delete faces (fillet, boss, hole) and heal the gap (in place).
+    DeleteFace {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Face selector of the faces to remove, e.g. `"all[kind=cylinder][r=2]"`.
+        faces: String,
+    },
+    /// Replace one planar face with a plane or another planar face (in place).
+    ReplaceFace {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Selector of exactly 1 planar face.
+        face: String,
+        /// Target plane (same forms as `sketch.plane`); must not be perpendicular to the face.
+        with: PlaneSpec,
+    },
+    /// Circle swept along a path; `wall` makes a tube.
+    Pipe {
+        id: String,
+        /// Id of a sketch holding an open chain, or `{"points":[[x,y,z],…]}`.
+        path: SweepPath,
+        /// Outer radius (> 0).
+        r: Num,
+        /// Wall thickness (0 < wall < r) for a hollow tube; omitted = solid rod.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wall: Option<Num>,
+        /// `new` (default), `add`, `cut` (see `extrude.mode`).
+        #[serde(default)]
+        mode: BodyMode,
+        /// Body name for `add`/`cut` mode.
+        #[serde(default)]
+        target: Option<String>,
+    },
+    /// Thin walls along the lines of a sketch, unioned into `body`.
+    Web {
+        id: String,
+        /// Name of the body that receives the walls.
+        body: String,
+        /// Id of a sketch with line entities (each line = one wall).
+        sketch: String,
+        /// Wall thickness (> 0), centered on the line.
+        thickness: Num,
+        /// Wall height from the sketch plane (> 0).
+        depth: Num,
+        /// Grow against the sketch normal.
+        #[serde(default)]
+        reverse: bool,
+    },
+    /// Raise (or engrave with `deboss`) closed sketch regions on a body.
+    Emboss {
+        id: String,
+        /// Id of the sketch with the closed regions (text outlines, logos, any shape).
+        sketch: String,
+        /// Regions to use (see `extrude.profile`); default all.
+        #[serde(default)]
+        profile: ProfileSel,
+        /// Name of the body to modify.
+        body: String,
+        /// Height / engraving depth (> 0).
+        depth: Num,
+        /// Engrave instead of raise.
+        #[serde(default)]
+        deboss: bool,
+    },
+    /// Move a body so its face meets a face of another body (coplanar/coaxial).
+    Align {
+        id: String,
+        /// Name of the body to move.
+        body: String,
+        /// Selector of 1 planar or cylindrical face on `body`.
+        from: String,
+        /// Target face `{"body":"b2","face":">Z"}` (same kind as `from`).
+        to: FaceRef,
+        /// Planar faces: keep both normals pointing the same way.
+        #[serde(default)]
+        flip: bool,
+        /// Gap along the target face normal (planar) or along the axis (cylindrical).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<Num>,
+    },
+    /// New body filling the cell of `bodies` that holds each point (overlap or cavity).
+    BoundaryFill {
+        id: String,
+        /// Bounding bodies (≥ 1).
+        bodies: Vec<String>,
+        /// One point per cell to fill (≥ 1).
+        points: Vec<[Num; 3]>,
+    },
+    /// New box/cylinder enclosing a body, grown by `margin`.
+    BoundingSolid {
+        id: String,
+        /// Name of the body to enclose.
+        body: String,
+        /// `box` (default) or `cylinder`.
+        #[serde(default)]
+        shape: BoundingShape,
+        /// Extra clearance on every side (≥ 0, default 0).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        margin: Option<Num>,
+        /// Cylinder axis direction (default +Z).
+        #[serde(default = "z_axis")]
+        axis: [Num; 3],
+    },
+    /// Split faces along a plane or sketch curves; solid unchanged.
+    SplitFace {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Face selector of the faces to split; default every face the tool crosses (plane) /
+        /// every face (sketch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        faces: Option<String>,
+        /// `{"plane": <plane spec>}` or `{"sketch": "<sketch id>"}`.
+        tool: SplitFaceTool,
+    },
+    /// Surface (sheet) modeling: open-profile extrude/revolve/sweep/loft, patch, boundary,
+    /// ruled, offset, extend, trim/untrim, stitch/unstitch, thicken, blend, match, fair, reverse.
+    Surface {
+        id: String,
+        /// One surface operation, e.g. `{"extrude":{"sketch":"sk","end":10}}`.
+        make: SurfaceSpec,
+    },
+    /// Injection-molded plastic features on `body` (boss, lip/groove, snap fit, rest); omitted
+    /// sizes default to the active `dfm-injection` rules (draft, wall, radius).
+    Plastic {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// One feature, e.g. `{"boss":{"face":">Z","at":[[0,0]],"height":10,"hole_d":3}}`.
+        make: PlasticSpec,
+    },
 }
 
 impl Op {
     pub fn id(&self) -> &str {
         match self {
             Op::Sketch { id, .. }
+            | Op::ConstructAxis { id, .. }
+            | Op::ConstructPoint { id, .. }
             | Op::Extrude { id, .. }
             | Op::Revolve { id, .. }
             | Op::Primitive { id, .. }
@@ -541,8 +772,23 @@ impl Op {
             | Op::Unfold { id, .. }
             | Op::Fold { id, .. }
             | Op::FlatPattern { id, .. }
+            | Op::Perforate { id, .. }
+            | Op::ConvertToSheet { id, .. }
             | Op::StandardPart { id, .. }
-            | Op::Thread { id, .. } => id,
+            | Op::Thread { id, .. }
+            | Op::SketchProject { id, .. }
+            | Op::OffsetFace { id, .. }
+            | Op::DeleteFace { id, .. }
+            | Op::ReplaceFace { id, .. }
+            | Op::Pipe { id, .. }
+            | Op::Web { id, .. }
+            | Op::Emboss { id, .. }
+            | Op::Align { id, .. }
+            | Op::BoundaryFill { id, .. }
+            | Op::BoundingSolid { id, .. }
+            | Op::SplitFace { id, .. }
+            | Op::Surface { id, .. }
+            | Op::Plastic { id, .. } => id,
         }
     }
 
@@ -550,6 +796,8 @@ impl Op {
     pub fn kind(&self) -> &'static str {
         match self {
             Op::Sketch { .. } => "sketch",
+            Op::ConstructAxis { .. } => "construct_axis",
+            Op::ConstructPoint { .. } => "construct_point",
             Op::Extrude { .. } => "extrude",
             Op::Revolve { .. } => "revolve",
             Op::Primitive { .. } => "primitive",
@@ -577,14 +825,40 @@ impl Op {
             Op::Unfold { .. } => "unfold",
             Op::Fold { .. } => "fold",
             Op::FlatPattern { .. } => "flat_pattern",
+            Op::Perforate { .. } => "perforate",
+            Op::ConvertToSheet { .. } => "convert_to_sheet",
             Op::StandardPart { .. } => "standard_part",
             Op::Thread { .. } => "thread",
+            Op::SketchProject { .. } => "sketch_project",
+            Op::OffsetFace { .. } => "offset_face",
+            Op::DeleteFace { .. } => "delete_face",
+            Op::ReplaceFace { .. } => "replace_face",
+            Op::Pipe { .. } => "pipe",
+            Op::Web { .. } => "web",
+            Op::Emboss { .. } => "emboss",
+            Op::Align { .. } => "align",
+            Op::BoundaryFill { .. } => "boundary_fill",
+            Op::BoundingSolid { .. } => "bounding_solid",
+            Op::SplitFace { .. } => "split_face",
+            Op::Surface { .. } => "surface",
+            Op::Plastic { .. } => "plastic",
         }
     }
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// `sketch_project` mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectMode {
+    /// Project selected edges / face boundaries onto the sketch plane.
+    #[default]
+    Project,
+    /// Intersection curve of the body with the sketch plane.
+    Intersect,
 }
 
 /// Bend relief shape.
@@ -687,13 +961,170 @@ impl From<MechPropsSpec> for ducad_core::MechanicalProperties {
 }
 
 /// Sketch plane: a name (`"XY"`/`"XZ"`/`"YZ"`, aliases `"top"`/`"front"`/`"right"`,
-/// case-insensitive), an offset named plane, or a planar face of a body.
+/// case-insensitive), an offset named plane, a planar face of a body, or a construction plane:
+/// `{"midplane":[A,B]}`, `{"perpendicular_to":LINE,"through":POINT}`,
+/// `{"tangent_to":{"body":"b","face":"..."},"angle_deg":90}`,
+/// `{"along":{"body":"b","edge":"..."},"fraction":0.5}`, `{"through_edges":[LINE,LINE]}`.
+/// Every variant has its own key set, so the form is never ambiguous.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum PlaneSpec {
     Named(String),
-    Offset { base: String, offset: Num },
-    OnFace { body: String, face: String },
+    Offset {
+        base: String,
+        offset: Num,
+    },
+    OnFace {
+        body: String,
+        face: String,
+    },
+    /// Plane halfway between two parallel planes (normal of the first).
+    Midplane {
+        /// Exactly two parallel planes, e.g. `[{"body":"b","face":">Z"},{"body":"b","face":"<Z"}]`.
+        midplane: Vec<PlaneSpec>,
+    },
+    /// Plane perpendicular to a straight edge or datum axis, through a point.
+    Perpendicular {
+        /// `"axis:<id>"` or `{"body":"b","edge":"..."}` (straight edge).
+        perpendicular_to: LineRef,
+        /// `[x,y,z]` or `"point:<id>"`.
+        through: PointRef,
+    },
+    /// Plane tangent to one cylindrical face. Give `angle_deg` (around the cylinder axis, CCW from
+    /// world +X projected onto the cross-section; +Y when the axis is parallel to X) or `through`
+    /// (tangent at the surface point nearest to it); neither = angle 0.
+    Tangent {
+        tangent_to: FaceRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        angle_deg: Option<Num>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        through: Option<PointRef>,
+    },
+    /// Plane normal to a line/circle edge at `fraction` of its length (0 = start, 1 = end).
+    AlongPath { along: EdgeRef, fraction: Num },
+    /// Plane through two coplanar straight edges/datum axes, or through one of them and `through`.
+    TwoEdges {
+        /// One or two `"axis:<id>"` / `{"body":"b","edge":"..."}` (straight edges).
+        through_edges: Vec<LineRef>,
+        /// Required when `through_edges` has one element.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        through: Option<PointRef>,
+    },
+}
+
+/// A point: `[x,y,z]` (numbers or expressions) or `"point:<id>"` (datum point from op
+/// `construct_point`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum PointRef {
+    Coords([Num; 3]),
+    Datum(String),
+}
+
+/// A straight line: `"axis:<id>"` (datum axis from op `construct_axis`) or one straight body
+/// edge `{"body":"b","edge":"|Z and >X and >Y"}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum LineRef {
+    Datum(String),
+    Edge { body: String, edge: String },
+}
+
+/// Exactly one edge of a body: `{"body":"b","edge":"<edge selector>"}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EdgeRef {
+    pub body: String,
+    pub edge: String,
+}
+
+/// Exactly one face of a body: `{"body":"b","face":"<face selector>"}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FaceRef {
+    pub body: String,
+    pub face: String,
+}
+
+/// How op `construct_axis` builds its axis (externally tagged).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum AxisDef {
+    /// Through point `a` toward point `b`.
+    TwoPoints { a: PointRef, b: PointRef },
+    /// Along one straight edge (a circle edge gives the axis of its circle).
+    Edge { body: String, edge: String },
+    /// Normal of one planar face, through `through` projected onto the face (default: face
+    /// centroid).
+    NormalToFace {
+        body: String,
+        face: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        through: Option<PointRef>,
+    },
+    /// Axis of one cylindrical or conical face.
+    ThroughCylinder { body: String, face: String },
+    /// Intersection line of two non-parallel planes.
+    TwoPlanes { a: PlaneSpec, b: PlaneSpec },
+}
+
+/// Which end of the edge for `construct_point.vertex`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VertexEnd {
+    #[default]
+    Start,
+    End,
+}
+
+/// How op `construct_point` builds its point (externally tagged).
+// `ThreePlanes` memuat tiga `PlaneSpec`; op dibuat jarang (sekali per op
+// oplog), jadi selisih ukuran varian tidak berarti — `Box` hanya memperumit
+// pola pencocokan pemakai API.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum PointDef {
+    /// A body vertex: the `end` (`start` default / `end`) of one edge picked by `edge`, or the
+    /// vertex nearest to `near` [x,y,z]. Give exactly one of `edge` / `near`.
+    Vertex {
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        edge: Option<String>,
+        #[serde(default)]
+        end: VertexEnd,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        near: Option<[Num; 3]>,
+    },
+    /// Center of one circle/arc edge (`edge`) or of one sphere/torus face (`face`); give exactly
+    /// one.
+    Center {
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        edge: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        face: Option<String>,
+    },
+    /// Intersection of one edge with a plane (a straight edge is extended to a full line).
+    EdgePlane {
+        body: String,
+        edge: String,
+        plane: PlaneSpec,
+    },
+    /// Intersection (or the midpoint of the closest approach) of two straight lines.
+    TwoEdges { a: LineRef, b: LineRef },
+    /// Intersection of three planes.
+    ThreePlanes {
+        a: PlaneSpec,
+        b: PlaneSpec,
+        c: PlaneSpec,
+    },
+    /// Point at `fraction` (0..1) of the length of one line/circle edge.
+    AlongPath {
+        body: String,
+        edge: String,
+        fraction: Num,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
@@ -837,8 +1268,8 @@ impl Default for ProfileSel {
     }
 }
 
-/// Revolve axis: `"u"`/`"v"` (sketch plane axis through the origin) or a 2D line in the sketch
-/// plane.
+/// Revolve axis: `"u"`/`"v"` (sketch plane axis through the origin), `"axis:<id>"` (datum axis
+/// from `construct_axis`; it must lie in the sketch plane), or a 2D line in the sketch plane.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum AxisSpec {
@@ -866,6 +1297,12 @@ pub enum PrimitiveSpec {
         r1: Num,
         r2: Num,
         h: Num,
+    },
+    /// Torus around +Z centered on `at`: `major` = tube center radius, `minor` = tube radius
+    /// (`major > minor > 0`).
+    Torus {
+        major: Num,
+        minor: Num,
     },
 }
 
@@ -905,11 +1342,33 @@ pub enum PatternKind {
         pitch: [Num; 3],
     },
     Circular {
+        /// Point on the axis; default origin. Must be omitted (or zero) with a datum axis.
+        #[serde(default)]
         pivot: [Num; 3],
-        axis: [Num; 3],
+        /// Direction `[x,y,z]` through `pivot`, or `"axis:<id>"` (datum axis).
+        axis: PatternAxis,
         count: u32,
         angle_deg: Num,
     },
+    /// Copies spaced evenly along a path (first copy = original at the path start), e.g.
+    /// `{"path":{"path":"rail","count":5,"align":true}}`.
+    Path {
+        /// Id of a sketch holding an open chain, or `{"points":[[x,y,z],…]}`.
+        path: SweepPath,
+        /// Total instances including the original (≥ 2).
+        count: u32,
+        /// Rotate each copy with the path tangent (default: translate only).
+        #[serde(default)]
+        align: bool,
+    },
+}
+
+/// Circular pattern axis: a direction `[x,y,z]` or `"axis:<id>"`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum PatternAxis {
+    Dir([Num; 3]),
+    Datum(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -1023,6 +1482,15 @@ pub enum EntitySpec {
         #[serde(default)]
         construction: bool,
     },
+    /// Standalone sketch point (reference for snapping/constraints, no profile edge).
+    /// Referenced in constraints as `"<name>"` or `"<name>.center"`.
+    Point {
+        at: [Num; 2],
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        construction: bool,
+    },
     Path {
         subpaths: Vec<SubpathSpec>,
         #[serde(default)]
@@ -1092,20 +1560,27 @@ pub enum ConstraintSpec {
         point: String,
         at: [Num; 2],
     },
+    /// `driven: true` = reference dimension: measured from geometry, ignored by the solver.
     Distance {
         a: String,
         b: String,
         value: Num,
+        #[serde(default, skip_serializing_if = "is_false")]
+        driven: bool,
     },
     Radius {
         entity: String,
         value: Num,
+        #[serde(default, skip_serializing_if = "is_false")]
+        driven: bool,
     },
     /// CCW angle from direction `a` to direction `b`, degrees.
     Angle {
         a: String,
         b: String,
         deg: Num,
+        #[serde(default, skip_serializing_if = "is_false")]
+        driven: bool,
     },
     Tangent([String; 2]),
     Concentric([String; 2]),
@@ -1123,6 +1598,16 @@ pub enum ConstraintSpec {
         b: String,
         axis: String,
     },
+    /// G2 (curvature) continuity between two curve ends (spline–spline or spline–arc), e.g.
+    /// `{"a": "s1.end", "b": "s2.start"}`; curve `a` enters the joint, `b` leaves it.
+    Curvature {
+        a: String,
+        b: String,
+    },
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 /// One design variant: parameter overrides, suppressed ops and material overrides on top of the
@@ -1375,4 +1860,209 @@ pub enum SplitKeep {
     Both,
     Positive,
     Negative,
+}
+
+/// Shape of op `bounding_solid`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundingShape {
+    #[default]
+    Box,
+    Cylinder,
+}
+
+/// Tool of op `split_face`: `{"plane": <plane spec>}` or `{"sketch": "<sketch id>"}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum SplitFaceTool {
+    Plane { plane: PlaneSpec },
+    Sketch { sketch: String },
+}
+
+/// Edges of one body: `{"body":"s1","edges":"all"}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EdgeSel {
+    pub body: String,
+    pub edges: String,
+}
+
+/// Continuity across a blend/match seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContinuitySpec {
+    G0,
+    #[default]
+    G1,
+    G2,
+}
+
+fn default_tolerance() -> Num {
+    Num::Value(0.01)
+}
+
+/// Surface operation of op `surface` (externally tagged). Creating forms make body `id`;
+/// `extend`, `trim`, `untrim`, `thicken`, `reverse`, `fair`, `match` change `body` in place;
+/// `stitch` consumes `bodies`; `unstitch` keeps the rest in `body` and makes `id.1`, `id.2`, ….
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SurfaceSpec {
+    /// Extrude every curve of a sketch (open or closed) from `start` to `end` along its normal.
+    Extrude {
+        sketch: String,
+        #[serde(default)]
+        start: Num,
+        end: Num,
+    },
+    /// Revolve the sketch curves about a sketch axis (`"u"`/`"v"` or a 2D line).
+    Revolve {
+        sketch: String,
+        axis: AxisSpec,
+        #[serde(default = "full_turn")]
+        angle_deg: Num,
+    },
+    /// Sweep the sketch curves along a path (sketch id or points).
+    Sweep { sketch: String, path: SweepPath },
+    /// Loft through the first curve chain of each sketch (≥ 2).
+    Loft { sections: Vec<String> },
+    /// Fill the hole bounded by the selected open edges of `body`.
+    Patch { body: String, edges: String },
+    /// Surface through `u` curves (and `v`: Coons 2×2 / Gordon), each a list of 3D points.
+    Boundary {
+        u: Vec<Vec<[Num; 3]>>,
+        #[serde(default)]
+        v: Vec<Vec<[Num; 3]>>,
+    },
+    /// Strip `distance` wide from edges, along the face normal (default), the face tangent, or
+    /// a fixed `direction`.
+    Ruled {
+        body: String,
+        edges: String,
+        distance: Num,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        direction: Option<[Num; 3]>,
+        #[serde(default)]
+        tangent: bool,
+        #[serde(default)]
+        flip: bool,
+    },
+    /// New surface offset from faces by `distance`.
+    Offset { body: String, faces: String, distance: Num },
+    /// Faces of a body copied out as a new surface.
+    CopyFaces { body: String, faces: String },
+    /// Surface joining edges of two bodies with `continuity` on both sides.
+    Blend {
+        a: EdgeSel,
+        b: EdgeSel,
+        #[serde(default)]
+        continuity: ContinuitySpec,
+    },
+    /// Extend boundary edges by `distance` (in place).
+    Extend { body: String, edges: String, distance: Num },
+    /// Trim with a plane, keeping the side holding `keep` (in place).
+    Trim { body: String, plane: PlaneSpec, keep: [Num; 3] },
+    /// Remove every hole of one face (in place).
+    Untrim { body: String, face: String },
+    /// Thicken a surface into a solid (in place).
+    Thicken {
+        body: String,
+        thickness: Num,
+        #[serde(default)]
+        symmetric: bool,
+    },
+    /// Flip the normals of faces (in place).
+    Reverse { body: String, faces: String },
+    /// Smooth faces (in place).
+    Fair { body: String, faces: String },
+    /// Reshape faces to meet a target edge with `continuity` (in place).
+    Match {
+        body: String,
+        faces: String,
+        target: EdgeSel,
+        #[serde(default)]
+        continuity: ContinuitySpec,
+    },
+    /// Sew surfaces into one body `id` (closed result = solid). The inputs are consumed.
+    Stitch {
+        bodies: Vec<String>,
+        #[serde(default = "default_tolerance")]
+        tolerance: Num,
+    },
+    /// Detach faces into their own surfaces `id.1`, `id.2`, …; the rest stays in `body`.
+    Unstitch { body: String, faces: String },
+}
+
+fn full_turn() -> Num {
+    Num::Value(360.0)
+}
+
+/// Feature of op `plastic` (externally tagged). Points use the `hole` convention: `at` local
+/// (u, v) on the face, or `at_world` projected onto it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum PlasticSpec {
+    /// Drafted (hollow) screw boss standing on a planar face.
+    Boss {
+        face: String,
+        #[serde(default)]
+        at: Vec<[Num; 2]>,
+        #[serde(default)]
+        at_world: Vec<[Num; 3]>,
+        height: Num,
+        /// Hole diameter (0 or omitted = solid post).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hole_d: Option<Num>,
+        /// Default: hole_d + 4 × rule min_wall.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outer_d: Option<Num>,
+        /// Default: rule min_draft_deg.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        draft_deg: Option<Num>,
+        /// Base fillet; default: rule min_internal_radius.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fillet: Option<Num>,
+    },
+    /// Lip raised along the inner loop of a planar rim face (`groove`: cut instead, grown by
+    /// `clearance`).
+    Lip {
+        face: String,
+        height: Num,
+        /// Default: rule min_wall.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<Num>,
+        #[serde(default)]
+        groove: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        clearance: Option<Num>,
+    },
+    /// Cantilever snap fit with a hook at the tip; reports the bending strain.
+    SnapFit {
+        face: String,
+        #[serde(default)]
+        at: Vec<[Num; 2]>,
+        #[serde(default)]
+        at_world: Vec<[Num; 3]>,
+        length: Num,
+        width: Num,
+        hook: Num,
+        /// Default: 1.5 × rule min_wall.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thickness: Option<Num>,
+        /// Hook ramp angle (default 30°).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        angle_deg: Option<Num>,
+        /// Hook direction in the face plane (default face u axis).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        direction: Option<[Num; 3]>,
+    },
+    /// Flat round pad on a (curved) surface: top `height` above `at` along `direction`.
+    Rest {
+        at: [Num; 3],
+        diameter: Num,
+        #[serde(default)]
+        height: Num,
+        /// Default +Z.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        direction: Option<[Num; 3]>,
+    },
 }

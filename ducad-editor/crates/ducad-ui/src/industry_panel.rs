@@ -74,6 +74,8 @@ pub struct IndConfigRow {
     pub active: bool,
     pub params: Vec<(String, f64)>,
     pub suppressed: Vec<String>,
+    /// Aturan "if … then …" (Paritas 4.11), satu per entri.
+    pub rules: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -342,7 +344,11 @@ pub enum IndustryEvent {
         name: String,
         params: Vec<(String, f64)>,
         suppressed: Vec<String>,
+        /// Aturan mentah (satu per baris), diparse app.
+        rules: Vec<String>,
     },
+    /// Paritas 4.11: pratinjau konfigurasi tanpa mengaktifkannya.
+    PreviewConfig(String),
     DeleteConfig(String),
     ExportConfigCsv,
     ImportConfigCsv,
@@ -440,6 +446,7 @@ pub struct IndustryPanel {
     cfg_name: String,
     cfg_params: Vec<(String, f64)>,
     cfg_suppressed: Vec<String>,
+    cfg_rules: String,
     // sheet metal
     base: BaseDraft,
     feat_id: String,
@@ -490,6 +497,7 @@ impl Default for IndustryPanel {
             cfg_name: String::new(),
             cfg_params: Vec::new(),
             cfg_suppressed: Vec::new(),
+            cfg_rules: String::new(),
             base: BaseDraft {
                 id: "tray".into(),
                 width: 100.0,
@@ -893,10 +901,18 @@ impl IndustryPanel {
                         {
                             event = Some(IndustryEvent::DeleteConfig(row.name.clone()));
                         }
+                        if ui
+                            .small_button(t!("ind-cfg-preview"))
+                            .on_hover_text(t!("ind-cfg-preview-hint"))
+                            .clicked()
+                        {
+                            event = Some(IndustryEvent::PreviewConfig(row.name.clone()));
+                        }
                         if ui.small_button(t!("ind-edit")).clicked() {
                             self.cfg_name = row.name.clone();
                             self.cfg_params = row.params.clone();
                             self.cfg_suppressed = row.suppressed.clone();
+                            self.cfg_rules = row.rules.join("\n");
                         }
                     }
                 });
@@ -904,6 +920,7 @@ impl IndustryPanel {
             let mut parts: Vec<String> =
                 row.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
             parts.extend(row.suppressed.iter().map(|s| format!("-{s}")));
+            parts.extend(row.rules.iter().cloned());
             if !parts.is_empty() {
                 muted(ui, parts.join("  "));
             }
@@ -957,6 +974,13 @@ impl IndustryPanel {
                 }
             });
         }
+        heading(ui, t!("ind-cfg-rules"));
+        muted(ui, t!("ind-cfg-rules-hint"));
+        ui.add(
+            TextEdit::multiline(&mut self.cfg_rules)
+                .desired_rows(2)
+                .hint_text("if w > 50 then t = 4"),
+        );
         ui.horizontal(|ui| {
             let ok = !self.cfg_name.trim().is_empty() && self.cfg_name.trim() != "Default";
             if ui
@@ -967,6 +991,13 @@ impl IndustryPanel {
                     name: self.cfg_name.trim().to_string(),
                     params: self.cfg_params.clone(),
                     suppressed: self.cfg_suppressed.clone(),
+                    rules: self
+                        .cfg_rules
+                        .lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .map(str::to_string)
+                        .collect(),
                 });
             }
             if ui.button(t!("ind-cfg-export")).clicked() {

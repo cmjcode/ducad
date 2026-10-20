@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/bracket.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 6,
+  "bodies": [
+    {
+      "name": "bracket",
+      "valid": true,
+      "volume": 13555.3374,
+      "area": 6586.5509,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          50.0,
+          30.0,
+          30.0
+        ]
+      ],
+      "faces": 11,
+      "edges": 27,
+      "mesh": {
+        "vertices": 1178,
+        "triangles": 1164,
+        "sha": "e9cf48d4ef126396"
+      }
+    }
+  ],
+  "checks": null
+}

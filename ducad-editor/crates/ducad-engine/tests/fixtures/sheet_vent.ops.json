@@ -1,0 +1,19 @@
+{ "params": { "t": 1.5, "pitch": 7 },
+  "ops": [
+    {"op":"sketch","id":"panel_sk","plane":"XY","entities":[
+      {"rect":{"corner":[0,0],"w":120,"h":80,"name":"outline"}},
+      {"circle":{"center":[15,65],"r":3.2,"name":"mount"}}]},
+    {"op":"base_flange","id":"panel","sketch":"panel_sk","thickness":"$t","bend_radius":1.5},
+    {"op":"edge_flange","id":"side","body":"panel","edges":"|X[len=120][z=0][y=0]","length":15,"relief":"rect"},
+    {"op":"edge_flange","id":"return","body":"panel","edges":"|X[len=120][z=18]","length":6},
+    {"op":"perforate","id":"vent","body":"panel","d":4,"pitch":"$pitch","margin":5},
+    {"op":"flat_pattern","id":"blank","body":"panel"},
+    {"op":"sketch","id":"plate_sk","plane":{"base":"XY","offset":-40},"entities":[{"rect":{"corner":[0,0],"w":40,"h":30}}]},
+    {"op":"extrude","id":"bracket","sketch":"plate_sk","distance":2},
+    {"op":"convert_to_sheet","id":"to_sheet","body":"bracket","bend_radius":2},
+    {"op":"edge_flange","id":"tab","body":"bracket","edges":"|Y[len=30][z=-40][x=0]","length":10}
+  ],
+  "checks": [
+    {"id":"bend_ok","check":"min_bend_radius","body":"panel","min_ratio_to_t":1},
+    {"id":"three_bodies","check":"body_count","expect":3}
+  ] }

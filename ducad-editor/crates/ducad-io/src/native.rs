@@ -1,9 +1,8 @@
 //! Format native `.ducad` (Fase 5): satu file JSON versi-ed berisi seluruh
 //! sketch (entitas+constraint) dan semua body 3D. Geometri B-rep tiap body
-//! disematkan sebagai teks STEP (lewat `KernelShape::to_step_string`) —
-//! satu-satunya cara persis menyalin B-rep lewat binding `opencascade-rs`
-//! ini (lihat catatan `deep_clone` di `ducad-kernel`), jadi dipakai ulang
-//! di sini alih-alih menulis serializer B-rep sendiri.
+//! disematkan sebagai teks STEP (lewat `KernelShape::to_step_string`) untuk
+//! body tanpa oplog (import/legacy); body lain dibangun ulang dari oplog
+//! `design`, dengan cache B-rep native opsional (`NativeBrepCache`).
 //!
 //! `Sketch` (dan `Entity`/`Constraint`/`PointRef` di dalamnya) di-derive
 //! `Serialize`/`Deserialize` LANGSUNG di `ducad-sketch` — bukan struct
@@ -12,6 +11,13 @@
 //! ADANYA berkat fitur "serde" `slotmap` (index+versi internal disimpan),
 //! jadi tidak perlu remapping id manual.
 //!
+//! Format v4 (migrasi kernel F1, `docs/FORMAT.md`): body yang geometrinya
+//! bisa direproduksi dari oplog `design` ("body turunan") TIDAK lagi membawa
+//! STEP — oplog adalah sumber kebenaran. Sebagai gantinya ia membawa cache
+//! B-rep native opsional (`brep`) berlabel produsen; cache dari backend lain
+//! dianggap *miss*. STEP hanya dipertahankan untuk body tanpa oplog
+//! (buatan GUI, impor, berkas lama).
+//!
 //! Body TIDAK menyimpan `BodyId` — beda dengan `EntityId` yang jadi
 //! rujukan silang lewat constraint, tidak ada apa pun di file ini yang
 //! merujuk `BodyId` lintas body, jadi body cukup direkonstruksi sebagai
@@ -19,6 +25,7 @@
 //! pemanggil lewat `Document::add_body`).
 
 use anyhow::{bail, Context, Result};
+use base64::Engine as _;
 use ducad_kernel::KernelShape;
 use ducad_sketch::Sketch;
 use serde::{Deserialize, Serialize};
@@ -36,7 +43,17 @@ use std::path::Path;
 /// Versi 3 menambah fitur vektor lanjutan (`Entity::Path`, `styles`, `layers`,
 /// `groups`, `texts`, `origin`). Penulis memakai 3 HANYA bila dokumen
 /// memakai salah satu fitur vektor baru tersebut.
-pub const FORMAT_VERSION: u32 = 3;
+///
+/// Versi 4 membuat `bodies[].step` opsional (body turunan oplog tanpa STEP)
+/// dan menambah cache `bodies[].brep`. Penulis memakai 4 HANYA bila ada body
+/// turunan atau cache — berkas buatan GUI tetap v1–v3.
+pub const FORMAT_VERSION: u32 = 4;
+
+/// Versi format dengan body turunan oplog (tanpa STEP) / cache B-rep.
+pub const FORMAT_VERSION_DERIVED: u32 = 4;
+
+/// Versi format dengan fitur vektor lanjutan / tinta.
+pub const FORMAT_VERSION_VECTOR: u32 = 3;
 
 /// Versi format berkas dengan oplog parametrik (`design`) tanpa fitur vektor v3.
 pub const FORMAT_VERSION_DESIGN: u32 = 2;
@@ -101,6 +118,55 @@ pub struct NativeRoundHistory {
     pub features: Vec<NativeRoundFeature>,
 }
 
+/// Cache B-rep native non-otoritatif (format v4). Boleh dibuang kapan saja:
+/// geometri selalu bisa dibangun ulang dari oplog `design`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeBrepCache {
+    /// Penulis cache, mis. `"ducad-truck/1"` — lihat
+    /// [`KernelShape::NATIVE_CACHE_PRODUCER`]. Beda produsen = *miss*.
+    pub producer: String,
+    /// Isi cache: base64 standar dari aliran zlib (deflate) byte encoding
+    /// backend. Dikompresi karena B-rep biner jauh lebih besar dari STEP.
+    pub data: String,
+}
+
+/// Batas ukuran cache setelah dekompresi — melindungi dari berkas jahat
+/// (zip bomb); body nyata jauh di bawah ini.
+const BREP_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
+
+impl NativeBrepCache {
+    /// Cache dari `shape` untuk backend kernel yang sedang berjalan.
+    pub fn of(shape: &KernelShape) -> Result<Self> {
+        let bytes = shape.to_native_cache()?;
+        Ok(Self {
+            producer: KernelShape::NATIVE_CACHE_PRODUCER.to_string(),
+            data: base64::engine::general_purpose::STANDARD
+                .encode(miniz_oxide::deflate::compress_to_vec_zlib(&bytes, 6)),
+        })
+    }
+
+    /// `true` bila cache ini ditulis backend yang sedang berjalan.
+    pub fn is_usable(&self) -> bool {
+        self.producer == KernelShape::NATIVE_CACHE_PRODUCER
+    }
+
+    /// Dekode cache. `Ok(None)` = produsen lain (*miss*, bukan error).
+    pub fn decode(&self) -> Result<Option<KernelShape>> {
+        if !self.is_usable() {
+            return Ok(None);
+        }
+        let packed = base64::engine::general_purpose::STANDARD
+            .decode(self.data.as_bytes())
+            .context("cache brep bukan base64 yang sah")?;
+        let bytes = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(
+            &packed,
+            BREP_CACHE_MAX_BYTES,
+        )
+        .map_err(|e| anyhow::anyhow!("cache brep bukan aliran zlib yang sah: {e:?}"))?;
+        KernelShape::from_native_cache(&bytes).map(Some)
+    }
+}
+
 /// Satu body 3D dalam file native — nama, visibilitas, material PBR, geometri B-rep,
 /// dan riwayat fitur rounding (fillet/chamfer).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,9 +189,73 @@ pub struct NativeBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mechanical: Option<ducad_core::MaterialSource>,
     /// Teks STEP AP214 lengkap (bukan mesh) — lihat catatan modul.
-    pub step: String,
+    /// `None` (v4) = body turunan oplog `design`: geometrinya dibangun ulang
+    /// lewat replay, atau diambil dari `brep` bila produsennya cocok.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    /// Cache B-rep native opsional (v4), lihat [`NativeBrepCache`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brep: Option<NativeBrepCache>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub round_history: Option<NativeRoundHistory>,
+}
+
+impl NativeBody {
+    /// Body dengan geometri STEP otoritatif (tanpa oplog: GUI/impor).
+    pub fn from_step(name: impl Into<String>, step: String) -> Self {
+        Self {
+            name: name.into(),
+            uuid: ducad_core::new_part_uuid(),
+            visible: true,
+            material: ducad_core::Material::default(),
+            mechanical: None,
+            step: Some(step),
+            brep: None,
+            round_history: None,
+        }
+    }
+
+    /// Geometri body tanpa replay: cache (bila produsennya backend ini)
+    /// lalu STEP. `Ok(None)` = body turunan yang harus dibangun ulang dari
+    /// oplog. Cache yang rusak tidak fatal — dicatat di `warnings` lalu
+    /// jatuh ke STEP/replay. STEP yang rusak adalah error: pemanggil yang
+    /// punya oplog boleh mengubahnya jadi peringatan + replay.
+    pub fn resolve_shape(&self, warnings: &mut Vec<String>) -> Result<Option<KernelShape>> {
+        if let Some(cache) = &self.brep {
+            match cache.decode() {
+                Ok(Some(shape)) => return Ok(Some(shape)),
+                Ok(None) => warnings.push(format!(
+                    "body '{}': cache brep dari '{}' diabaikan (backend ini '{}')",
+                    self.name,
+                    cache.producer,
+                    KernelShape::NATIVE_CACHE_PRODUCER
+                )),
+                Err(e) => warnings.push(format!(
+                    "body '{}': cache brep rusak, diabaikan: {e:#}",
+                    self.name
+                )),
+            }
+        }
+        match &self.step {
+            Some(step) => KernelShape::from_step_string(step)
+                .map(Some)
+                .with_context(|| format!("gagal baca geometri body '{}' dari STEP", self.name)),
+            None => Ok(None),
+        }
+    }
+
+    /// Pastikan body membawa STEP otoritatif (dipakai saat body turunan
+    /// diadopsi jadi body dasar tanpa oplog).
+    pub fn ensure_step(&mut self, shape: &KernelShape) -> Result<()> {
+        if self.step.is_none() {
+            self.step = Some(
+                shape
+                    .to_step_string()
+                    .with_context(|| format!("gagal serialize body '{}' ke STEP", self.name))?,
+            );
+        }
+        Ok(())
+    }
 }
 
 /// Struktur data referensi untuk ekspor body lengkap dengan riwayat fitur.
@@ -140,6 +270,10 @@ pub struct ExportBody<'a> {
     pub mechanical: Option<ducad_core::MaterialSource>,
     pub shape: &'a KernelShape,
     pub round_history: Option<(&'a KernelShape, Vec<NativeRoundFeature>)>,
+    /// `true` = geometri body ini hasil replay oplog `design` yang ikut
+    /// disimpan: STEP tidak ditulis, hanya cache `brep` (format v4).
+    /// Hanya `Session::save` di `ducad-engine` yang boleh memakai `true`.
+    pub derived: bool,
 }
 
 /// Isi lengkap satu dokumen DUCAD, siap ditulis/dibaca sebagai JSON.
@@ -159,6 +293,101 @@ pub struct DuCADFile {
     /// Dokumen tinta bebas (Fase M4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ink: Option<ducad_ink::InkDoc>,
+    /// Geometri konstruksi GUI: bidang/sumbu/titik datum (Paritas Fase 1A
+    /// butir 1.5). Field opsional — berkas lama tanpa field ini tetap
+    /// terbaca (datum kosong) dan build lama mengabaikannya, jadi
+    /// `format_version` TIDAK dinaikkan.
+    #[serde(default, skip_serializing_if = "NativeDatums::is_empty")]
+    pub datums: NativeDatums,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Bidang datum GUI beserta sketsanya (sketsa bidang datum dulu hilang saat
+/// disimpan karena format hanya memuat tiga bidang standar).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeDatumPlane {
+    pub id: u32,
+    pub name: String,
+    pub origin: [f64; 3],
+    pub u_axis: [f64; 3],
+    pub v_axis: [f64; 3],
+    pub normal: [f64; 3],
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sketch: Option<Sketch>,
+}
+
+/// Sumbu datum GUI: titik + arah satuan.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeDatumAxis {
+    pub id: u32,
+    pub name: String,
+    pub origin: [f64; 3],
+    pub dir: [f64; 3],
+    #[serde(default = "default_true")]
+    pub visible: bool,
+}
+
+/// Titik datum GUI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeDatumPoint {
+    pub id: u32,
+    pub name: String,
+    pub pos: [f64; 3],
+    #[serde(default = "default_true")]
+    pub visible: bool,
+}
+
+/// Seluruh datum GUI satu dokumen.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NativeDatums {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planes: Vec<NativeDatumPlane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub axes: Vec<NativeDatumAxis>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<NativeDatumPoint>,
+    /// Tampilan kamera bernama (Paritas 3.13).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub views: Vec<NativeNamedView>,
+    /// Perakitan GUI (instance, mate/joint, motion study, contact set;
+    /// Paritas Fase 4). Body dirujuk lewat UUID-nya.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assembly: Option<serde_json::Value>,
+}
+
+impl NativeDatums {
+    pub fn is_empty(&self) -> bool {
+        self.planes.is_empty()
+            && self.axes.is_empty()
+            && self.points.is_empty()
+            && self.views.is_empty()
+            && self.assembly.is_none()
+    }
+}
+
+/// Tampilan kamera bernama: pose kamera orbit (turntable, Z atas).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeNamedView {
+    pub name: String,
+    pub target: [f32; 3],
+    /// Radian.
+    pub yaw: f32,
+    /// Radian.
+    pub pitch: f32,
+    pub distance: f32,
+}
+
+impl NativeNamedView {
+    /// Semua angka hingga dan jarak positif.
+    pub fn is_valid(&self) -> bool {
+        self.target.iter().chain([&self.yaw, &self.pitch, &self.distance]).all(|v| v.is_finite())
+            && self.distance > 0.0
+    }
 }
 
 /// Body yang SUDAH dimuat (geometrinya sudah direkonstruksi jadi
@@ -172,7 +401,9 @@ pub struct LoadedBody {
     pub material: ducad_core::Material,
     /// Material mekanik (P16), bila tersimpan di berkas.
     pub mechanical: Option<ducad_core::MaterialSource>,
-    pub shape: KernelShape,
+    /// `None` = body turunan oplog tanpa cache yang cocok: pemanggil wajib
+    /// membangunnya ulang lewat replay `design` (`ducad_engine::Session`).
+    pub shape: Option<KernelShape>,
     pub round_history: Option<(KernelShape, Vec<NativeRoundFeature>)>,
 }
 
@@ -186,9 +417,19 @@ pub struct LoadedDocument {
     pub design: Option<serde_json::Value>,
     /// Dokumen tinta bebas (Fase M4).
     pub ink: Option<ducad_ink::InkDoc>,
+    /// Datum GUI (kosong untuk berkas lama).
+    pub datums: NativeDatums,
+    /// Masalah yang tidak fatal saat memuat (cache miss/rusak, STEP rusak
+    /// yang akan dibangun ulang dari oplog).
+    pub warnings: Vec<String>,
 }
 
 impl LoadedDocument {
+    /// `true` bila ada body yang geometrinya harus dibangun ulang dari oplog.
+    pub fn needs_replay(&self) -> bool {
+        self.bodies.iter().any(|b| b.shape.is_none())
+    }
+
     /// Mengembalikan seluruh sketch per bidang sebagai array `[Top, Front, Right]`.
     pub fn into_sketches(self) -> [Sketch; 3] {
         [self.sketch, self.front_sketch, self.right_sketch]
@@ -217,6 +458,21 @@ pub fn serialize_detailed_to_json_with_design_and_ink(
     design: Option<&serde_json::Value>,
     ink: Option<&ducad_ink::InkDoc>,
 ) -> Result<String> {
+    serialize_full_to_json(sketches, bodies, design, ink, None)
+}
+
+/// Seperti [`serialize_detailed_to_json_with_design_and_ink`] plus datum GUI
+/// (bidang/sumbu/titik, Paritas 1.5).
+pub fn serialize_full_to_json(
+    sketches: &[&Sketch],
+    bodies: &[ExportBody],
+    design: Option<&serde_json::Value>,
+    ink: Option<&ducad_ink::InkDoc>,
+    datums: Option<&NativeDatums>,
+) -> Result<String> {
+    if design.is_none() && bodies.iter().any(|b| b.derived) {
+        bail!("body turunan oplog (derived) butuh field design — tanpa oplog geometrinya hilang");
+    }
     let bodies = bodies
         .iter()
         .map(|b| {
@@ -239,17 +495,32 @@ pub fn serialize_detailed_to_json_with_design_and_ink(
                 visible: b.visible,
                 material: b.material,
                 mechanical: b.mechanical.clone(),
-                step: b
-                    .shape
-                    .to_step_string()
-                    .with_context(|| format!("gagal serialize body '{}' ke STEP", b.name))?,
+                step: if b.derived {
+                    None
+                } else {
+                    Some(
+                        b.shape
+                            .to_step_string()
+                            .with_context(|| format!("gagal serialize body '{}' ke STEP", b.name))?,
+                    )
+                },
+                brep: if b.derived {
+                    Some(
+                        NativeBrepCache::of(b.shape)
+                            .with_context(|| format!("gagal encode cache brep body '{}'", b.name))?,
+                    )
+                } else {
+                    None
+                },
                 round_history,
             })
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let format_version = if sketches.iter().any(|s| needs_v3(s)) || ink.is_some() {
-        FORMAT_VERSION
+    let format_version = if bodies.iter().any(|b| b.step.is_none() || b.brep.is_some()) {
+        FORMAT_VERSION_DERIVED
+    } else if sketches.iter().any(|s| needs_v3(s)) || ink.is_some() {
+        FORMAT_VERSION_VECTOR
     } else if design.is_some() {
         FORMAT_VERSION_DESIGN
     } else {
@@ -264,6 +535,7 @@ pub fn serialize_detailed_to_json_with_design_and_ink(
         bodies,
         design: design.cloned(),
         ink: ink.cloned(),
+        datums: datums.cloned().unwrap_or_default(),
     };
     serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
 }
@@ -283,6 +555,7 @@ pub fn serialize_to_json(
             mechanical: None,
             shape,
             round_history: None,
+            derived: false,
         })
         .collect();
     serialize_detailed_to_json(sketches, &export_bodies)
@@ -298,13 +571,22 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         );
     }
 
+    let has_design = file.design.is_some();
+    let mut warnings = Vec::new();
     let bodies = file
         .bodies
         .into_iter()
         .map(|b| {
-            let shape = KernelShape::from_step_string(&b.step).with_context(|| {
-                format!("gagal baca geometri body '{}' dari STEP snapshot", b.name)
-            })?;
+            let shape = match b.resolve_shape(&mut warnings) {
+                Ok(shape) => shape,
+                // Ada oplog → body masih bisa dibangun ulang: jangan
+                // gagalkan seluruh berkas karena satu STEP rusak.
+                Err(e) if has_design => {
+                    warnings.push(format!("{e:#} — dibangun ulang dari oplog"));
+                    None
+                }
+                Err(e) => return Err(e),
+            };
             let round_history = if let Some(rh) = b.round_history {
                 match KernelShape::from_step_string(&rh.base_step) {
                     Ok(base_shape) => Some((base_shape, rh.features)),
@@ -338,6 +620,8 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         bodies,
         design: file.design,
         ink: file.ink,
+        datums: file.datums,
+        warnings,
     })
 }
 
@@ -368,9 +652,66 @@ pub fn save_multi_plane_detailed_with_design_and_ink(
     design: Option<&serde_json::Value>,
     ink: Option<&ducad_ink::InkDoc>,
 ) -> Result<()> {
-    let json = serialize_detailed_to_json_with_design_and_ink(sketches, bodies, design, ink)?;
-    std::fs::write(path, json).context("gagal menulis file .ducad")?;
-    Ok(())
+    save_full(path, sketches, bodies, design, ink, None)
+}
+
+/// Seperti [`save_multi_plane_detailed_with_design_and_ink`] plus datum GUI.
+pub fn save_full(
+    path: impl AsRef<Path>,
+    sketches: &[&Sketch],
+    bodies: &[ExportBody],
+    design: Option<&serde_json::Value>,
+    ink: Option<&ducad_ink::InkDoc>,
+    datums: Option<&NativeDatums>,
+) -> Result<()> {
+    let json = serialize_full_to_json(sketches, bodies, design, ink, datums)?;
+    write_atomic_with_backup(path.as_ref(), json.as_bytes())
+}
+
+/// Akhiran berkas cadangan: `part.ducad` → `part.ducad.bak`.
+pub const BACKUP_SUFFIX: &str = ".bak";
+
+/// Path cadangan untuk `path` (`<path>.bak`).
+pub fn backup_path(path: &Path) -> std::path::PathBuf {
+    let mut s = path.as_os_str().to_os_string();
+    s.push(BACKUP_SUFFIX);
+    std::path::PathBuf::from(s)
+}
+
+/// Simpan aman (Paritas 3.8): tulis ke berkas sementara di folder yang sama,
+/// `fsync`, salin versi lama ke `<path>.bak`, lalu `rename` (atomik pada
+/// filesystem yang sama). Proses yang mati di tengah jalan meninggalkan
+/// berkas lama utuh — tidak pernah berkas setengah tertulis.
+pub fn write_atomic_with_backup(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "berkas".into());
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    let res = (|| -> Result<()> {
+        let mut f = std::fs::File::create(&tmp).context("gagal membuat berkas sementara")?;
+        f.write_all(bytes).context("gagal menulis file .ducad")?;
+        f.sync_all().context("gagal sinkron berkas ke disk")?;
+        drop(f);
+        if path.exists() {
+            // Cadangan versi sebelumnya; gagal mencadangkan bukan alasan
+            // membatalkan simpan.
+            if let Err(e) = std::fs::copy(path, backup_path(path)) {
+                log::warn!("gagal membuat cadangan {}: {e}", backup_path(path).display());
+            }
+        }
+        std::fs::rename(&tmp, path).context("gagal mengganti berkas lama")?;
+        Ok(())
+    })();
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
 }
 
 /// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
@@ -389,6 +730,7 @@ pub fn save_multi_plane(
             mechanical: None,
             shape,
             round_history: None,
+            derived: false,
         })
         .collect();
     save_multi_plane_detailed(path, sketches, &export_bodies)
@@ -433,8 +775,33 @@ pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn atomic_save_keeps_backup_and_never_leaves_temp() {
+        let dir = std::env::temp_dir().join(format!("ducad-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("a.ducad");
+        super::write_atomic_with_backup(&p, b"v1").unwrap();
+        assert!(!super::backup_path(&p).exists(), "berkas baru tanpa cadangan");
+        super::write_atomic_with_backup(&p, b"v2").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"v2");
+        assert_eq!(std::fs::read(super::backup_path(&p)).unwrap(), b"v1");
+        // Simulasi mati di tengah simpan: sisa .tmp tidak merusak berkas.
+        let stale = dir.join(".a.ducad.999.tmp");
+        std::fs::write(&stale, b"setengah").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"v2");
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(&format!(".{}.tmp", std::process::id())))
+            .collect();
+        assert!(leftovers.is_empty());
+        // Folder tujuan tidak ada → error, tanpa panic.
+        assert!(super::write_atomic_with_backup(&dir.join("x/y.ducad"), b"z").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
-    use crate::occt_test_lock::LOCK as TEST_LOCK;
+    use crate::test_lock::LOCK as TEST_LOCK;
     use ducad_kernel::{extrude_profile, Profile, ProfileSegment};
     use ducad_sketch::Entity;
     use glam::DVec2;
@@ -501,9 +868,81 @@ mod tests {
             ducad_core::MaterialPreset::AnodizedAluminum
         );
         assert_eq!(
-            loaded.bodies[0].shape.tessellate().positions.len(),
+            loaded.bodies[0].shape.as_ref().unwrap().tessellate().positions.len(),
             shape.tessellate().positions.len()
         );
+    }
+
+    #[test]
+    fn datums_roundtrip_and_old_files_without_datums_still_load() {
+        let mut datum_sketch = Sketch::default();
+        datum_sketch
+            .entities
+            .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(5.0, 0.0)));
+        let datums = NativeDatums {
+            planes: vec![NativeDatumPlane {
+                id: 4,
+                name: "Plane 4".into(),
+                origin: [0.0, 0.0, 10.0],
+                u_axis: [1.0, 0.0, 0.0],
+                v_axis: [0.0, 1.0, 0.0],
+                normal: [0.0, 0.0, 1.0],
+                visible: false,
+                sketch: Some(datum_sketch),
+            }],
+            axes: vec![NativeDatumAxis {
+                id: 1,
+                name: "Axis 1".into(),
+                origin: [1.0, 2.0, 3.0],
+                dir: [0.0, 0.0, 1.0],
+                visible: true,
+            }],
+            points: vec![NativeDatumPoint {
+                id: 2,
+                name: "Point 2".into(),
+                pos: [4.0, 5.0, 6.0],
+                visible: false,
+            }],
+            views: vec![NativeNamedView {
+                name: "Depan".into(),
+                target: [1.0, 2.0, 3.0],
+                yaw: 0.5,
+                pitch: 0.25,
+                distance: 120.0,
+            }],
+            assembly: None,
+        };
+        let json = serialize_full_to_json(&[], &[], None, None, Some(&datums)).unwrap();
+        let loaded = deserialize_from_json(&json).unwrap();
+        assert_eq!(
+            serde_json::to_value(&loaded.datums).unwrap(),
+            serde_json::to_value(&datums).unwrap()
+        );
+        assert_eq!(
+            loaded.datums.planes[0].sketch.as_ref().map(|s| s.entities.len()),
+            Some(1)
+        );
+        // Datum tidak menaikkan versi format: build lama tetap bisa membuka.
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["format_version"], FORMAT_VERSION_MINIMAL);
+
+        // Berkas lama (tanpa field datums) → datum kosong; tanpa datum →
+        // field tidak ditulis.
+        let old = serialize_detailed_to_json(&[], &[]).unwrap();
+        assert!(!old.contains("\"datums\""));
+        let loaded = deserialize_from_json(&old).unwrap();
+        assert!(loaded.datums.is_empty());
+
+        // `visible` yang hilang → default tampil.
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        if let Some(a) = v["datums"]["axes"][0].as_object_mut() {
+            a.remove("visible");
+        }
+        let loaded = deserialize_from_json(&v.to_string()).unwrap();
+        assert!(loaded.datums.axes[0].visible);
+        assert_eq!(loaded.datums.views.len(), 1);
+        assert_eq!(loaded.datums.views[0].name, "Depan");
+        assert!(loaded.datums.views[0].is_valid());
     }
 
     fn box_shape() -> KernelShape {
@@ -519,6 +958,7 @@ mod tests {
             mechanical: None,
             shape,
             round_history: None,
+            derived: false,
         }
     }
 
@@ -565,7 +1005,7 @@ mod tests {
         let loaded = deserialize_from_json(&first).unwrap();
         let uuid = loaded.bodies[0].uuid.clone();
         let second =
-            serialize_detailed_to_json(&[], &[export(&loaded.bodies[0].shape, Some(uuid.clone()))])
+            serialize_detailed_to_json(&[], &[export(loaded.bodies[0].shape.as_ref().unwrap(), Some(uuid.clone()))])
                 .unwrap();
         let again = deserialize_from_json(&second).unwrap();
         assert_eq!(again.bodies[0].uuid, uuid);
@@ -696,6 +1136,7 @@ mod tests {
             mechanical: None,
             shape: &filleted_shape,
             round_history: Some((&base_shape, vec![feature])),
+            derived: false,
         };
 
         save_multi_plane_detailed(&path, &[&sketch], &[export_body]).unwrap();
@@ -712,6 +1153,77 @@ mod tests {
         assert_eq!(rh.1[0].style, NativeRoundStyle::Fillet);
         assert_eq!(rh.1[0].radius, 10.0);
         assert_eq!(rh.1[0].anchor, (20.0, 10.0, 5.0));
+    }
+
+    fn derived<'a>(shape: &'a KernelShape) -> ExportBody<'a> {
+        ExportBody {
+            derived: true,
+            ..export(shape, None)
+        }
+    }
+
+    #[test]
+    fn derived_body_writes_v4_without_step_and_reloads_from_cache() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let design = serde_json::json!({"schema": 1, "oplog": []});
+        let json =
+            serialize_detailed_to_json_with_design(&[], &[derived(&shape)], Some(&design)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["format_version"], FORMAT_VERSION_DERIVED);
+        assert!(v["bodies"][0].get("step").is_none(), "body turunan tidak boleh membawa STEP");
+        assert_eq!(
+            v["bodies"][0]["brep"]["producer"],
+            KernelShape::NATIVE_CACHE_PRODUCER
+        );
+
+        let loaded = deserialize_from_json(&json).unwrap();
+        assert!(!loaded.needs_replay());
+        assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
+        let got = loaded.bodies[0].shape.as_ref().unwrap();
+        assert!((got.volume() - shape.volume()).abs() < 1e-6 * shape.volume());
+    }
+
+    #[test]
+    fn foreign_cache_is_a_miss_not_an_error() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let design = serde_json::json!({"schema": 1, "oplog": []});
+        let json =
+            serialize_detailed_to_json_with_design(&[], &[derived(&shape)], Some(&design)).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // Produsen cache asing (nilai yang ditulis berkas 0.5.x).
+        let foreign = "ducad-occt/1";
+        assert_ne!(foreign, KernelShape::NATIVE_CACHE_PRODUCER);
+        v["bodies"][0]["brep"]["producer"] = foreign.into();
+        let loaded = deserialize_from_json(&v.to_string()).unwrap();
+        assert!(loaded.needs_replay(), "cache backend lain harus jatuh ke replay");
+        assert!(loaded.warnings.iter().any(|w| w.contains(foreign)));
+    }
+
+    #[test]
+    fn corrupt_step_with_design_degrades_to_replay() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let design = serde_json::json!({"schema": 1, "oplog": []});
+        let json = serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], Some(&design))
+            .unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v["bodies"][0]["step"] = "ISO-10303-21;\nrusak".into();
+        let loaded = deserialize_from_json(&v.to_string()).unwrap();
+        assert!(loaded.needs_replay());
+        assert_eq!(loaded.warnings.len(), 1);
+
+        // Tanpa oplog, STEP rusak tetap error (body tidak boleh hilang diam-diam).
+        v.as_object_mut().unwrap().remove("design");
+        assert!(deserialize_from_json(&v.to_string()).is_err());
+    }
+
+    #[test]
+    fn derived_body_without_design_is_rejected() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        assert!(serialize_detailed_to_json_with_design(&[], &[derived(&shape)], None).is_err());
     }
 
     /// Regresi REVIEW-2026-09-24 #3: `bbox` tidak disimpan, jadi harus

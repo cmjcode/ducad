@@ -467,6 +467,35 @@ pub(crate) fn snapshot_bodies(m: &crate::model::ModelDoc) -> Vec<BodySnapshot> {
         .collect()
 }
 
+/// Snapshot geometri seluruh body untuk dibandingkan nanti (Compare
+/// Bodies di GUI).
+pub struct ModelSnapshot(Vec<BodySnapshot>);
+
+impl ModelSnapshot {
+    pub fn body_count(&self) -> usize {
+        self.0.len()
+    }
+}
+
+/// Ambil snapshot model saat ini.
+pub fn snapshot_model(m: &crate::model::ModelDoc) -> ModelSnapshot {
+    ModelSnapshot(snapshot_bodies(m))
+}
+
+/// Bandingkan snapshot lama dengan model sekarang (diff geometris).
+/// Snapshot tetap utuh sehingga bisa dipakai berulang.
+pub fn diff_against_snapshot(
+    old: &ModelSnapshot,
+    current: &crate::model::ModelDoc,
+) -> (Vec<BodyDiff>, DiffShapes, Vec<String>) {
+    let old_copy: Vec<BodySnapshot> = old
+        .0
+        .iter()
+        .filter_map(|(n, u, s, b, v)| Some((n.clone(), u.clone(), ducad_kernel::clone_shape(s).ok()?, *b, *v)))
+        .collect();
+    diff_bodies(old_copy, snapshot_bodies(current), true)
+}
+
 /// Diff body lama vs baru (dicocokkan lewat nama, lalu uuid).
 pub(crate) fn diff_bodies(
     old: Vec<BodySnapshot>,

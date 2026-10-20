@@ -1,6 +1,6 @@
 use ducad_core::Command;
 
-use crate::constraint::solver::{involved_entities, solve};
+use crate::constraint::solver::{involved_entities, refresh_driven_values, solve};
 use crate::constraint::types::Constraint;
 use crate::entity::{Entity, EntityId};
 use crate::sketch::Sketch;
@@ -32,9 +32,49 @@ impl Command<Sketch> for AddConstraint {
         sketch.constraints.push(self.constraint.clone());
         let snapshot = sketch.constraints.clone();
         solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         sketch.constraints.pop();
+        for (id, entity) in &self.prior_geometry {
+            if let Some(slot) = sketch.entities.get_mut(*id) {
+                *slot = entity.clone();
+                sketch.touch(*id);
+            }
+        }
+    }
+}
+
+/// Tambah beberapa constraint sekaligus sebagai SATU langkah undo, lalu
+/// solve sekali (dipakai Auto-constrain).
+pub struct AddConstraints {
+    constraints: Vec<Constraint>,
+    prior_geometry: Vec<(EntityId, Entity)>,
+}
+
+impl AddConstraints {
+    pub fn new(constraints: Vec<Constraint>) -> Self {
+        Self { constraints, prior_geometry: Vec::new() }
+    }
+}
+
+impl Command<Sketch> for AddConstraints {
+    fn name(&self) -> &str {
+        "Auto-constrain"
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        self.prior_geometry = involved_entities(&self.constraints)
+            .into_iter()
+            .filter_map(|id| sketch.entities.get(id).map(|e| (id, e.clone())))
+            .collect();
+        sketch.constraints.extend(self.constraints.iter().cloned());
+        let snapshot = sketch.constraints.clone();
+        solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        let keep = sketch.constraints.len().saturating_sub(self.constraints.len());
+        sketch.constraints.truncate(keep);
         for (id, entity) in &self.prior_geometry {
             if let Some(slot) = sketch.entities.get_mut(*id) {
                 *slot = entity.clone();
@@ -76,6 +116,7 @@ impl Command<Sketch> for RemoveConstraint {
         self.removed = Some(sketch.constraints.remove(self.index));
         let snapshot = sketch.constraints.clone();
         solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         if let Some(c) = self.removed.take() {
@@ -126,6 +167,7 @@ impl Command<Sketch> for UpdateConstraint {
         sketch.constraints[self.index] = self.new_constraint.clone();
         let snapshot = sketch.constraints.clone();
         solve(sketch, &snapshot);
+        refresh_driven_values(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         if let Some(old) = self.old_constraint.take() {

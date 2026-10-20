@@ -10,6 +10,8 @@ pub enum PrimitiveShape {
     Cylinder { r: f64, h: f64 },
     Sphere { r: f64 },
     Cone { r1: f64, r2: f64, h: f64 },
+    /// Torus mengelilingi +Z: `major` = radius pusat tabung, `minor` = radius tabung.
+    Torus { major: f64, minor: f64 },
 }
 
 /// Buat primitif di sekitar origin lalu geser sejauh `at`.
@@ -19,8 +21,8 @@ pub fn primitive(shape: &PrimitiveShape, at: [f64; 3]) -> OpResult<BodyGeometry>
             "Posisi primitif tidak valid ({at:?})"
         )));
     }
-    // Dimensi divalidasi di sini, bukan di OCCT: nilai absurd (1e-300,
-    // 1e308) membuat pembuat shape melempar exception C++ (ADR 0009).
+    // Dimensi divalidasi di sini, bukan di kernel: nilai absurd (1e-300,
+    // 1e308) tidak boleh sampai ke pembuat shape (ADR 0009).
     let non_negative = |name: &str, v: f64| -> OpResult<()> {
         if v == 0.0 { Ok(()) } else { require_positive(name, v) }
     };
@@ -40,6 +42,15 @@ pub fn primitive(shape: &PrimitiveShape, at: [f64; 3]) -> OpResult<BodyGeometry>
             non_negative("radius atas kerucut", r2)?;
             require_positive("tinggi kerucut", h)?;
         }
+        PrimitiveShape::Torus { major, minor } => {
+            require_positive("radius besar torus", major)?;
+            require_positive("radius kecil torus", minor)?;
+            if minor >= major {
+                return Err(OpError::invalid(format!(
+                    "radius kecil torus ({minor}) harus lebih kecil dari radius besar ({major})"
+                )));
+            }
+        }
     }
     let made = match *shape {
         PrimitiveShape::Box { size, centered } => {
@@ -48,6 +59,7 @@ pub fn primitive(shape: &PrimitiveShape, at: [f64; 3]) -> OpResult<BodyGeometry>
         PrimitiveShape::Cylinder { r, h } => ducad_kernel::make_cylinder(r, h),
         PrimitiveShape::Sphere { r } => ducad_kernel::make_sphere(r),
         PrimitiveShape::Cone { r1, r2, h } => ducad_kernel::make_cone(r1, r2, h),
+        PrimitiveShape::Torus { major, minor } => ducad_kernel::make_torus(major, minor),
     }
     // Kernel hanya gagal di sini karena dimensi di luar domain.
     .map_err(|e| OpError::invalid(format!("{e:#}")))?;

@@ -43,14 +43,6 @@ allow = [
 ]
 confidence-threshold = 0.9
 
-[[licenses.clarify]]
-# OCCT dilisensikan LGPL-2.1 dengan pengecualian tautan (lihat LICENSE di
-# root). Crate -sys hanya membungkusnya; pemeriksa lisensi tidak bisa
-# menyimpulkan ini sendiri.
-name = "occt-sys"
-expression = "LGPL-2.1-only WITH OCCT-exception-1.0"
-license-files = []
-
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

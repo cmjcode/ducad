@@ -1,8 +1,7 @@
-//! Properti massa (P16): volume, pusat massa, dan tensor inersia eksak dari
-//! B-rep, plus momen/sumbu utama. Semua nilai di sini GEOMETRIS (densitas
+//! Properti massa (P16): volume, pusat massa, dan tensor inersia dari
+//! tesselasi B-rep yang konvergen (±`VOLUME_REL_TOL`), plus momen/sumbu utama. Semua nilai di sini GEOMETRIS (densitas
 //! 1) — pemanggil mengalikan densitas material sendiri.
 
-use crate::lock_kernel;
 use crate::shape::KernelShape;
 
 /// Properti volume geometris sebuah solid (densitas 1).
@@ -34,14 +33,11 @@ impl KernelShape {
     /// Volume dinormalkan positif; solid berorientasi terbalik tetap
     /// menghasilkan tensor positif.
     pub fn mass_properties(&self) -> MassProperties {
-        let (volume, centroid, inertia) = {
-            let _guard = lock_kernel();
-            self.inner().volume_properties()
-        };
+        let (volume, centroid, inertia) = crate::backend::query::volume_properties(self);
         let sign = if volume < 0.0 { -1.0 } else { 1.0 };
         MassProperties {
             volume_mm3: volume * sign,
-            centroid: [centroid.x, centroid.y, centroid.z],
+            centroid,
             inertia_origin: inertia.map(|row| row.map(|v| v * sign)),
         }
     }

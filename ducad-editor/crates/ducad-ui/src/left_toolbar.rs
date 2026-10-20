@@ -12,10 +12,12 @@ use crate::theme::{
 use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_icons::icons::{
-    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CIRCLE,
-    ICON_COLORIZE, ICON_CROP_16_9, ICON_EDIT, ICON_ELLIPSE_OUTLINE, ICON_FOUNTAIN_PEN_TIP,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CALL_SPLIT, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CIRCLE,
+    ICON_COLORIZE, ICON_CROP_16_9, ICON_EDIT, ICON_ELLIPSE_OUTLINE, ICON_FIBER_MANUAL_RECORD,
+    ICON_FOUNTAIN_PEN_TIP,
     ICON_GESTURE, ICON_GRADIENT, ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE,
     ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE, ICON_TITLE,
+    ICON_VIEW_IN_AR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,6 +32,8 @@ pub enum ToolbarTool {
     Polygon,
     Slot,
     Spline,
+    /// Titik sketch mandiri (Paritas 1.1).
+    Point,
     /// Coretan bebas (Pencil/mouse) → bentuk rapi ber-constraint.
     Freehand,
     Text,
@@ -39,6 +43,8 @@ pub enum ToolbarTool {
     Mirror,
     Trim,
     Extend,
+    /// Pecah entitas di titik klik (Paritas 1.13).
+    Break,
     PointCoincident,
     PointFixed,
     PointSymmetric,
@@ -73,6 +79,10 @@ pub enum ToolbarTool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarEvent {
     SelectTool(ToolbarTool),
+    /// Buka panel Primitif (Box/Silinder/Bola/Kerucut).
+    OpenPrimitive,
+    /// Paritas 6.8: buka workspace Surface (alat permukaan).
+    OpenSurface,
 }
 
 pub struct LeftToolbar {
@@ -262,12 +272,16 @@ impl LeftToolbar {
                 let slot_desc = t!("tool-slot-desc");
                 let spline_title = t!("tool-spline");
                 let spline_desc = t!("tool-spline-desc");
+                let point_title = t!("tool-point");
+                let point_desc = t!("tool-point-desc");
                 let freehand_title = t!("tool-freehand");
                 let freehand_desc = t!("tool-freehand-desc");
                 let text_title = t!("tool-text");
                 let text_desc = t!("tool-text-desc");
                 let extend_title = t!("tool-extend");
                 let extend_desc = t!("tool-extend-desc");
+                let break_title = t!("tool-break");
+                let break_desc = t!("tool-break-desc");
                 let datum_title = t!("tool-datum-plane");
                 let datum_desc = t!("tool-datum-plane-desc");
                 let loft_title = t!("tool-loft");
@@ -331,6 +345,13 @@ impl LeftToolbar {
                         Some(&spline_desc),
                     ),
                     (
+                        ToolbarTool::Point,
+                        ICON_FIBER_MANUAL_RECORD.codepoint,
+                        &point_title,
+                        None,
+                        Some(&point_desc),
+                    ),
+                    (
                         ToolbarTool::Freehand,
                         ICON_GESTURE.codepoint,
                         &freehand_title,
@@ -350,6 +371,13 @@ impl LeftToolbar {
                         &extend_title,
                         Some("Shift+E"),
                         Some(&extend_desc),
+                    ),
+                    (
+                        ToolbarTool::Break,
+                        ICON_CALL_SPLIT.codepoint,
+                        &break_title,
+                        None,
+                        Some(&break_desc),
                     ),
                     (
                         ToolbarTool::DatumPlane,
@@ -427,6 +455,20 @@ impl LeftToolbar {
                     ),
                 ];
 
+                let prim_title = t!("prim-title");
+                let prim_desc = t!("prim-desc");
+                if square_btn(ui, ICON_VIEW_IN_AR.codepoint, icon_sz, false, &prim_title, None, Some(&prim_desc), None, None)
+                    .clicked()
+                {
+                    event = Some(ToolbarEvent::OpenPrimitive);
+                }
+                let surf_title = t!("surface-title");
+                let surf_desc = t!("surface-desc");
+                if square_btn(ui, egui_icons::icons::ICON_WAVES.codepoint, icon_sz, false, &surf_title, None, Some(&surf_desc), None, None)
+                    .clicked()
+                {
+                    event = Some(ToolbarEvent::OpenSurface);
+                }
                 for (tool, icon, title, shortcut, subtitle) in tools_3d {
                     let is_active = current_tool == *tool;
                     let btn =

@@ -20,14 +20,15 @@ pub use material::{
 
 pub mod configuration;
 pub use configuration::{
+    apply_rules, ConfigRule, RuleCmp,
     design_table_from_csv, design_table_to_csv, valid_configuration_name, Configuration,
     DEFAULT_CONFIGURATION,
 };
 
 pub mod sheet_metal;
 pub use sheet_metal::{
-    bend_allowance, bend_deduction, default_k_factor, BendLine, BendSegment, BendTable, Flange,
-    FlatPattern, ReliefKind, SectionSegment, SheetMetalModel, DEFAULT_K_FACTOR,
+    bend_allowance, bend_deduction, default_k_factor, BendLine, BendSegment, BendTable, Cutout,
+    Flange, FlatPattern, ReliefKind, SectionSegment, SheetMetalModel, DEFAULT_K_FACTOR,
 };
 
 pub mod standard_parts;
@@ -53,6 +54,7 @@ pub use external::{
 };
 
 pub mod assembly;
+pub mod joint;
 pub use assembly::{
     AssemblyInstance, AssemblyInstanceId, AssemblyTree, ClashItem, ClashReport, DegreesOfFreedom,
     MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind,

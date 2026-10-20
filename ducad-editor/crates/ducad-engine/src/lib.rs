@@ -6,7 +6,7 @@
 
 // `OpError` sengaja "gemuk" (pesan, hint, id op, context JSON): bentuknya
 // adalah kontrak JSON CLI/MCP (P0.6) dan jalur error jarang dilalui, jadi
-// biaya memindahkannya lewat `Result` tidak berarti dibanding operasi OCCT
+// biaya memindahkannya lewat `Result` tidak berarti dibanding operasi kernel
 // di baliknya. Membungkusnya dalam `Box` hanya demi lint ini akan mengubah
 // tipe publik kontrak.
 #![allow(clippy::result_large_err)]
@@ -19,6 +19,7 @@
 pub mod brief;
 pub mod check;
 pub mod compute;
+pub mod datum;
 pub mod diagnose;
 pub mod diff;
 pub mod drawing_auto;
@@ -27,6 +28,7 @@ pub mod export;
 pub mod firm;
 pub mod guard;
 pub mod inspect;
+pub mod migrate;
 pub mod model;
 pub mod oplog;
 pub mod package;
@@ -43,7 +45,7 @@ pub use error::{apply_patch, OpError, OpErrorCode, OpPatch, OpResult, SuggestedF
 pub use ops::MaterialSel;
 pub use plane::PlaneFrame;
 pub use session::{
-    edit_design, preview_edit, resolve_material, BatchReport, DesignDoc, EditPreview, OpOutcome,
+    edit_design, preview_configuration, preview_edit, resolve_material, BatchReport, DesignDoc, EditPreview, OpOutcome,
     Proposal, ReplaceOp, Session, SessionCore, SessionMeta,
 };
 

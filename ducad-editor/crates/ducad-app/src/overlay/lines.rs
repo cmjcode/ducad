@@ -1,6 +1,6 @@
 use ducad_render::{sketch as sketch_render, LineVertex};
 use ducad_sketch::{
-    all_snap_candidate_points_with_exclude_set, arc_from_three_points, mirror_entity,
+    all_snap_candidate_points_with_exclude_set, mirror_entity,
     offset_entity, Entity,
 };
 use glam::{DVec2, Vec3};
@@ -70,8 +70,14 @@ impl DuCADApp {
                     &plane,
                 ));
             }
+            // Garis konstruksi tak hingga (Paritas 1.12).
+            verts.extend(self.infinite_line_overlay(self.sketch_at_index(idx), &plane, world_scale));
 
-            if !is_active_plane {
+            // Datum plane yang disembunyikan dari drawer Datum (Paritas 1.5)
+            // tidak menggambar kerangkanya.
+            let hidden_datum = idx >= 3
+                && self.datum_planes.get(idx - 3).is_some_and(|dp| !dp.visible);
+            if !is_active_plane && !hidden_datum {
                 let outline_color: [f32; 4] = if is_hovered_plane {
                     [0.25, 0.85, 1.00, 0.85] // Cyan highlight saat kursor hover di atas bidang
                 } else if self.is_sketching {
@@ -258,6 +264,18 @@ impl DuCADApp {
                 let ghost_color = [0.0, 0.85, 1.0, 0.75];
                 for entity in ghost_entities {
                     match &entity {
+                        Entity::Point { pos, .. } => {
+                            let h = 0.6;
+                            for (a, b) in [
+                                (glam::DVec2::new(-h, 0.0), glam::DVec2::new(h, 0.0)),
+                                (glam::DVec2::new(0.0, -h), glam::DVec2::new(0.0, h)),
+                            ] {
+                                let p1 = self.active_plane.to_world(*pos + a, 0.03);
+                                let p2 = self.active_plane.to_world(*pos + b, 0.03);
+                                verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: ghost_color });
+                                verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: ghost_color });
+                            }
+                        }
                         Entity::Line { start, end, .. } => {
                             let p1 = self.active_plane.to_world(*start, 0.03);
                             let p2 = self.active_plane.to_world(*end, 0.03);
@@ -781,7 +799,14 @@ impl DuCADApp {
 
         if let Some(raw) = raw_cursor {
             let offset_dist = (14.0 * world_scale).max(8.0);
+            // Mode gambar Fase 1B punya pratinjau sendiri dan menggantikan
+            // pratinjau bawaan tool.
+            let mode_preview = self.mode_preview_entities(self.snapped_or(raw));
+            for e in mode_preview.iter().flatten() {
+                verts.extend(sketch_render::preview_lines(e, &self.active_plane));
+            }
             match self.tool {
+                _ if mode_preview.is_some() => {}
                 ToolKind::Line if self.pending_points.len() == 1 => {
                     let start = self.pending_points[0];
                     let end = self.snapped_or(raw);
@@ -795,8 +820,8 @@ impl DuCADApp {
                     ));
                 }
                 ToolKind::Rectangle if self.pending_points.len() == 1 => {
-                    let first = self.pending_points[0];
                     let effective = self.snapped_or(raw);
+                    let first = self.rect_first_corner(self.pending_points[0], effective);
                     let min = first.min(effective);
                     let max = first.max(effective);
                     let corners = [
@@ -949,7 +974,7 @@ impl DuCADApp {
                             ));
                         }
                         2 => {
-                            if let Some(mut preview) = arc_from_three_points(
+                            if let Some(mut preview) = self.arc_from_clicks(
                                 self.pending_points[0],
                                 self.pending_points[1],
                                 effective,
@@ -1064,7 +1089,7 @@ impl DuCADApp {
                     if let Some(res) = chamfer_2d_preview(
                         self.sketch(),
                         raw,
-                        self.chamfer_2d_dist,
+                        (self.chamfer_2d_dist, self.chamfer_second_dist()),
                         tol,
                         self.fillet_chamfer_first_line,
                     ) {
@@ -1264,6 +1289,8 @@ impl DuCADApp {
 
         // Pratinjau Pen & node/handle Node Edit (Mode Vektor).
         verts.extend(self.vector_overlay_lines(raw_cursor, world_scale));
+        // Sumbu & titik datum + pilihan tool Datum (Paritas 1.2/1.3).
+        verts.extend(self.datum_overlay_lines(world_scale));
         verts
     }
 
@@ -1976,6 +2003,21 @@ impl DuCADApp {
             }
             for m in &p.removed {
                 push_ghost(m, crate::proposal_ui::GHOST_REMOVED);
+            }
+        }
+
+        // Compare Bodies (Paritas 0.10): warna sama dengan ghost proposal.
+        for (meshes, color) in [
+            (&self.view_tools.ghost_added, crate::proposal_ui::GHOST_ADDED),
+            (&self.view_tools.ghost_removed, crate::proposal_ui::GHOST_REMOVED),
+        ] {
+            for mesh in meshes {
+                let base_index = positions.len() as u32;
+                positions.extend(mesh.positions.iter().copied());
+                normals.extend(mesh.normals.iter().copied());
+                colors.extend(std::iter::repeat_n(color, mesh.positions.len()));
+                materials.extend(std::iter::repeat_n([0.40, 0.0, 0.0, PREVIEW_DEPTH_PULL], mesh.positions.len()));
+                indices.extend(mesh.indices.iter().map(|i| i + base_index));
             }
         }
 

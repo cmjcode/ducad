@@ -1283,7 +1283,8 @@ fn import_step_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> 
             visible: true,
             material: ducad_core::Material::default(),
             mechanical: None,
-            step,
+            step: Some(step),
+            brep: None,
             round_history: None,
         });
     core.meta.design.fingerprint = crate::session::fingerprint(core.model);
@@ -1661,6 +1662,17 @@ fn check_detail(kind: &str) -> OpResult<Value> {
     }))
 }
 
+/// Kalimat pertama sebuah deskripsi (sampai `". "` pertama). Ringkasan
+/// `get_schema` hanya memuat kalimat ini supaya ukurannya tetap di bawah
+/// anggaran meski jumlah op terus bertambah; deskripsi lengkap ada di
+/// `get_schema {"op": …}`.
+fn first_sentence(desc: &str) -> &str {
+    match desc.find(". ") {
+        Some(i) => &desc[..=i],
+        None => desc,
+    }
+}
+
 /// Ringkasan murah (±5 KB): tiap op dengan deskripsi + field wajib/opsional,
 /// daftar contoh, cheatsheet selector, dan cara meminta detail.
 fn schema_overview() -> OpResult<Value> {
@@ -1688,7 +1700,7 @@ fn schema_overview() -> OpResult<Value> {
                 .unwrap_or_default();
             json!({
                 "op": kind,
-                "summary": v["description"].as_str().unwrap_or_default(),
+                "summary": first_sentence(v["description"].as_str().unwrap_or_default()),
                 "required": required,
                 "optional": optional,
             })
@@ -1727,7 +1739,7 @@ pub const ERROR_GUIDE: &str = "\
 | shell_depth_too_deep | shell `depth` reaches the bottom wall (context.max_depth) | use fixes (full cavity or half the max depth) |
 | hole_outside_face | hole point outside the face | `at` is relative to the face centroid; or use at_world |
 | boolean_no_overlap | subtract/intersect without overlap | move a body (transform) |
-| kernel_failed | OCCT failed | reduce radius/thickness, change op order |
+| kernel_failed | the geometry kernel failed | reduce radius/thickness, change op order |
 | internal | DUCAD itself failed (a caught panic); the batch was rolled back | this is a bug, not a parameter error: try other values or another op order, and report the message with the op JSON |
 | empty_result | result volume ~0 | check position/direction (direction reverse for a cut from a face) |
 | constraint_unsolved / over_constrained | conflicting sketch constraints | remove one constraint |

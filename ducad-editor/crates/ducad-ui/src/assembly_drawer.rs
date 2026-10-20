@@ -50,6 +50,12 @@ pub enum AssemblyDrawerEvent {
         val: f64,
         flip: bool,
     },
+    /// Ubah batas gerak mate (kosong = tanpa batas).
+    UpdateMateLimits {
+        id: MateConstraintId,
+        min: Option<f64>,
+        max: Option<f64>,
+    },
     /// Picu solver perakitan untuk menghitung ulang posisi seluruh part.
     SolveAssembly,
     /// Jalankan deteksi tabrakan fisik otomatis (Clash & Interference Detection).
@@ -97,6 +103,9 @@ pub struct AssemblyDrawer {
     pub editing_mate_id: Option<MateConstraintId>,
     pub edit_input_val: String,
     pub edit_flip_alignment: bool,
+    /// Batas mate yang sedang diedit (teks; kosong = tanpa batas).
+    pub edit_limit_min: String,
+    pub edit_limit_max: String,
     // ---- P3.1/P3.2: part eksternal, exploded view, studi gerak ----
     pub tools_expanded: bool,
     pub explode_distance_input: String,
@@ -123,6 +132,8 @@ impl Default for AssemblyDrawer {
             editing_mate_id: None,
             edit_input_val: String::new(),
             edit_flip_alignment: false,
+            edit_limit_min: String::new(),
+            edit_limit_max: String::new(),
             tools_expanded: true,
             explode_distance_input: "50".to_string(),
             motion_mate_selected: None,
@@ -144,6 +155,9 @@ impl AssemblyDrawer {
     /// Mulai edit parameter mate.
     pub fn start_editing_mate(&mut self, mate: &MateConstraint) {
         self.editing_mate_id = Some(mate.id);
+        let fmt = |v: Option<f64>| v.map(|x| format!("{x}")).unwrap_or_default();
+        self.edit_limit_min = fmt(mate.limits.min);
+        self.edit_limit_max = fmt(mate.limits.max);
         match &mate.kind {
             MateKind::Distance {
                 offset,
@@ -671,6 +685,10 @@ impl AssemblyDrawer {
                                                 );
 
                                                 // Inline parameter editing
+                                                let has_value = matches!(
+                                                    mate.kind,
+                                                    MateKind::Distance { .. } | MateKind::Angle { .. }
+                                                );
                                                 if is_editing {
                                                     ui.add_space(4.0);
                                                     ui.horizontal(|ui| {
@@ -738,9 +756,40 @@ impl AssemblyDrawer {
                                                                     flip: self.edit_flip_alignment,
                                                                 },
                                                             );
+                                                            if has_value {
+                                                                events.push(AssemblyDrawerEvent::UpdateMateLimits {
+                                                                    id,
+                                                                    min: parse_limit(&self.edit_limit_min),
+                                                                    max: parse_limit(&self.edit_limit_max),
+                                                                });
+                                                            }
                                                             self.editing_mate_id = None;
                                                         }
                                                     });
+                                                    if has_value {
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                RichText::new(t!("assembly-limit-min"))
+                                                                    .size(10.5)
+                                                                    .color(TEXT_SECONDARY),
+                                                            );
+                                                            ui.add(
+                                                                egui::TextEdit::singleline(&mut self.edit_limit_min)
+                                                                    .desired_width(45.0),
+                                                            );
+                                                            ui.label(
+                                                                RichText::new(t!("assembly-limit-max"))
+                                                                    .size(10.5)
+                                                                    .color(TEXT_SECONDARY),
+                                                            );
+                                                            ui.add(
+                                                                egui::TextEdit::singleline(&mut self.edit_limit_max)
+                                                                    .desired_width(45.0),
+                                                            );
+                                                        })
+                                                        .response
+                                                        .on_hover_text(t!("assembly-limit-tip"));
+                                                    }
                                                 }
                                             });
                                         });
@@ -1223,5 +1272,23 @@ impl AssemblyDrawer {
         });
 
         events
+    }
+}
+
+/// Teks batas mate → nilai; kosong atau bukan angka berhingga = tanpa batas.
+pub fn parse_limit(text: &str) -> Option<f64> {
+    text.trim().parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::parse_limit;
+
+    #[test]
+    fn limit_text_parses_or_is_unbounded() {
+        assert_eq!(parse_limit(" 15 "), Some(15.0));
+        assert_eq!(parse_limit(""), None);
+        assert_eq!(parse_limit("abc"), None);
+        assert_eq!(parse_limit("inf"), None);
     }
 }

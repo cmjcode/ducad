@@ -1,4 +1,4 @@
-//! Hidden Line Removal EKSAK di atas `HLRBRep_Algo` (P4.1).
+//! Hidden Line Removal EKSAK di atas topologi B-rep (P4.1).
 //!
 //! # Kenapa ada, padahal `hlr.rs` sudah ada
 //!
@@ -14,15 +14,12 @@
 //!   toleransi mesh mengubah gambar tekniknya.
 //! - Rusuk yang berimpit dengan permukaan sering salah diklasifikasi.
 //!
-//! Modul ini memakai algoritma HLR sungguhan milik OCCT, yang bekerja pada
-//! topologi B-rep. Hasilnya kurva analitik: lingkaran tetap lingkaran.
+//! Modul ini bekerja pada topologi B-rep (`backend::hlr_mesh`): garis
+//! kandidat = edge logis, posisi siluet di-snap ke permukaan analitik.
+//! Hasilnya kurva analitik: lingkaran tetap lingkaran.
 
-use anyhow::{bail, Result};
-use glam::DVec3;
-use opencascade::primitives::EdgeType;
-
-use crate::lock_kernel;
-use crate::shape::KernelShape;
+// Implementasi backend — lihat `crate::backend`.
+pub use crate::backend::hlr_exact::*;
 
 /// Jenis garis hasil HLR, sesuai penggambaran ISO 128.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +44,21 @@ impl ExactLineKind {
     }
 }
 
+/// Jenis kurva asal sebuah [`ExactCurve2D`]. Milik DUCAD supaya API publik tidak membocorkan tipe backend mana pun
+/// (PLAN_MIGRASI_TRUCK §3: API publik beku dan netral-backend).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExactCurveType {
+    Line,
+    Circle,
+    Ellipse,
+    Hyperbola,
+    Parabola,
+    BezierCurve,
+    BSplineCurve,
+    OffsetCurve,
+    OtherCurve,
+}
+
 /// Satu kurva 2D hasil proyeksi, dalam koordinat bidang gambar (mm).
 ///
 /// `kind` mempertahankan JENIS KURVA aslinya (garis, lingkaran, elips,
@@ -56,7 +68,7 @@ impl ExactLineKind {
 #[derive(Debug, Clone)]
 pub struct ExactCurve2D {
     pub kind: ExactLineKind,
-    pub curve: EdgeType,
+    pub curve: ExactCurveType,
     /// Titik-titik hasil sampling untuk penggambaran. Kurva analitik tetap
     /// membawa `curve` aslinya di atas, jadi pemanggil yang butuh presisi
     /// (ekspor DXF) tidak harus memakai sampel ini.
@@ -90,59 +102,8 @@ impl ExactHlrView {
     pub fn analytic_count(&self) -> usize {
         self.curves
             .iter()
-            .filter(|c| !matches!(c.curve, EdgeType::Line))
+            .filter(|c| !matches!(c.curve, ExactCurveType::Line))
             .count()
     }
 }
 
-/// Jalankan HLR eksak pada `shape` dari arah pandang `view_dir`.
-///
-/// `up` menentukan orientasi vertikal gambar; ia tidak boleh sejajar dengan
-/// arah pandang.
-pub fn extract_exact_hlr(
-    shape: &KernelShape,
-    view_dir: (f64, f64, f64),
-    up: (f64, f64, f64),
-) -> Result<ExactHlrView> {
-    let _guard = lock_kernel();
-    let dir = DVec3::new(view_dir.0, view_dir.1, view_dir.2);
-    let up_v = DVec3::new(up.0, up.1, up.2);
-    if dir.length() < 1e-9 || up_v.length() < 1e-9 {
-        bail!("arah pandang dan vektor atas HLR tidak boleh nol");
-    }
-    if dir.normalize().cross(up_v.normalize()).length() < 1e-6 {
-        bail!("vektor atas HLR tidak boleh sejajar arah pandang");
-    }
-
-    let Some((vis_sharp, vis_out, hid_sharp, hid_out)) =
-        shape.inner().hidden_line_removal(dir, up_v)
-    else {
-        bail!("HLR gagal untuk geometri ini");
-    };
-
-    let mut curves = Vec::new();
-    for (compound, kind) in [
-        (vis_sharp, ExactLineKind::VisibleSharp),
-        (vis_out, ExactLineKind::VisibleOutline),
-        (hid_sharp, ExactLineKind::HiddenSharp),
-        (hid_out, ExactLineKind::HiddenOutline),
-    ] {
-        for edge in compound.edges() {
-            // Hasil HLR berada di koordinat proyektor: bidang gambar adalah
-            // XY dan Z cuma kedalaman, jadi Z dibuang.
-            let pts: Vec<(f64, f64)> = edge
-                .approximation_segments()
-                .map(|p| (p.x, p.y))
-                .collect();
-            if pts.len() < 2 {
-                continue;
-            }
-            curves.push(ExactCurve2D {
-                kind,
-                curve: edge.edge_type(),
-                points: pts,
-            });
-        }
-    }
-    Ok(ExactHlrView { curves })
-}

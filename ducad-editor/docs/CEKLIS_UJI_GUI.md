@@ -870,6 +870,189 @@ DUCAD_SKIP_ONBOARDING=1 DUCAD_OPEN_FILE=/tmp/part.ducad DUCAD_START_BRIEF=1 DUCA
 
 ---
 
+### A18. Paritas SolidCraft Fase 0 (`docs/PLAN_PARITAS_SOLIDCRAFT.md`)
+
+Semua perintah di bawah juga ada di command palette (Cmd+K).
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 0.1 | Mode 3D → tombol **Primitif** di toolbar kiri → pilih Box/Silinder/Bola/Kerucut, isi ukuran, **Buat** | Body baru muncul di posisi X/Y/Z; Undo menghapusnya; ukuran 0/negatif ditolak dengan pesan | ☐ |
+| 0.2 | Pilih 1 body → context bar **Cermin Body** → bidang XY/XZ/YZ atau datum, opsi "lewat pusat body" | Salinan cermin muncul (atau body asli diganti bila "Pertahankan asli" mati) | ☐ |
+| 0.3 | Pilih 1 body → **Putar Body** → sumbu, sudut (snap 15°), tombol cepat ±15/45/90/180 | Body berputar presisi; gizmo rotasi lama tetap berfungsi | ☐ |
+| 0.4 | Sketsa: klik kanan pill radius lingkaran | Label berganti R ↔ Ø; edit nilai Ø mengubah diameter | ☐ |
+| 0.4 | Pilih 2 garis | Pill sudut muncul di perpotongan; klik → ketik 30 → Enter → sudut jadi 30° (constraint Angle) | ☐ |
+| 0.4 | Hotkey **D**: 1 lingkaran / 1 garis / 2 garis | Edit radius / kunci panjang / edit sudut | ☐ |
+| 0.5 | Pilih 2 lingkaran → constraint **Konsentris**; 2 garis → **Segaris**, **Midpoint**; garis + lingkaran → **Titik pada kurva** | Geometri ter-solve sesuai; Undo membatalkan | ☐ |
+| 0.6 | Tool Arc → HUD **Titik pusat**: klik pusat, awal, akhir | Busur CCW dengan radius dari klik kedua; preview cocok | ☐ |
+| 0.6 | Tool Rectangle → HUD **Pusat**: klik pusat lalu sudut | Persegi simetris terhadap pusat | ☐ |
+| 0.7 | Tool Chamfer 2D → HUD: matikan "Jarak sama", Jarak 1 = 4, Jarak 2 = 2; atau ketik `4,2` | Kaki chamfer 4 dan 2 mm | ☐ |
+| 0.8 | Buat teks dengan tool Text → double-click salah satu huruf → ubah isi → **Terapkan** | Teks diganti di posisi kiri-atas yang sama; satu Undo mengembalikan teks lama | ☐ |
+| 0.9 | Palette **Parameter** (part dengan oplog `$w`) → ubah nilai / rename `w` → `lebar` → **Terapkan** | Model di-replay; kolom "Dipakai oleh" menunjuk op; hapus parameter yang masih dipakai ditolak | ☐ |
+| 0.10 | Palette **Bandingkan Body** → Ambil snapshot → ubah model → Bandingkan | Volume bertambah hijau, hilang merah di viewport + tabel; Bersihkan menghapus ghost | ☐ |
+| 0.11 | Palette **Inspect** dan **Salin oplog JSON** | Tabel ukuran/volume/face; clipboard berisi oplog JSON | ☐ |
+| 0.12 | Drawer Assembly → edit mate Distance/Angle → isi Min/Maks → Terapkan | Solver menjepit nilai di dalam batas | ☐ |
+| 0.13 | Pilih ≥ 2 body → palette **Jadikan grup kaku** → solve perakitan | Anggota grup bergerak bersama; **Lepas grup kaku** mengembalikan perilaku lama | ☐ |
+| 0.14 | Constraint strip **Auto-constrain** (tanpa seleksi = seluruh sketsa) | Status "N constraint ditambahkan"; satu Undo menghapus semuanya | ☐ |
+| 0.15 | Palette **Export gambar PNG** → tampilan, resolusi → Export | Berkas PNG tersimpan dan bisa dibuka | ☐ |
+| 0.16 | Sketsa terbuka → Extrude (gagal) | Ujung terbuka disorot lingkaran merah; palette **Tampilkan ujung terbuka** menyalakan/mematikan | ☐ |
+
+### A19 — Fase 1
+
+#### Fase 1B 1.7–1.12 — mode gambar sketsa
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 1.7 | Tool Circle → HUD **2 titik**: klik dua ujung diameter | Lingkaran berpusat di tengah kedua klik; preview mengikuti kursor | ☐ |
+| 1.7 | Tool Circle → HUD **3 titik**: klik tiga titik (lalu coba tiga titik segaris) | Lingkaran melalui ketiganya; titik segaris ditolak dengan pesan, tidak crash | ☐ |
+| 1.7 | Gambar dua garis bersilangan → Circle **2 tangen**: klik garis 1, garis 2, lalu klik posisi | Lingkaran menyinggung kedua garis, radius dari kursor; 2 constraint Tangent; klik di ruang kosong saat memilih kurva ditolak | ☐ |
+| 1.7 | Segitiga → Circle **3 tangen**: klik ketiga sisi | Incircle muncul + 3 constraint Tangent; satu Undo menghapus lingkaran dan constraint | ☐ |
+| 1.8 | Tool Arc → HUD **Tangen**: klik ujung garis/busur, lalu titik akhir | Busur menyambung mulus (tangen) dari ujung itu; constraint Tangent otomatis; klik awal yang bukan ujung ditolak | ☐ |
+| 1.9 | Tool Rectangle → HUD **3 titik**: klik sisi miring p0→p1, lalu lebar | Persegi panjang miring mengikuti sisi pertama | ☐ |
+| 1.9 | Tool Rectangle → HUD **Sudut bulat**, isi R sudut, klik dua sudut | 4 garis + 4 busur, 8 Tangent + 3 EqualRadius; R ≥ setengah sisi pendek ditolak dengan pesan | ☐ |
+| 1.10 | Tool Slot → HUD **Titik pusat**: pusat, ujung setengah panjang, lebar | Slot simetris terhadap klik pertama | ☐ |
+| 1.10 | Tool Slot → HUD **Busur (pusat)** / **Busur (3 titik)**: 3 klik busur tengah lalu lebar | 2 busur konsentris + 2 busur ujung; bisa di-extrude sebagai region tertutup | ☐ |
+| 1.11 | Tool Polygon → HUD **Sisi**, N = 6: klik dua ujung sisi | Segi-6 beraturan dengan sisi tepat di antara kedua klik (di kiri arah klik) | ☐ |
+| 1.12 | Tool Line → HUD **Titik tengah**: klik titik tengah lalu satu ujung | Garis simetris terhadap klik pertama | ☐ |
+| 1.12 | Tool Line → HUD **Tak hingga**: klik dua titik, lalu pan/zoom | Garis konstruksi (oranye) memanjang sampai tepi viewport; tidak membentuk region; tersimpan saat file disimpan/dibuka | ☐ |
+| 1.7–1.12 | Ganti mode di HUD atau tekan Esc di tengah penempatan | Titik tertunda dibuang, tool tetap aktif | ☐ |
+
+#### Fase 1 — 1.1 titik sketch, 1.16 dimensi driven, 1.17 pindah teks dimensi, 1.20 kelengkungan G2
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 1.1 | Sketsa → toolbar kiri **Titik** (atau palette "Titik") → klik di ruang kosong | Tanda "+" kecil muncul; tidak ada region baru; daftar entitas menampilkan "Titik (x, y)" | ☐ |
+| 1.1 | Tool Titik → klik tepat di ujung garis / pusat lingkaran (snap aktif) | Titik menempel di sana + constraint Coincident; geser garis → titik ikut | ☐ |
+| 1.1 | Tool Line/Circle → arahkan kursor ke titik yang sudah ada | Snap endpoint/center ke titik | ☐ |
+| 1.1 | Pilih 2 titik → constraint strip **Jarak** / **Horizontal** / **Vertikal**; titik + garis → **Midpoint** / **Titik pada kurva** | Geometri ter-solve; Undo membatalkan | ☐ |
+| 1.1 | Persegi + titik di dalamnya → Extrude; simpan lalu buka ulang; export DXF | Extrude tetap satu profil; titik tetap ada setelah dibuka; DXF berisi entitas POINT | ☐ |
+| 1.16 | Pasang constraint Jarak pada garis → klik kanan pill dimensinya | Teks pill jadi "(nilai)" — dimensi acuan; ubah panjang garis lewat seret → nilai dalam kurung ikut berubah, garis tidak ditarik balik | ☐ |
+| 1.16 | Klik kiri pill driven | Tidak membuka kotak edit; klik kanan lagi → kembali dimensi penggerak dengan nilai terukur saat itu (geometri tidak melompat) | ☐ |
+| 1.16 | Pilih garis/lingkaran yang punya dimensi → palette **Ubah dimensi driven/penggerak (seleksi)** | Semua dimensi yang merujuk seleksi berganti status; satu Undo per dimensi | ☐ |
+| 1.16 | Simpan berkas dengan dimensi driven → buka ulang; buka berkas lama (sebelum fitur ini) | Status driven bertahan; berkas lama terbuka tanpa perubahan | ☐ |
+| 1.17 | Seret pill dimensi panjang garis / pill constraint Jarak ke posisi lain | Pill pindah, garis penunjuk tipis ke posisi asal; ubah geometri → label ikut bergeser bersama geometri | ☐ |
+| 1.17 | Undo setelah menyeret; simpan → buka ulang | Undo mengembalikan posisi label; posisi tersimpan di berkas | ☐ |
+| 1.17 | Palette **Kembalikan posisi teks dimensi** (dengan/ tanpa seleksi) | Label seleksi (atau semua) kembali ke posisi bawaan | ☐ |
+| 1.20 | Gambar 2 spline yang ujungnya berdekatan → pilih keduanya → strip **Kelengkungan G2** | Ujung menyatu, sambungan mulus tanpa patahan kelengkungan; Undo membatalkan | ☐ |
+| 1.20 | Spline + busur → **Kelengkungan G2**; coba 2 garis atau 2 busur | Spline menyesuaikan kelengkungan busur; tombol tidak muncul untuk garis/busur–busur | ☐ |
+
+
+#### Fase 1A 1.2–1.6 — sumbu/titik datum, mode bidang baru, drawer Datum, pemakaian sumbu
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 1.2 | Palette **Sumbu Datum** (atau drawer Datum → seksi Sumbu → +) → mode **Dua titik**: klik dua vertex body → **Buat Sumbu** (Enter) | Garis putus-putus oranye panjang melalui kedua vertex + label "Sumbu 1"; pilihan disorot hijau, pratinjau biru sebelum dibuat | ☐ |
+| 1.2 | Mode **Sepanjang edge** (klik edge lurus / edge lingkaran), **Normal face** (klik face datar), **Sumbu silinder** (klik face silinder), **Dua bidang** (+ Bidang: Top lalu Front, atau klik dua face datar) | Sumbu sesuai; edge lingkaran memberi sumbu lingkarannya; dua bidang sejajar ditolak dengan pesan, tidak crash | ☐ |
+| 1.3 | Palette **Titik Datum** → mode **Vertex**, **Pusat** (edge lingkaran / face bola), **Edge x bidang**, **Dua edge**, **Tiga bidang** (+ Bidang Top/Front/Right), **Sepanjang edge** (pecahan 0.25) | Penanda silang kuning + label "Titik N" di posisi yang benar; pecahan di luar 0..1 ditolak dengan pesan | ☐ |
+| 1.4 | Tool Datum Plane → combo **Lainnya…** → **Bidang tengah**: klik dua face datar sejajar (atas & bawah kotak) → Buat | Bidang datum di tengah keduanya, langsung aktif untuk sketsa; dua face tidak sejajar ditolak dengan pesan | ☐ |
+| 1.4 | **Tegak lurus edge** (klik edge di titik tertentu), **Singgung silinder** (klik face silinder, sudut 90), **Sepanjang lintasan** (edge + pecahan 0.5), **Melalui dua edge** (dua edge lurus sebidang) | Pratinjau bidang biru mengikuti pilihan; Buat → bidang di daftar; edge bersilangan ditolak dengan pesan | ☐ |
+| 1.5 | Buka drawer **Datum** (palette **Drawer Datum**) | Tiga seksi: Bidang, Sumbu, Titik, masing-masing dengan jumlah dan tombol + | ☐ |
+| 1.5 | Klik ikon mata pada bidang datum / sumbu / titik | Kerangka bidang / garis sumbu / penanda titik hilang dari viewport; klik lagi → muncul | ☐ |
+| 1.5 | Klik ganda nama (atau ikon pensil) → ketik nama baru → Enter; Esc membatalkan | Nama berubah di drawer dan label viewport; nama kosong ditolak | ☐ |
+| 1.5 | Hapus sumbu/titik dari drawer | Hilang dari drawer & viewport | ☐ |
+| 1.5 | Simpan berkas berisi bidang datum (dengan sketsa di atasnya), sumbu, titik (sebagian disembunyikan) → buka ulang; buka berkas lama | Semua datum + sketsa bidang datum + status tampil kembali; berkas lama terbuka tanpa datum, tanpa error | ☐ |
+| 1.6 | Sketsa persegi di Top (x 10..15) + sumbu datum sepanjang Y (dua bidang Front & Right) → pilih profil → tool **Revolve** → panel "Sumbu: datum" → pilih sumbu → **Revolve mengelilingi sumbu** | Body revolve terbentuk; sumbu yang tidak terletak di bidang XY (mis. sumbu Z) ditolak dengan pesan engine | ☐ |
+| 1.6 | Pilih body → tool **Pattern** 3D melingkar → panel "Sumbu: datum" → pilih sumbu datum → Apply | Salinan mengelilingi sumbu datum (bukan preset sumbu HUD); pilih "(preset sumbu HUD)" → perilaku lama | ☐ |
+| 1.6 | Dua part (pertama di-ground) → Mate **Concentric** → klik face silinder part kedua → panel "Sumbu: datum" → pilih sumbu → **Konsentris ke sumbu** | Part kedua pindah sehingga sumbu silindernya berimpit dengan sumbu datum; tanpa part ground lain → pesan | ☐ |
+
+#### Fase 1B 1.13–1.15, 1.18, 1.19 — Break, Project/Intersect, Copy/Paste, glyph constraint, Insert SVG
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 1.13 | Dua garis bersambung (ujung A.akhir ↔ B.awal ber-Coincident) → toolbar kiri **Pecah** → klik garis A di tengahnya | A jadi dua garis yang bersambung di titik klik; Coincident ke B kini menempel potongan kedua; seret B → potongan ikut; satu Undo mengembalikan garis utuh | ☐ |
+| 1.13 | Tool Pecah pada busur, lingkaran (→ dua busur setengah), dan spline; klik tepat di ujung garis; klik elips | Busur/lingkaran/spline terpecah; klik di ujung / elips → pesan "tidak bisa dipecah", tidak crash | ☐ |
+| 1.14 | Body kotak → klik face atas → aktifkan sketsa di bidang Top + offset → palette **Proyeksikan tepi/face ke sketsa** | 4 garis linked (garis putus-putus ungu) muncul; grup "Proyeksi: <body>" di daftar entitas | ☐ |
+| 1.14 | Pilih edge (mode pilih-edge) lalu palette Proyeksikan; palette **Irisan body dengan bidang sketsa** di bidang Front yang memotong kotak | Edge terproyeksi; irisan berupa persegi panjang linked; bidang yang tidak memotong body → pesan, tidak crash | ☐ |
+| 1.14 | Setelah proyeksi, ubah ukuran body (push-pull face / set_params) lalu kembali ke sketsa | Entitas linked ikut berubah mengikuti body; tool Pecah pada entitas linked ditolak (hanya-baca) | ☐ |
+| 1.14 | Pilih entitas linked → palette **Lepas tautan**; simpan → buka ulang berkas dengan entitas linked | Garis ungu hilang (jadi entitas biasa, bisa diedit); berkas menyimpan status linked dan terbuka tanpa error | ☐ |
+| 1.15 | Pilih persegi ber-constraint → Cmd/Ctrl+C → gerakkan kursor → Cmd/Ctrl+V | Salinan muncul berpusat di kursor, constraint internal (Horizontal/Coincident) ikut; salinan langsung terpilih; satu Undo menghapus salinan | ☐ |
+| 1.15 | Cmd/Ctrl+X pada seleksi; Cmd/Ctrl+V dua kali dari palette (**Tempel entitas sketsa**) | Cut menghapus seleksi (satu Undo); paste dari palette bergeser bertingkat 5 mm | ☐ |
+| 1.15 | Salin teks biasa di aplikasi lain → Cmd/Ctrl+V di sketsa; Cmd/Ctrl+V dengan clipboard kosong | Teks asing diabaikan (clipboard internal dipakai); clipboard kosong → pesan, tidak crash | ☐ |
+| 1.18 | Sketsa dengan Horizontal, Parallel, Coincident, Fixed | Ikon kecil (font ikon, bukan kotak "tofu") di dekat entitas; constraint dua entitas punya ikon di keduanya; dimensi tidak diberi glyph | ☐ |
+| 1.18 | Klik satu glyph → Delete; Esc; Undo | Glyph tersorot biru; Delete menghapus constraint itu saja (bukan entitas); Undo mengembalikannya | ☐ |
+| 1.18 | Baris constraint (seleksi apa pun) → tombol **Tampilkan/sembunyikan glyph constraint**, atau palette dengan nama sama | Semua glyph hilang/muncul | ☐ |
+| 1.19 | Palette **Sisipkan SVG…** → skala 1 → Pilih berkas SVG (logo dengan rect, circle, path kurva) | Path muncul di sketsa aktif, pojok kiri-bawah di titik asal, ukuran 96 px = 25,4 mm; grup "SVG: <nama>"; satu Undo menghapusnya | ☐ |
+| 1.19 | Sisipkan berkas SVG rusak / bukan SVG; skala 2 | Pesan gagal, tidak crash; skala 2 menggandakan ukuran | ☐ |
+
+### A20 — Fase 2: solid & direct editing
+
+Jendela **Edit Langsung** dibuka dari palette (grup Solid: Offset Face, Hapus Face, Ganti Face, Sejajarkan, Pipa, Pattern Jalur, Web, Emboss Sketsa, Isi Batas, Solid Pembungkus) atau dari tombol **Offset Face** / **Hapus Face** di context bar saat face terpilih. Alat bisa diganti lewat combo di atas jendela; baris "Terpilih: … face, … tepi, … body" menunjukkan seleksi yang akan dipakai.
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 2.1 | Kotak 20 mm → klik face atas → context bar **Offset Face** → Jarak 5 → Terapkan | Tinggi jadi 25 mm, face samping ikut memanjang; satu Undo mengembalikan | ☐ |
+| 2.1 | Silinder → klik face lengkungnya → Offset Face +1 / −1 | Radius bertambah/berkurang 1 mm; jarak 0 atau face dari dua body berbeda → pesan, tidak crash | ☐ |
+| 2.2 | Kotak dengan fillet tepi tegak → pilih keempat face fillet (Shift+klik) → **Hapus Face** | Sudut kembali tajam, volume = kotak semula; pilih semua face body → pesan, tidak crash | ☐ |
+| 2.2 | Kotak dengan lubang tembus → pilih dinding lubang → Hapus Face | Lubang tertutup | ☐ |
+| 2.3 | Klik face atas kotak → **Ganti Face** → bidang XY, offset 30 → Terapkan | Face atas pindah ke z = 30 | ☐ |
+| 2.3 | Klik face atas kotak A, lalu Shift+klik face atas kotak B yang lebih tinggi → Ganti Face | Face atas A rata dengan face atas B; face kedua lengkung → pesan | ☐ |
+| 2.4 | Pilih body kecil + tepi bersambung (Shift+klik) → **Pattern Jalur** → Jumlah 5, centang "Ikuti arah jalur" | 4 salinan baru merata sepanjang tepi, berputar mengikuti belokan; tanpa tepi → pesan | ☐ |
+| 2.5 | Pilih tepi bersambung → **Pipa** → radius 3, centang Berongga, dinding 0,5 | Body tabung baru mengikuti tepi; dinding ≥ radius → pesan | ☐ |
+| 2.6 | Sketsa di bidang face atas, gambar 2 garis → pilih body → **Web** → tebal 2, kedalaman 10 | Dua dinding setebal 2 mm tumbuh dari bidang sketsa dan menyatu dengan body; "Balik arah" membalik arah tumbuh | ☐ |
+| 2.7 | Palette **Primitif** → jenis **Torus** → radius besar 20, radius tabung 3 → Buat | Torus muncul di posisi; radius tabung ≥ radius besar → pesan | ☐ |
+| 2.8 | Sketsa lingkaran/persegi di face atas → **Emboss Sketsa** → kedalaman 1, centang Ukir | Region terukir 1 mm (tanpa centang: timbul 1 mm) | ☐ |
+| 2.9 | Dua kotak terpisah → klik face bawah kotak A, Shift+klik face atas kotak B → **Sejajarkan** | Kotak A berpindah sehingga face bawahnya menempel face atas B; Celah 2 → menyisakan celah 2 mm; dua face silinder → sesumbu | ☐ |
+| 2.10 | Dua kotak bertumpuk sebagian → pilih keduanya → **Isi Batas** → titik di dalam irisan | Body baru = bagian irisan; titik di ruang terbuka → pesan | ☐ |
+| 2.10 | Pilih body → **Solid Pembungkus** → margin 1; centang Silinder | Body kotak / silinder baru membungkus body + 1 mm | ☐ |
+| 2.11 | Klik face atas kotak → context bar **Split Face** → bidang YZ di tengah → terapkan | Hanya face atas yang terbelah dua; kedua potongan bisa diklik terpisah lalu di-Offset Face sendiri-sendiri | ☐ |
+| semua | Agent/MCP: `get_schema {"example":"direct_edit"}` lalu `run_ops` contoh itu | Semua op berhasil; error input salah membawa `hint` dengan contoh JSON | ☐ |
+
+### A21 — Fase 3: timeline, berkas, keselamatan data
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 3.1 | Buat sketsa → extrude → fillet; di drawer Feature Tree seret judul fillet ke atas sketsa | Ditolak dengan pesan (fillet bergantung pada extrude); seret fitur independen → urutan berubah dan model diregenerasi | ☐ |
+| 3.1 | Klik kanan fitur → Naikkan / Turunkan | Sama seperti seret; urutan tidak sah ditolak | ☐ |
+| 3.2 | Klik dua kali nama fitur → ketik → Enter (Esc membatalkan) | Nama berubah; nama kosong ditolak | ☐ |
+| 3.3 | Klik kanan → Masukkan ke folder baru; fitur lain → Pindahkan ke folder | Header folder dengan jumlah; panah menutup/membuka; ikon folder-coret membubarkan | ☐ |
+| 3.4 | Klik kanan → Salin fitur → klik kanan fitur lain → Tempel sesudah fitur ini | Salinan "(salinan)" muncul di posisi itu dan diregenerasi | ☐ |
+| 3.5 | Klik satu fitur | Induknya bergaris ungu, turunannya hijau; klik lagi melepas | ☐ |
+| 3.6 | Klik kanan fitur tengah → Gulung timeline sampai sini | Fitur di bawahnya pudar, garis penanda oranye; geometri kembali ke kondisi itu; fitur baru masuk tepat di bawah penanda; ikon X pada penanda → semua aktif lagi | ☐ |
+| 3.7 | Edit model lalu matikan paksa aplikasi (Force Quit) → buka lagi | Dialog "Desain yang Bisa Dipulihkan" berisi desain itu; Pulihkan membuka desain + nama berkas asal; Buang menghapusnya; palette "Desain yang Bisa Dipulihkan" membuka dialog kapan saja | ☐ |
+| 3.8 | Simpan berkas dua kali | Ada `nama.ducad.bak` berisi versi sebelumnya; tidak ada berkas `.tmp` tersisa | ☐ |
+| 3.9 | Palette **Ekspor 3MF** → buka di PrusaSlicer/Bambu/Orca | Model muncul dalam mm dengan warna material; satu objek per body | ☐ |
+| 3.10 | Palette **Impor Mesh** → pilih .3mf / .obj / .glb | Body mesh muncul dengan ukuran benar (glTF meter → mm, Y-atas → Z-atas) | ☐ |
+| 3.11 | Palette **Ekspor IGES** lalu **Impor IGES** berkas itu | Body B-rep kembali dengan volume sama | ☐ |
+| 3.12 | Palette **Buka di Slicer** (dengan slicer terpasang / tanpa) | Slicer terbuka dengan model; tanpa slicer → pesan daftar slicer yang dicari | ☐ |
+| 3.13 | Tombol bookmark di bawah ViewCube → putar kamera → Simpan tampilan saat ini → putar lagi → klik nama tampilan | Kamera kembali ke pose tersimpan; ganti nama/hapus bekerja; tampilan ikut tersimpan di berkas | ☐ |
+| 3.14 | Palette **Laporan crash** (setelah ada command yang gagal internal) | Daftar laporan; "Salin perintah replay" menyalin `ducad-cli replay "...ducad"` yang bisa dijalankan | ☐ |
+| 3.15 | Palette **Ekspor Tampilan Aktif ke DXF** → buka di LibreCAD/AutoCAD | Garis tampak di layer VISIBLE, tersembunyi di HIDDEN (putus-putus) sesuai sudut pandang layar | ☐ |
+
+### A22 — Fase 4: perakitan & gerak
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 4.1 | Dua part → klik face silinder poros (part tetap), Shift+klik lubang (part bergerak) → palette **Joint: Revolute** | Part bergerak sepusat; di Alat Perakitan muncul "Joint n: Revolute" dengan satu nilai; ubah nilai → part berputar | ☐ |
+| 4.1 | Ulangi untuk Slider (nilai = geser), Cylindrical (2 nilai), Planar (3), Ball (3), Rigid (0) | Part bergerak sesuai DOF jenis joint | ☐ |
+| 4.2 | Pin-slot: face dinding alur (A) + silinder pin (B) → nilai 1 menggeser sepanjang alur, nilai 2 memutar pin | Sesuai | ☐ |
+| 4.2 | Cam: face cam (A) + face ujung follower (B) → putar cam (joint revolute lain / motion study) | Follower selalu menempel kontur cam, tidak menembus | ☐ |
+| 4.3 | Centang "As-built" sebelum membuat joint | Part tidak berpindah saat joint dibuat; nilai 0 = pose sekarang | ☐ |
+| 4.4 | Pilih datum sumbu di "Asal joint" lalu buat Revolute | Part berputar pada sumbu datum, bukan pada face | ☐ |
+| 4.5 | Pilih part → ketik nama → Ganti nama; Aktifkan komponen → coba klik part lain | Nama berubah di drawer & body; part lain tidak bisa terpilih sampai dinonaktifkan | ☐ |
+| 4.6 | Pilih beberapa part → Kelompokkan seleksi jadi komponen → Pindahkan seleksi ke … / (tingkat atas) | Sub-assembly baru berisi part itu di drawer Perakitan | ☐ |
+| 4.7 | Simpan posisi → seret part → Kembalikan posisi | Part kembali tepat ke posisi tersimpan | ☐ |
+| 4.8 | Dua part → Contact set baru dari seleksi → dorong satu menembus yang lain (nilai joint / seret) | Gerakan ditolak dengan pesan; part tetap di posisi sebelumnya | ☐ |
+| 4.9 | Buat motion study (drawer Perakitan) → Studi Gerak → Analisis | Plot nilai (biru) & kecepatan (oranye), garis merah di frame bertabrakan, jejak oranye di viewport; Salin CSV | ☐ |
+| 4.9 | Ekspor animasi → pilih folder | `frame_000.png`… + `motion.csv`; model kembali ke pose awal setelahnya | ☐ |
+| 4.10 | Pilih part → Salin occurrence (offset 20,0,0) | Salinan bernama "Nama (2)" bergeser 20 mm, nomor part/material sama | ☐ |
+| 4.11 | Panel industri → Konfigurasi → edit → Aturan `if len > 40 then t = 8` → Simpan; tombol Pratinjau konfigurasi lain | Aturan berlaku saat aktif; Pratinjau menampilkan perubahan volume tanpa mengganti konfigurasi aktif | ☐ |
+| semua | Simpan berkas berisi joint/contact set/posisi tersimpan → buka ulang | Semua kembali (joint tetap bisa digerakkan) | ☐ |
+
+### A23 — Fase 5: inspeksi & analisis
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 5.1 | Palette **Inspeksi** → pilih dua body → Clearance | Garis biru antara titik terdekat + jarak dalam mm; body bersinggungan → 0 | ☐ |
+| 5.2 | Radius minimum pada part dengan fillet | Lingkaran merah + "R …" di fillet terkecil | ☐ |
+| 5.2 | Centang Peta kurvatur, ubah "Merah pada" | Face datar biru, fillet kecil merah; nilai lebih kecil → lebih banyak merah | ☐ |
+| 5.2 | Sketsa spline/busur → centang Sisir kurvatur | Garis sisir oranye tegak lurus kurva, panjang sebanding kurvatur | ☐ |
+| 5.3 | Pilih body ber-fillet → Kontinuitas G0-G2 | Tepi tajam oranye "G0", sambungan fillet kuning "G1"/hijau "G2" | ☐ |
+| 5.4 | Silinder/bola → Siluet | Garis ungu pada kontur siluet sesuai sudut pandang | ☐ |
+| 5.4 | Klik face datar/silinder → Isocurve | Grid/garis biru muda di dalam batas face | ☐ |
+| 5.4 | Arah alat 0,0,-1 → Aksesibilitas pada kotak berongga | Titik hijau di face yang terjangkau dari atas, merah di sisi/bawah/rongga; persentase luas | ☐ |
+| 5.5 | Desain dengan op thread / lubang tap → Daftar ulir | Baris per ulir (body, M.., panjang, RH/LH, kosmetik) | ☐ |
+
+---
+
 ## Bagian B — Regresi inti (sebelum rilis)
 
 ### B1. Sketsa 2D
@@ -967,7 +1150,7 @@ Build: `make android-apk` lalu `adb install android/app/build/outputs/apk/debug/
 | B7.4 | Simpan → berkas di `Android/data/id.ducad.studio/files` terlihat lewat aplikasi Files | ☐ |
 | B7.5 | Tekan Home lalu matikan dari Recent → buka lagi → dipulihkan dari autosave | ☐ |
 | B7.6 | Putar layar → tidak ada restart aplikasi (configChanges) | ☐ |
-| B7.7 | Extrude/boolean berjalan (OCCT via NDK) dan STEP terekspor | ☐ |
+| B7.7 | Extrude/boolean berjalan (kernel Rust murni) dan STEP terekspor | ☐ |
 
 ---
 

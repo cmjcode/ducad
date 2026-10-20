@@ -162,3 +162,23 @@ fn update_window_icons_have_glyphs() {
         .collect();
     assert!(missing.is_empty(), "ikon tanpa glyph (akan tampil kotak): {missing:?}");
 }
+
+/// Ikon baris constraint di context bar bawah (`constraint_strip.rs`): semua
+/// `ConstraintAction` harus punya glyph di font ikon.
+#[test]
+fn constraint_row_icons_have_glyphs() {
+    use ducad_ui::ConstraintAction;
+
+    let ctx = egui::Context::default();
+    ducad_ui::theme::apply(&ctx, ducad_ui::theme::ThemeMode::Dark);
+    let mut warmup = ctx.run_ui(Default::default(), |_| {});
+    warmup.textures_delta.clear();
+
+    let font = egui::FontId::proportional(14.0);
+    let replacement = glyph_uv(&ctx, '\u{10FFFD}', &font);
+    let missing: Vec<ConstraintAction> = ConstraintAction::DISPLAY_ORDER
+        .into_iter()
+        .filter(|a| a.icon().chars().next().is_none_or(|c| glyph_uv(&ctx, c, &font) == replacement))
+        .collect();
+    assert!(missing.is_empty(), "ikon constraint tanpa glyph (akan tampil kotak): {missing:?}");
+}

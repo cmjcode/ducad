@@ -25,6 +25,139 @@ pub struct Configuration {
     /// Nama body → material mekanik pengganti.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub material_overrides: BTreeMap<String, MaterialSource>,
+    /// Aturan "jika parameter … maka parameter …" (Paritas 4.11).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<ConfigRule>,
+}
+
+/// Pembanding aturan konfigurasi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleCmp {
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
+}
+
+impl RuleCmp {
+    fn symbol(self) -> &'static str {
+        match self {
+            RuleCmp::Lt => "<",
+            RuleCmp::Le => "<=",
+            RuleCmp::Gt => ">",
+            RuleCmp::Ge => ">=",
+            RuleCmp::Eq => "==",
+            RuleCmp::Ne => "!=",
+        }
+    }
+
+    fn holds(self, a: f64, b: f64) -> bool {
+        match self {
+            RuleCmp::Lt => a < b,
+            RuleCmp::Le => a <= b,
+            RuleCmp::Gt => a > b,
+            RuleCmp::Ge => a >= b,
+            RuleCmp::Eq => (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0),
+            RuleCmp::Ne => (a - b).abs() > 1e-9 * a.abs().max(b.abs()).max(1.0),
+        }
+    }
+}
+
+/// Aturan: `if <param> <cmp> <nilai> then <param> = <nilai>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigRule {
+    pub if_param: String,
+    pub cmp: RuleCmp,
+    pub value: f64,
+    pub then_param: String,
+    pub then_value: f64,
+}
+
+impl ConfigRule {
+    /// Parse `if w > 50 then t = 4` (kata kunci tidak peka huruf besar;
+    /// `jika … maka …` juga diterima).
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let t = text.trim();
+        let lower = t.to_ascii_lowercase();
+        let (cond, act) = ["then", "maka"]
+            .iter()
+            .find_map(|kw| lower.find(&format!(" {kw} ")).map(|i| (&t[..i], &t[i + kw.len() + 2..])))
+            .ok_or_else(|| format!("aturan butuh 'then': {t}"))?;
+        let cond = cond.trim();
+        let cond = ["if ", "jika "]
+            .iter()
+            .find_map(|kw| cond.to_ascii_lowercase().starts_with(kw).then(|| &cond[kw.len()..]))
+            .unwrap_or(cond)
+            .trim();
+        let ops = [("<=", RuleCmp::Le), (">=", RuleCmp::Ge), ("==", RuleCmp::Eq), ("!=", RuleCmp::Ne), ("<", RuleCmp::Lt), (">", RuleCmp::Gt), ("=", RuleCmp::Eq)];
+        let (lhs, cmp, rhs) = ops
+            .iter()
+            .find_map(|(sym, c)| cond.find(sym).map(|i| (&cond[..i], *c, &cond[i + sym.len()..])))
+            .ok_or_else(|| format!("kondisi aturan tidak dikenal: {cond}"))?;
+        let (tp, tv) = act
+            .split_once('=')
+            .ok_or_else(|| format!("aksi aturan harus 'param = nilai': {act}"))?;
+        let num = |s: &str| -> Result<f64, String> {
+            let v: f64 = s.trim().parse().map_err(|_| format!("angka tidak valid: {}", s.trim()))?;
+            if v.is_finite() { Ok(v) } else { Err(format!("angka tidak hingga: {}", s.trim())) }
+        };
+        let name = |s: &str| -> Result<String, String> {
+            let n = s.trim().trim_start_matches('$').to_string();
+            if !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                Ok(n)
+            } else {
+                Err(format!("nama parameter tidak valid: {}", s.trim()))
+            }
+        };
+        Ok(Self {
+            if_param: name(lhs)?,
+            cmp,
+            value: num(rhs)?,
+            then_param: name(tp)?,
+            then_value: num(tv)?,
+        })
+    }
+}
+
+impl std::fmt::Display for ConfigRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "if {} {} {} then {} = {}",
+            self.if_param,
+            self.cmp.symbol(),
+            self.value,
+            self.then_param,
+            self.then_value
+        )
+    }
+}
+
+/// Terapkan aturan berulang sampai stabil (maks 16 putaran — aturan yang
+/// saling membalik berhenti, tidak berputar selamanya). Mengembalikan jumlah
+/// penimpaan yang terjadi.
+pub fn apply_rules(rules: &[ConfigRule], params: &mut BTreeMap<String, f64>) -> usize {
+    let mut changed = 0;
+    for _ in 0..16 {
+        let mut any = false;
+        for r in rules {
+            let Some(v) = params.get(&r.if_param).copied() else {
+                continue;
+            };
+            if r.cmp.holds(v, r.value) && params.get(&r.then_param) != Some(&r.then_value) {
+                params.insert(r.then_param.clone(), r.then_value);
+                any = true;
+                changed += 1;
+            }
+        }
+        if !any {
+            break;
+        }
+    }
+    changed
 }
 
 impl Configuration {
@@ -240,5 +373,33 @@ mod tests {
             serde_json::to_string(&c).unwrap(),
             r#"{"name":"x","params":{}}"#
         );
+    }
+}
+
+#[cfg(test)]
+mod rule_tests {
+    use super::*;
+
+    #[test]
+    fn parse_display_and_apply_rules() {
+        let r = ConfigRule::parse("if w > 50 then t = 4").unwrap();
+        assert_eq!(r.cmp, RuleCmp::Gt);
+        assert_eq!(r.to_string(), "if w > 50 then t = 4");
+        assert_eq!(ConfigRule::parse(&r.to_string()).unwrap(), r);
+        let r2 = ConfigRule::parse("jika $t >= 4 maka holes = 6").unwrap();
+        assert_eq!(r2.if_param, "t");
+        let mut p: BTreeMap<String, f64> = [("w".to_string(), 60.0), ("t".to_string(), 2.0)].into();
+        assert_eq!(apply_rules(&[r2.clone(), r.clone()], &mut p), 2, "berantai");
+        assert_eq!(p["t"], 4.0);
+        assert_eq!(p["holes"], 6.0);
+        let mut q: BTreeMap<String, f64> = [("w".to_string(), 10.0)].into();
+        assert_eq!(apply_rules(&[r], &mut q), 0);
+        for bad in ["w > 5", "if w ~ 5 then t = 1", "if w > x then t = 1", "if w > 1 then t", "if w > 1 then t-1 = 2", "if w > inf then t = 1"] {
+            assert!(ConfigRule::parse(bad).is_err(), "{bad}");
+        }
+        // Aturan saling membalik tidak berputar selamanya.
+        let flip = vec![ConfigRule::parse("if a == 1 then a = 2").unwrap(), ConfigRule::parse("if a == 2 then a = 1").unwrap()];
+        let mut z: BTreeMap<String, f64> = [("a".to_string(), 1.0)].into();
+        assert!(apply_rules(&flip, &mut z) <= 32);
     }
 }

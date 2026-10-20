@@ -412,7 +412,7 @@ pub fn build_node_constraint(
             let pa = point_ref_position(sketch, &a)?;
             let pb = point_ref_position(sketch, &b)?;
             let dist = (pb - pa).length();
-            Some(Constraint::Distance { a, b, value: dist })
+            Some(Constraint::Distance { a, b, value: dist, driven: false })
         }
         ConstraintAction::ApplySymmetric => {
             if nodes.len() < 2 {

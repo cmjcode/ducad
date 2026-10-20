@@ -100,6 +100,12 @@ pub fn export_sketch_svg_string(
         has_entities = true;
 
         match entity {
+            Entity::Point { pos, .. } => {
+                min_x = min_x.min(pos.x);
+                min_y = min_y.min(pos.y);
+                max_x = max_x.max(pos.x);
+                max_y = max_y.max(pos.y);
+            }
             Entity::Line { start, end, .. } => {
                 min_x = min_x.min(start.x).min(end.x);
                 min_y = min_y.min(start.y).min(end.y);
@@ -231,6 +237,9 @@ fn render_sketch_entity<F>(
     F: Fn(DVec2) -> (f64, f64),
 {
     match entity {
+        // Titik sketch hanya acuan konstruksi — tidak ikut digambar ke SVG
+        // (SVG dipakai untuk potong/laser; titik tunggal tak bermakna di sana).
+        Entity::Point { .. } => {}
         Entity::Line { start, end, .. } => {
             let (x1, y1) = to_svg(*start);
             let (x2, y2) = to_svg(*end);
@@ -975,7 +984,7 @@ mod tests {
         assert!(!svg.contains(r#"id="snapshot_hidden""#));
     }
 
-    /// Jalur penuh: solid B-rep asli dari kernel OCCT, berlubang, ditangkap
+    /// Jalur penuh: solid B-rep asli dari kernel, berlubang, ditangkap
     /// dari kamera serong, lalu ditulis sebagai SVG.
     ///
     /// Tes unit di `ducad_kernel::vector_snapshot` memakai mesh buatan tangan;
@@ -983,7 +992,7 @@ mod tests {
     /// termasuk bahwa lubang menghasilkan garis tersembunyi.
     #[test]
     fn test_vector_snapshot_end_to_end_from_real_solid() {
-        let _guard = crate::occt_test_lock::LOCK
+        let _guard = crate::test_lock::LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
 

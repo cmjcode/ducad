@@ -5,7 +5,7 @@ use ducad_sketch::constraint::{AddConstraint, Constraint, UpdateConstraint};
 use glam::{DVec2, Vec3};
 use slotmap::Key;
 
-use ducad_engine::compute::{self, EdgePick, FacePick, ProfilePick};
+use ducad_engine::compute::{self, EdgePick, ProfilePick};
 use ducad_engine::{OpError, OpErrorCode, PlaneFrame};
 use ducad_kernel::ExtrudeExtent;
 
@@ -135,7 +135,12 @@ impl DuCADApp {
                 self.model_status = None;
             }
             Err(e) => {
-                self.model_status = Some(op_status("Extrude", &e));
+                let loose = self.highlight_loose_ends();
+                self.model_status = Some(if loose > 0 {
+                    format!("{} — {}", op_status("Extrude", &e), ducad_i18n::t!("loose-ends-found", count = loose))
+                } else {
+                    op_status("Extrude", &e)
+                });
                 self.show_op_error(&e, Vec::new());
             }
         }
@@ -789,51 +794,42 @@ impl DuCADApp {
         }
     }
 
-    /// Jalankan shell pada `id` dan catat hasilnya; `label` = label command model.
-    fn run_shell(&mut self, id: BodyId, label: &'static str, pick: ShellPick, thickness: f64, depth: f64) -> bool {
-        let Some(geo) = self.model.geometry.get(id) else {
-            return false;
-        };
-        let face_pick = match &pick {
-            ShellPick::Rays(rays) => FacePick::Rays(rays),
-            ShellPick::Direction(dir) => FacePick::Farthest(*dir),
-        };
-        match compute::shell(&geo.shape, &face_pick, thickness, depth) {
-            Ok(new_geo) => {
-                let details = if depth > 0.0 {
-                    format!(
-                        "Membuat rongga hollow dinding tebal {:.1} mm, kedalaman {:.1} mm",
-                        thickness, depth
-                    )
-                } else {
-                    format!("Membuat rongga hollow dinding tebal {:.1} mm", thickness)
-                };
-                self.execute_model_command(
-                    Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
-                    &details,
-                );
-                let (open_rays, open_direction) = match pick {
-                    ShellPick::Rays(rays) => (rays, None),
-                    ShellPick::Direction(dir) => (Vec::new(), Some(dir)),
-                };
-                self.record_shell_feature(thickness, &open_rays, open_direction, depth);
-                self.round_history.remove(&id);
-                self.selected_faces.clear();
-                self.active_face = None;
-                // Tool Shell tetap dalam mode pilih-face supaya body berikutnya
-                // bisa langsung diklik; jalur lain mengembalikan mode normal.
-                if self.tool != ToolKind::Shell {
-                    self.picking_mode = PickMode::None;
-                }
-                true
-            }
-            Err(e) => {
-                self.model_status = Some(op_status("Shell", &e));
-                let fixes = self.shell_fix_candidates(id, &e, thickness, depth, &face_pick);
-                self.show_op_error(&e, fixes);
-                false
-            }
+    /// Jalankan shell pada `id` di thread latar (lihat `shell_worker`);
+    /// `label` = label command model, `done_status` = status bila sukses.
+    /// Hasil (atau kartu error) diterapkan saat tiba di `poll_shell_job`.
+    fn run_shell(
+        &mut self,
+        id: BodyId,
+        label: &'static str,
+        pick: ShellPick,
+        thickness: f64,
+        depth: f64,
+        done_status: Option<String>,
+    ) {
+        if self.shell_job.is_some() {
+            self.model_status = Some(ducad_i18n::t!("shell-busy"));
+            return;
         }
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
+        let shape = match ducad_kernel::clone_shape(&geo.shape) {
+            Ok(s) => s,
+            Err(e) => {
+                self.model_status = Some(format!("Shell gagal: {e:#}"));
+                return;
+            }
+        };
+        let job = crate::modeling::shell_worker::ShellJob {
+            id,
+            label,
+            pick,
+            thickness,
+            depth,
+            mesh_ptr: std::sync::Arc::as_ptr(&geo.mesh) as usize,
+            done_status,
+        };
+        self.submit_shell_job(shape, job);
     }
 
     /// Shell/Hollow 1 body terpilih. Sisi yang dibuka = face yang dipilih
@@ -861,9 +857,7 @@ impl DuCADApp {
         } else {
             ShellPick::Rays(self.selected_faces.clone())
         };
-        if self.run_shell(id, "Shell", pick, thickness, depth) {
-            self.model_status = None;
-        }
+        self.run_shell(id, "Shell", pick, thickness, depth, None);
     }
 
     /// Shell/Hollow sisi/face 3D yang sedang aktif dengan ketebalan dinding yang ditentukan.
@@ -880,9 +874,14 @@ impl DuCADApp {
         let Some(depth) = self.shell_depth() else {
             return;
         };
-        if self.run_shell(target_id, "Shell Face", ShellPick::Rays(vec![ray]), thickness, depth) {
-            self.model_status = Some(format!("Shell face {:.1} mm sukses", thickness));
-        }
+        self.run_shell(
+            target_id,
+            "Shell Face",
+            ShellPick::Rays(vec![ray]),
+            thickness,
+            depth,
+            Some(format!("Shell face {:.1} mm sukses", thickness)),
+        );
     }
 
     /// Shell dengan ketebalan bervariasi (Variable Thickness Shell).
@@ -1458,7 +1457,18 @@ impl DuCADApp {
                 }
             }
             ducad_ui::SplitMode::SplitFace => {
-                match ducad_kernel::split_face(&geo.shape, plane_point, plane_normal) {
+                // Paritas 2.11: face terpilih saja bila ada; kosong = semua
+                // face yang dilintasi bidang.
+                let mut picked: Vec<usize> = self
+                    .selected_faces
+                    .iter()
+                    .chain(self.active_face.as_ref().map(|(_, r, _)| r))
+                    .filter_map(|r| ducad_kernel::pick_face_details(&geo.shape, *r))
+                    .filter_map(|h| h.face_index)
+                    .collect();
+                picked.sort_unstable();
+                picked.dedup();
+                match ducad_kernel::split_faces_by_plane(&geo.shape, &picked, plane_point, plane_normal) {
                     Ok(new_shape) => {
                         let new_geo = BodyGeometry::from_shape(new_shape);
                         self.execute_model_command(
@@ -1572,10 +1582,17 @@ impl DuCADApp {
                     [self.pattern_pitch_x, self.pattern_pitch_y, self.pattern_pitch_z],
                 ),
                 ducad_ui::PatternKind::Circular => {
-                    let pivot = self.pattern_custom_pivot_3d
-                        .map(|v| (v.x as f64, v.y as f64, v.z as f64))
-                        .unwrap_or((0.0, 0.0, 0.0));
-                    let axis = self.pattern_circ_axis.to_dir();
+                    // Sumbu datum terpilih (Paritas 1.6) menggantikan preset
+                    // sumbu + pivot HUD.
+                    let (pivot, axis) = match self.pattern_datum_axis() {
+                        Some((o, d)) => ((o[0], o[1], o[2]), (d[0], d[1], d[2])),
+                        None => (
+                            self.pattern_custom_pivot_3d
+                                .map(|v| (v.x as f64, v.y as f64, v.z as f64))
+                                .unwrap_or((0.0, 0.0, 0.0)),
+                            self.pattern_circ_axis.to_dir(),
+                        ),
+                    };
 
                     compute::circular_pattern(
                         &geo.shape,
@@ -2037,6 +2054,19 @@ impl DuCADApp {
     /// Selesaikan seluruh relasi mate perakitan dan terapkan transformasi ke geometri 3D bodi solid.
     pub fn solve_and_apply_assembly(&mut self) {
         self.sync_assembly_instances();
+        let before = self.instance_poses();
+        self.solve_assembly_once();
+        // Paritas 4.2: follower cam menempel kontur, lalu selesaikan ulang.
+        if self.update_cam_joints() {
+            self.solve_assembly_once();
+        }
+        // Paritas 4.8: gerakan yang membuat anggota contact set saling
+        // menembus ditolak.
+        self.enforce_contact_sets(&before);
+    }
+
+    /// Satu putaran solver + penerapan transformasi ke geometri.
+    fn solve_assembly_once(&mut self) {
         // Kopling gear/screw/rack mengikuti penggeraknya setelah mate selesai.
         let report = ducad_kernel::solve_assembly_with_couplings(&mut self.assembly_tree);
 

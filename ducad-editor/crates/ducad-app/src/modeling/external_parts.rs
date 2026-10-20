@@ -65,7 +65,7 @@ impl DuCADApp {
     }
 
     /// Instance perakitan yang memegang `body`, bila ada.
-    fn instance_of_body(&self, body: BodyId) -> Option<AssemblyInstanceId> {
+    pub(crate) fn instance_of_body(&self, body: BodyId) -> Option<AssemblyInstanceId> {
         let raw = body.data().as_ffi();
         self.assembly_tree
             .instances
@@ -98,14 +98,33 @@ impl DuCADApp {
         let stamp = ducad_core::external::SourceStamp::of(file)
             .map_err(|e| format!("gagal mencatat cap '{}': {e}", file.display()))?;
 
-        let mut created = Vec::with_capacity(doc.bodies.len());
+        // Semua geometri disiapkan dulu supaya kegagalan tidak meninggalkan
+        // sebagian body tersisip. Body turunan oplog (v4) tanpa cache yang
+        // cocok dibangun ulang lewat replay berkas sumber.
+        let mut warnings = Vec::new();
+        let mut shapes = Vec::with_capacity(doc.bodies.len());
         for body in &doc.bodies {
-            let shape = ducad_kernel::KernelShape::from_step_string(&body.step)
+            let shape = body
+                .resolve_shape(&mut warnings)
                 .map_err(|e| format!("geometri '{}' rusak: {e:#}", body.name))?;
+            shapes.push(shape.map(BodyGeometry::from_shape));
+        }
+        if shapes.iter().any(Option::is_none) {
+            let mut replayed =
+                crate::file_io::replay_derived_bodies(file).map_err(|e| format!("{e:#}"))?;
+            for (slot, body) in shapes.iter_mut().zip(&doc.bodies) {
+                if slot.is_none() {
+                    *slot = Some(replayed.remove(&body.name).ok_or_else(|| {
+                        format!("body '{}' tidak dihasilkan ulang oleh oplog", body.name)
+                    })?);
+                }
+            }
+        }
+
+        let mut created = Vec::with_capacity(doc.bodies.len());
+        for (body, geo) in doc.bodies.iter().zip(shapes.into_iter().flatten()) {
             let body_id = self.model.doc.add_body_with_material(&body.name, body.material);
-            self.model
-                .geometry
-                .insert(body_id, BodyGeometry::from_shape(shape));
+            self.model.geometry.insert(body_id, geo);
 
             let inst_id = self
                 .assembly_tree
@@ -301,12 +320,21 @@ impl DuCADApp {
             return;
         };
         self.sync_assembly_instances();
+        let before: Vec<_> = self
+            .assembly_tree
+            .instances
+            .keys()
+            .filter_map(|id| self.assembly_tree.instance_world_transform(*id).map(|p| (*id, p)))
+            .collect();
         if ducad_kernel::evaluate_motion(&mut self.assembly_tree, &study, t).is_some() {
-            // `evaluate_motion` sudah menyelesaikan tree; yang tersisa adalah
-            // menerapkan pergeseran instance ke B-rep, yang dilakukan
-            // `solve_and_apply_assembly` lewat solve kedua yang kini
-            // konvergen seketika (residual sudah nol).
-            self.solve_and_apply_assembly();
+            // `evaluate_motion` sudah memindah pose instance; geometri B-rep
+            // dipindah dari pose sebelum ke pose sesudahnya (solve berikutnya
+            // tidak melihat delta lagi karena pose awalnya sudah berubah).
+            for (id, from) in before {
+                if let Some(to) = self.assembly_tree.instance_world_transform(id) {
+                    self.move_instance_geometry(id, from, to);
+                }
+            }
         }
     }
 
@@ -384,6 +412,7 @@ mod tests {
             mechanical: None,
             shape: &shape,
             round_history: None,
+            derived: false,
         };
         save_multi_plane_detailed(&path, &[&Sketch::default()], &[body]).unwrap();
         (TempDir(dir), path)
@@ -427,7 +456,9 @@ mod tests {
         app.reload_external_part(id).expect("muat ulang harus berhasil");
         let vol = app.model.geometry.get(body).unwrap().shape.volume().abs();
         let expected = std::f64::consts::PI * 25.0 * 30.0;
-        assert!((vol - expected).abs() / expected < 1e-6, "volume {vol}");
+        // Truck: volume dari tesselasi, ±1e-4 (PLAN_MIGRASI_TRUCK §3.1).
+        let tol = ducad_kernel::VOLUME_REL_TOL.max(1e-6);
+        assert!((vol - expected).abs() / expected < tol, "volume {vol}");
         assert!(app.poll_external_sources().is_empty(), "setelah muat ulang tidak lagi basi");
 
         // Lepas tautan.
@@ -507,6 +538,7 @@ mod tests {
                 suppressed: false,
                 limits: Default::default(),
                 joint: None,
+                joint_state: None,
             },
         );
 

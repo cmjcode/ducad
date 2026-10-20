@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use ducad_core::{BodyId, Command};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
-    arc_from_three_points, compute_chamfer_2d, compute_fillet_2d, extend_segment,
+    compute_chamfer_2d, compute_fillet_2d, extend_segment,
     find_corner_lines_at_point, find_region_at_point, find_region_containing_entity, find_snap,
     find_snap_with_extra, line_intersection_params_in_sketch, mirror_entity, offset_entity,
     project_t, trim_segments, Chamfer2DResult, ClosedRegion, DeleteEntities, Entity, EntityId,
@@ -76,7 +76,7 @@ pub fn fillet_2d_preview(
 pub fn chamfer_2d_preview(
     sketch: &Sketch,
     hover: DVec2,
-    dist: f64,
+    (dist, dist2): (f64, f64),
     tol: f64,
     first_selected: Option<EntityId>,
 ) -> Option<Chamfer2DResult> {
@@ -87,7 +87,7 @@ pub fn chamfer_2d_preview(
         let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(id2)?.clone() else {
             return None;
         };
-        compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
+        compute_chamfer_2d((s1, e1), (s2, e2), dist, dist2)
     } else if let Some(id1) = first_selected {
         let Entity::Line { start: s1, end: e1, .. } = sketch.entities.get(id1)?.clone() else {
             return None;
@@ -97,7 +97,7 @@ pub fn chamfer_2d_preview(
             let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(hovered_id)?.clone() else {
                 return None;
             };
-            compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
+            compute_chamfer_2d((s1, e1), (s2, e2), dist, dist2)
         } else {
             None
         }
@@ -534,11 +534,15 @@ impl DuCADApp {
     }
 
     pub fn on_click_point(&mut self, p: DVec2) {
+        // Mode tangen (Paritas 1.7/1.8): klik harus mengenai kurva/ujung.
+        if !self.accept_mode_click(p) {
+            return;
+        }
         self.pending_points.push(p);
         if self.pending_points.len() == 1 {
             self.dynamic_focus_pending = true;
         }
-        if self.pending_points.len() >= required_points(self.tool) {
+        if self.pending_points.len() >= self.required_points_now() {
             self.finish_multipoint();
         }
     }
@@ -634,10 +638,15 @@ impl DuCADApp {
 
     pub fn finish_multipoint(&mut self) {
         let pts = std::mem::take(&mut self.pending_points);
+        // Mode gambar Fase 1B (sketch_modes_fase1.rs) menangani sendiri.
+        if self.finish_mode_multipoint(&pts) {
+            return;
+        }
         let cmd: Option<Box<dyn Command<Sketch>>> = match self.tool {
             ToolKind::Rectangle => {
-                let min = pts[0].min(pts[1]);
-                let max = pts[0].max(pts[1]);
+                let first = self.rect_first_corner(pts[0], pts[1]);
+                let min = first.min(pts[1]);
+                let max = first.max(pts[1]);
                 let corners = [
                     DVec2::new(min.x, min.y),
                     DVec2::new(max.x, min.y),
@@ -716,7 +725,11 @@ impl DuCADApp {
                 .ok()
                 .filter(|ents| !ents.is_empty())
                 .map(|entities| {
-                    Box::new(InsertEntities::new("Teks 2D", entities)) as Box<dyn Command<Sketch>>
+                    Box::new(InsertEntities::with_group(
+                        "Teks 2D",
+                        entities,
+                        crate::text_edit::text_group_name(&self.text_popup_state.text),
+                    )) as Box<dyn Command<Sketch>>
                 })
             }
             ToolKind::Spline => {
@@ -727,7 +740,7 @@ impl DuCADApp {
                     )) as Box<dyn Command<Sketch>>
                 })
             }
-            ToolKind::Arc => arc_from_three_points(pts[0], pts[1], pts[2]).map(|e| {
+            ToolKind::Arc => self.arc_from_clicks(pts[0], pts[1], pts[2]).map(|e| {
                 Box::new(InsertEntities::new(
                     "Arc",
                     vec![e.with_construction(self.construction_mode)],
@@ -929,7 +942,7 @@ impl DuCADApp {
     /// bikin nilai non-proporsional yg diam-diam ditolak & terkesan "tidak ngapa-ngapain").
     /// Faktor SELALU dihitung dari 1 sumbu yg diedit itu (`new_length_mm` / panjang sumbu
     /// itu sekarang) lalu diterapkan uniform ke X/Y/Z sekaligus — `ducad_kernel::scale_shape`
-    /// memakai uniform scaling murni OpenCASCADE `BRepBuilderAPI_Transform` yang stabil &
+    /// memakai uniform scaling murni (transformasi affine B-rep) yang stabil &
     /// tidak merusak geometri.
     pub fn scale_selected_body_by_axis(&mut self, axis: usize, new_length_mm: f64) {
         let Some((target_id, center)) = self.selected_single_body_center() else {
@@ -1090,6 +1103,9 @@ impl DuCADApp {
                 self.sketch_move_target = None;
             }
 
+            // Copy/Cut/Paste entitas sketsa (Paritas 1.15).
+            self.handle_sketch_clipboard_keys(ui, raw_cursor);
+
             let cmd_held = ui.input(|i| i.modifiers.command);
             if self.is_sketching && (cmd_held || self.sketch_move_armed) {
                 if let Some(ids) = self.nudge_target_ids() {
@@ -1188,6 +1204,11 @@ impl DuCADApp {
                 self.set_tool(ToolKind::Pattern);
             }
             if self.is_sketching {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::D))
+                    && self.tool == ToolKind::Select
+                {
+                    self.dimension_hotkey();
+                }
                 if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::L)) {
                     self.set_tool(ToolKind::Line);
                 }
@@ -1286,6 +1307,15 @@ impl DuCADApp {
         match self.tool {
             ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::DatumPlane => {
                 self.last_snap = None;
+
+                // Double-click pada glyph teks → popup Edit Teks (Paritas 0.8).
+                if self.tool == ToolKind::Select && self.is_sketching && response.double_clicked() {
+                    if let Some(hit) = self.hit_test_hover(rect, response, tol) {
+                        if self.open_text_edit_for(hit) {
+                            return;
+                        }
+                    }
+                }
 
                 if self.extruding_from_gizmo {
                     return;
@@ -1386,6 +1416,13 @@ impl DuCADApp {
 
                     // Prioritas 0: Penanganan Khusus Tool Datum Plane (3-Point, Angled, Offset)
                     if self.tool == ToolKind::DatumPlane {
+                        // Sumbu/titik datum dan mode bidang Paritas 1.4: klik =
+                        // pilih geometri (datum_tools.rs).
+                        if let Some(pos) = click_pos {
+                            if self.datum_handle_click(rect, pos) {
+                                return;
+                            }
+                        }
                         match self.datum_mode {
                             ducad_ui::DatumPlaneMode::ThreePoints => {
                                 let mut pt_found: Option<glam::Vec3> = None;
@@ -1464,6 +1501,8 @@ impl DuCADApp {
                                     }
                                 }
                             }
+                            // Mode 1.4 sudah ditangani `datum_handle_click`.
+                            _ => {}
                         }
                     }
 
@@ -2042,6 +2081,9 @@ impl DuCADApp {
                                 .filter(|(id, _)| !self.sketch().is_hidden(*id))
                                 .filter_map(|(id, entity)| {
                                     let inside = match entity {
+                                        Entity::Point { pos, .. } => {
+                                            pos.x >= min.x && pos.x <= max.x && pos.y >= min.y && pos.y <= max.y
+                                        }
                                         Entity::Line { start, end, .. } => {
                                             (start.x >= min.x && start.x <= max.x && start.y >= min.y && start.y <= max.y)
                                                 || (end.x >= min.x && end.x <= max.x && end.y >= min.y && end.y <= max.y)
@@ -2133,7 +2175,23 @@ impl DuCADApp {
                     .flatten();
                 if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
-                    self.handle_line_chain_click(effective, tol);
+                    if self.line_uses_two_clicks() {
+                        // Garis titik-tengah / tak hingga (Paritas 1.12).
+                        self.on_click_point(effective);
+                    } else {
+                        self.handle_line_chain_click(effective, tol);
+                    }
+                }
+            }
+            ToolKind::Point => {
+                // Paritas 1.1: satu klik = satu titik (lihat `sketch_points.rs`).
+                self.hovered = None;
+                self.last_snap = response
+                    .hovered()
+                    .then(|| self.find_current_snap(raw, tol, grid_step, None))
+                    .flatten();
+                if response.clicked() && !is_finger_navigating {
+                    self.place_sketch_point(raw);
                 }
             }
             ToolKind::Spline => {
@@ -2167,6 +2225,8 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
+                // Toleransi pilih kurva/ujung untuk mode tangen (Paritas 1.7/1.8).
+                self.sketch_modes.pick_tol = tol;
                 if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.on_click_point(effective);
@@ -2255,6 +2315,7 @@ impl DuCADApp {
                     }
                 }
             }
+            ToolKind::Break => self.handle_break_tool(rect, response, tol, raw),
             ToolKind::Extend => {
                 self.last_snap = None;
                 self.hovered = response
@@ -2354,10 +2415,9 @@ impl DuCADApp {
             }
             ToolKind::Chamfer2D => {
                 self.last_snap = None;
-                if let Ok(val) = self.dynamic_input.trim().parse::<f64>() {
-                    if val > 0.0 {
-                        self.chamfer_2d_dist = val;
-                    }
+                if let Some((d1, d2)) = crate::sketch_modes::parse_chamfer_input(&self.dynamic_input) {
+                    self.chamfer_2d_dist = d1;
+                    self.sketch_modes.chamfer_d2 = d2;
                 }
                 let corner_hit = find_corner_lines_at_point(self.sketch(), raw, tol * 2.0);
                 if let Some((id1, _id2, _corner)) = corner_hit {
@@ -2384,7 +2444,7 @@ impl DuCADApp {
                                 (s1, e1),
                                 (s2, e2),
                                 self.chamfer_2d_dist,
-                                self.chamfer_2d_dist,
+                                self.chamfer_second_dist(),
                             ) {
                                 self.execute_sketch_command(Box::new(ReplaceEntities::new(
                                     "Chamfer 2D",
@@ -2409,7 +2469,7 @@ impl DuCADApp {
                                         (s1, e1),
                                         (s2, e2),
                                         self.chamfer_2d_dist,
-                                        self.chamfer_2d_dist,
+                                        self.chamfer_second_dist(),
                                     ) {
                                         self.execute_sketch_command(Box::new(
                                             ReplaceEntities::new(

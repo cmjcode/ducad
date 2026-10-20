@@ -1,0 +1,21 @@
+# DUCAD: manifest ditulis ulang dari SolidCraft c66e332 (nilai `workspace = true`
+# diganti nilai eksplisit dari Cargo.toml workspace SolidCraft), karena crate ini
+# di-vendor di luar workspace aslinya. Kode sumber tidak diubah.
+[package]
+name = "solidcraft-geom"
+description = "SolidCraft geometry foundation: vectors, planes, frames, meshes and their measures"
+version = "0.16.2"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = { version = "1", features = ["float_roundtrip"] }

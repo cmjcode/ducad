@@ -7,7 +7,9 @@ authors.workspace = true
 
 [dependencies]
 ducad-core = { workspace = true }
-opencascade = { workspace = true }
+# Kernel geometri: SolidCraft di atas truck (PLAN_MIGRASI_TRUCK).
+solidcraft-kernel = { path = "../../vendors/solidcraft/crates/kernel" }
+solidcraft-geom = { path = "../../vendors/solidcraft/crates/geom" }
 glam = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
@@ -16,3 +18,11 @@ serde = { workspace = true }
 [[bin]]
 name = "smoke"
 path = "src/bin/smoke.rs"
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+# Baseline waktu op kernel untuk migrasi backend (PLAN_MIGRASI_TRUCK F0.3).
+[[bench]]
+name = "ops"
+harness = false

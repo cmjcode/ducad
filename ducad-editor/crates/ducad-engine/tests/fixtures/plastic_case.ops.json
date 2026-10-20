@@ -1,0 +1,9 @@
+{ "params": { "w": 60, "d": 40, "h": 20, "wall": 2 },
+  "ops": [
+    {"op":"primitive","id":"case","shape":{"box":{"size":["$w","$d","$h"]}}},
+    {"op":"shell","id":"hollow","body":"case","remove_faces":">Z","thickness":"$wall"},
+    {"op":"plastic","id":"rim","body":"case","make":{"lip":{"face":">Z","height":1.5}}},
+    {"op":"plastic","id":"posts","body":"case","make":{"boss":{"face":"+Z[z=2]","at_world":[[10,10,2],[50,30,2]],"height":8,"hole_d":2.5}}},
+    {"op":"plastic","id":"clip","body":"case","make":{"snap_fit":{"face":"+Z[z=2]","at_world":[[30,10,2]],"length":12,"width":6,"hook":0.8}}},
+    {"op":"plastic","id":"pad","body":"case","make":{"rest":{"at":[30,20,0],"diameter":8,"height":1,"direction":[0,0,-1]}}}
+  ] }

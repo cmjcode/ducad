@@ -1,13 +1,13 @@
 # DuCAD (Design Universe CAD)
 
 [![Rust](https://img.shields.io/badge/rust-2021_edition-orange.svg)](https://www.rust-lang.org)
-[![Kernel](https://img.shields.io/badge/B--Rep%20Kernel-OpenCASCADE%20(OCCT)-blue.svg)](https://dev.opencascade.org)
+[![Kernel](https://img.shields.io/badge/B--Rep%20Kernel-SolidCraft%20%2F%20truck-blue.svg)](https://github.com/tangency-labs/solidcraft)
 [![Graphics](https://img.shields.io/badge/Renderer-wgpu%20/%20WebGPU-green.svg)](https://wgpu.rs)
 [![UI](https://img.shields.io/badge/UI-egui%20/%20eframe-purple.svg)](https://github.com/emilk/egui)
 [![Agent](https://img.shields.io/badge/Agent-MCP%20%2B%20CLI%20headless-black.svg)](#9--headless-engine-agent-tooling--on-device-ai)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-lightgrey.svg)](LICENSE)
 
-**DuCAD** is a modern, parametric, and high-performance 2D/3D Computer-Aided Design (CAD) software written entirely in **Rust**. DuCAD combines **AutoCAD**-style 2D technical drafting precision with **Shapr3D**-style intuitive direct modeling, powered by the industry-grade solid modeling kernel **OpenCASCADE (OCCT)** via https://github.com/bschwind/opencascade-rs and modern **WebGPU (wgpu)** graphics acceleration.
+**DuCAD** is a modern, parametric, and high-performance 2D/3D Computer-Aided Design (CAD) software written entirely in **Rust**. DuCAD combines **AutoCAD**-style 2D technical drafting precision with **Shapr3D**-style intuitive direct modeling, powered by a pure-Rust B-rep solid modeling kernel (**SolidCraft** on **truck**, vendored in-tree) and modern **WebGPU (wgpu)** graphics acceleration.
 
 ---
 
@@ -22,7 +22,7 @@
 * **Sketch Curve Modification**: Interactive Trim with red highlighting, Extend curve to nearest boundary, parallel Offset (multi-tangent bi-arc), and symmetric Mirror reflection.
 * **Freehand (Apple Pencil / mouse)**: a single stroke is recognized as a line, circle, arc, ellipse, rectangle, polyline or spline, then constraints are inferred and committed as **one undo step** — no manual gap patching before extruding.
 
-### 2. 🧊 Industry-Grade 3D B-Rep Solid Modeling (OpenCASCADE)
+### 2. 🧊 3D B-Rep Solid Modeling (SolidCraft / truck)
 * **Extrude & Revolve Operations**: Extrude (Blind, Symmetric, Up to Face), Revolve with custom 3D axis, multi-profile Loft, and Sweep along a guide curve.
 * **Spiral Geometry (*Helix / Spring / Coil*)**: Parametric 3D curve generator for creating springs, bolt threads, and auger blades.
 * **Solid Boolean Operations**: Boolean Union, Cut, and Intersect.
@@ -106,7 +106,7 @@ Everything below runs **without the GUI**, so scripts, CI and AI agents drive th
 same modeling code the application does.
 
 * **`ducad-engine` (headless modeling layer)**: pure `compute` functions over the
-  OCCT kernel plus an atomic, replayable **oplog** (`Op` + `params`). Bodies are
+  B-rep kernel plus an atomic, replayable **oplog** (`Op` + `params`). Bodies are
   referenced by *name* (the id of the op that created them), never by an internal
   id that shifts on undo/redo.
 * **Semantic selectors**: pick faces and edges by meaning instead of index —
@@ -114,7 +114,7 @@ same modeling code the application does.
   `or` / `and` / `except`.
 * **`ducad-cli`**: `run`, `replay`, `inspect`, `check`, `oplog`, `diff`, `select`,
   `render`, `sim`, `config`, `export`, `build`, `assist`, `chat`, `schema`.
-* **`ducad-mcp`**: a 27-tool **Model Context Protocol** server (JSON-RPC 2.0 over
+* **`ducad-mcp`**: a 37-tool **Model Context Protocol** server (JSON-RPC 2.0 over
   stdio) so an AI agent can model, inspect, render and verify a part.
 * **Design unit tests (`Check`)**: requirements written as data — `volume`,
   `bbox_size`, `hole_count`, `min_wall`, `mass`, `clearance`, `no_interference` —
@@ -182,15 +182,15 @@ DUCAD/
 │   ├── crates/
 │   │   ├── ducad-core/      # Document data model, undo/redo history, assembly tree, mates, units, materials
 │   │   ├── ducad-sketch/    # 2D entities, constraint solver, snapping, regions, stroke recognition + inference
-│   │   ├── ducad-kernel/    # The ONLY OpenCASCADE (OCCT) wrapper: boolean, fillet, hole, helix, section, mesh
+│   │   ├── ducad-kernel/    # The ONLY geometry-kernel wrapper (SolidCraft/truck): boolean, fillet, hole, helix, section, mesh
 │   │   ├── ducad-io/        # .ducad native format, STEP/STL/OBJ/GLB, SVG/PDF/DXF drawing sheets
 │   │   ├── ducad-engine/    # Headless modeling: compute, Op/oplog, selectors, Session, inspect, checks, diff
 │   │   ├── ducad-cli/       # `ducad-cli` binary: run/replay/inspect/check/oplog/diff/render/export/build/assist
-│   │   ├── ducad-mcp/       # `ducad-mcp` binary: 27-tool MCP server over stdio (+ `--attach` live mode)
+│   │   ├── ducad-mcp/       # `ducad-mcp` binary: 37-tool MCP server over stdio (+ `--attach` live mode)
 │   │   ├── ducad-assist/    # On-device AI assistant: backend contract, prompts, proposal-only loop
 │   │   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, SSAO, grid, sketch overlay
 │   │   ├── ducad-ui/        # egui components: toolbar, context bar, HUD, drawers, checks/error/proposal cards
-│   │   ├── ducad-i18n/      # Localization system and 18+ language translation dictionaries
+│   │   ├── ducad-i18n/      # Localization system (English and Indonesian)
 │   │   ├── ducad-cloud/     # Account and cloud sync
 │   │   └── ducad-app/       # Main application (binary `ducad`), eframe loop, agent bridge, state integration
 │   ├── evals/               # Agent eval harness: ten reference tasks + stdlib Python runner
@@ -200,7 +200,7 @@ DUCAD/
 └── .mcp.json                # MCP server registration (ducad + mnemonic) for agent harnesses
 ```
 
-**Hard rule**: only `ducad-kernel` may `use opencascade::…`, and `ducad-engine`
+**Hard rule**: only `ducad-kernel` may use `solidcraft_*`/`truck_*`, and `ducad-engine`
 must never depend on egui/eframe/wgpu/`ducad-render`/`ducad-ui`/rfd — enforced by
 the `engine_has_no_gui_dependency` test.
 
@@ -212,36 +212,28 @@ the `engine_has_no_gui_dependency` test.
 * **Rust Toolchain**: stable, installed by `rustup` from the pinned
   `rust-toolchain.toml` (which also guarantees `rustfmt` and `clippy`, so the
   quality gates run anywhere without extra setup).
-* **C/C++ Compiler & CMake**: CMake ≥ 3.16 and a C++17 compiler (Clang/GCC/MSVC) to compile the OpenCASCADE (OCCT) kernel.
+* **No C/C++ toolchain or CMake**: the geometry kernel (SolidCraft on truck)
+  is pure Rust and vendored under `ducad-editor/vendors/solidcraft`.
 * **Operating System**:
   * **macOS** (Apple Silicon) and **iPadOS** — the primary targets; both are
     packaged from `ducad-editor/apple/` and exercised by hand.
   * **Linux** (X11 / Wayland) — built and tested on every CI run
     (`ubuntu-latest`) alongside macOS.
-  * **Windows 10/11** — a `build-windows` target exists in the `Makefile` but is
-    not covered by CI; treat it as untested.
+  * **Windows 10/11** — `cargo clippy` + `cargo test --workspace` run on
+    `windows-latest` in CI; packaging (`build-windows` in the `Makefile`) is not
+    exercised by CI yet.
 
 ### Running DuCAD
 
 Clone the repository and run it via Cargo:
 
 ```bash
-# Clone the repository. `--recurse-submodules` is REQUIRED: the OCCT kernel
-# is consumed through a patched fork pinned as a submodule under
-# `ducad-editor/vendors/opencascade-rs`, and `[patch.crates-io]` in the
-# workspace manifest points into it. Without the submodule, `cargo` fails
-# while resolving dependencies — before compiling a single line.
-git clone --recurse-submodules https://github.com/cmjcode/ducad.git
+git clone https://github.com/cmjcode/ducad.git
 cd ducad/ducad-editor
 
-# Already cloned without the flag? Fetch the submodule now:
-#   git submodule update --init --recursive
-
-# Run the application (the first compilation builds the OCCT kernel, ~8-15 minutes)
+# Run the application
 cargo run -p ducad-app
 ```
-
-> **First-Time Compilation Tip**: The initial compilation of `occt-sys` from source takes several minutes to build the entire OpenCASCADE C++ library. The build output is cached in the `target/` directory so subsequent compilations run instantly.
 
 > **Note on paths**: the Cargo workspace lives in `ducad-editor/`, not at the repository root. Run every `cargo` command from there.
 
@@ -611,18 +603,17 @@ checklist yet. Details per phase: [PLAN.md](ducad-editor/docs/PLAN.md).
 ## 📄 License
 
 Licensed under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
-The OpenCASCADE kernel it links against is LGPL-2.1 with a linking exception,
-consumed through the pinned fork in `ducad-editor/vendors/opencascade-rs`.
+The vendored SolidCraft kernel and truck crates are MIT OR Apache-2.0 /
+Apache-2.0; see [ATTRIBUTION.md](ducad-editor/docs/ATTRIBUTION.md) and
+`ducad-editor/vendors/solidcraft/NOTICE`.
 
 ## 🤝 Contributing
 
 * Read [CLAUDE.md](CLAUDE.md) first — it holds the hard rules: only
-  `ducad-kernel` may touch OpenCASCADE, every public kernel function takes
-  `lock_kernel()` and must not call another public kernel function while holding
-  it, `ducad-engine` stays free of GUI dependencies, and comments plus
+  `ducad-kernel` may touch the geometry kernel crates, `ducad-engine` stays free of GUI dependencies, and comments plus
   user-facing strings are written in Indonesian while identifiers stay English.
-* Do not touch `rust-toolchain.toml`, the `opencascade` version/features, or the
-  `[patch.crates-io]` block unless you intend to rebuild OCCT (10–15 minutes).
+* Do not touch `rust-toolchain.toml` or the `[patch.crates-io]` block (truck
+  crates patched by SolidCraft, `vendors/solidcraft/vendor/README.md`).
 * Before opening a PR: `cargo clippy --workspace --all-targets -- -D warnings`
   and `cargo test --workspace` must be green, plus the relevant part of the
   [GUI test checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md) for anything visual.

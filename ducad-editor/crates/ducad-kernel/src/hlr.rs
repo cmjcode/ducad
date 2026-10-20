@@ -7,7 +7,6 @@
 use glam::{vec2, vec3, Mat4, Vec2, Vec3};
 use std::collections::BTreeMap;
 
-use crate::lock_kernel;
 use crate::mesh::KernelMesh;
 use crate::projection::Projector;
 use crate::shape::KernelShape;
@@ -259,7 +258,7 @@ pub struct ProjectedView {
     /// Kosong pada jalur mesh dan tampak potongan.
     #[serde(default)]
     pub edge_refs: Vec<Option<u32>>,
-    /// `true` bila tampak ini berasal dari HLR eksak OCCT.
+    /// `true` bila tampak ini berasal dari HLR eksak (kurva analitik B-rep).
     #[serde(default)]
     pub exact: bool,
 }
@@ -341,7 +340,7 @@ pub struct DrawingOptions {
     /// model (perilaku lama).
     pub sections: Vec<crate::section::SectionRequest>,
     pub default_section: bool,
-    /// Pakai HLR eksak OCCT (jatuh ke HLR mesh bila gagal).
+    /// Pakai HLR eksak B-rep (jatuh ke HLR mesh bila gagal).
     pub exact: bool,
 }
 
@@ -403,6 +402,15 @@ impl HlrDrawing {
     }
 }
 
+/// Face silinder/kerucut untuk garis sumbu dan fitur lingkaran HLR mesh:
+/// titik & arah sumbu, plus polyline tiap edge batasnya (koordinat dunia).
+/// Diisi backend lewat `crate::backend::query::axial_faces`.
+pub(crate) struct AxialFace {
+    pub origin: Vec3,
+    pub dir: Vec3,
+    pub boundary: Vec<Vec<Vec3>>,
+}
+
 /// Mesin ekstraksi proyeksi dan Hidden Line Removal (HLR).
 pub struct HlrExtractor;
 
@@ -431,8 +439,6 @@ impl HlrExtractor {
         sketch_segments: &[(Vec3, Vec3)],
         options: &DrawingOptions,
     ) -> HlrDrawing {
-        let _guard = lock_kernel();
-
         let merged_mesh = KernelMesh::merge(meshes);
         let (mut bbox_min, mut bbox_max) = merged_mesh.bounding_box().unwrap_or(([f32::MAX; 3], [f32::MIN; 3]));
 
@@ -511,7 +517,6 @@ impl HlrExtractor {
     }
 
     /// Satu tampak: HLR eksak bila `exact` dan ada B-rep, selain itu HLR mesh.
-    /// Pemanggil sudah memegang `lock_kernel()`.
     pub(crate) fn extract_view_internal(
         shapes: &[&KernelShape],
         mesh: &KernelMesh,
@@ -522,46 +527,14 @@ impl HlrExtractor {
         warnings: &mut Vec<String>,
     ) -> ProjectedView {
         if exact && !shapes.is_empty() {
-            let (_, right_vec, up_vec) = view_kind.camera_vectors();
-            let occ: Vec<&opencascade::primitives::Shape> = shapes.iter().map(|s| s.inner()).collect();
-            let sources = crate::hlr_sheet::source_edges(&occ);
-            let started = std::time::Instant::now();
-            if let Some(mut lines) = crate::hlr_sheet::exact_lines(&occ, right_vec, up_vec, true, Some(&sources)) {
-                if started.elapsed().as_secs_f32() > 10.0 {
-                    warnings.push(format!(
-                        "HLR_EXACT_SLOW: {} took {:.1} s",
-                        view_kind.title_en(),
-                        started.elapsed().as_secs_f32()
-                    ));
-                }
-                for (p1, p2) in sketch_segments {
-                    let a = [p1.dot(right_vec), p1.dot(up_vec)];
-                    let b = [p2.dot(right_vec), p2.dot(up_vec)];
-                    if (a[0] - b[0]).hypot(a[1] - b[1]) > 0.02 {
-                        lines.segments.push(HlrSegment2D { start: a, end: b, kind: HlrLineKind::Visible });
-                        lines.edge_refs.push(None);
-                    }
-                }
-                let diag = (Vec3::from_array(model_bbox.1) - Vec3::from_array(model_bbox.0)).length();
-                let (features, centerlines) =
-                    crate::hlr_sheet::exact_features(&occ, &lines, right_vec, up_vec, diag);
-                let (bounds_min, bounds_max) =
-                    crate::hlr_sheet::lines_bounds(&lines).unwrap_or(([0.0, 0.0], [100.0, 100.0]));
-                return ProjectedView {
-                    kind: view_kind,
-                    title: view_kind.title_id(),
-                    bounds_min,
-                    bounds_max,
-                    segments: lines.segments,
-                    centerlines,
-                    features,
-                    width_mm: (model_bbox.1[0] - model_bbox.0[0]).abs(),
-                    height_mm: (model_bbox.1[2] - model_bbox.0[2]).abs(),
-                    depth_mm: (model_bbox.1[1] - model_bbox.0[1]).abs(),
-                    arcs: lines.arcs,
-                    edge_refs: lines.edge_refs,
-                    exact: true,
-                };
+            if let Some(view) = crate::backend::hlr::exact_projected_view(
+                shapes,
+                sketch_segments,
+                view_kind,
+                model_bbox,
+                warnings,
+            ) {
+                return view;
             }
             warnings.push(format!(
                 "HLR_EXACT_FALLBACK: exact hidden-line removal failed for {}; mesh HLR used (circles become polylines)",
@@ -588,26 +561,10 @@ impl HlrExtractor {
         let mut raw_3d_segments: Vec<(Vec3, Vec3, bool)> = Vec::new(); // (start, end, is_silhouette)
 
         for shape in shapes {
-            let occ_shape = shape.inner();
-            for edge in occ_shape.edges() {
-                let approx = edge.approximation_segments();
-                let points: Vec<Vec3> = approx
-                    .map(|p| vec3(p.x as f32, p.y as f32, p.z as f32))
-                    .collect();
-
-                if points.len() >= 2 {
-                    for w in points.windows(2) {
-                        if (w[0] - w[1]).length_squared() > 1e-6 {
-                            raw_3d_segments.push((w[0], w[1], false));
-                        }
-                    }
-                } else {
-                    let p1 = edge.start_point();
-                    let p2 = edge.end_point();
-                    let v1 = vec3(p1.x as f32, p1.y as f32, p1.z as f32);
-                    let v2 = vec3(p2.x as f32, p2.y as f32, p2.z as f32);
-                    if (v1 - v2).length_squared() > 1e-6 {
-                        raw_3d_segments.push((v1, v2, false));
+            for points in crate::backend::query::edge_polylines(shape) {
+                for w in points.windows(2) {
+                    if (w[0] - w[1]).length_squared() > 1e-6 {
+                        raw_3d_segments.push((w[0], w[1], false));
                     }
                 }
             }
@@ -1036,11 +993,10 @@ fn extract_centerlines(
     let mut lines = Vec::new();
 
     for shape in shapes {
-        let occ_shape = shape.inner();
-        for face in occ_shape.faces() {
-            if let Some((axis_pt, axis_dir)) = face.cylinder_or_cone_axis() {
-                let p_3d = vec3(axis_pt.x as f32, axis_pt.y as f32, axis_pt.z as f32);
-                let dir_3d = vec3(axis_dir.x as f32, axis_dir.y as f32, axis_dir.z as f32).normalize();
+        for face in crate::backend::query::axial_faces(shape) {
+            {
+                let p_3d = face.origin;
+                let dir_3d = face.dir.normalize();
 
                 // Panjang garis sumbu sepanjang fitur silinder
                 let p1 = p_3d - dir_3d * 20.0;
@@ -1104,13 +1060,8 @@ fn extract_geometric_features(
 
     // 1. Ekstraksi dari B-Rep Edges & Faces
     for shape in shapes {
-        let occ = shape.inner();
         // A. Periksa setiap rusuk (edge) apakah merupakan lingkaran/busur/ellips
-        for edge in occ.edges() {
-            let pts: Vec<Vec3> = edge
-                .approximation_segments()
-                .map(|p| vec3(p.x as f32, p.y as f32, p.z as f32))
-                .collect();
+        for pts in crate::backend::query::edge_polylines(shape) {
             if pts.len() >= 4 {
                 let pts_2d: Vec<[f32; 2]> = pts.iter().map(|p| [p.dot(right), p.dot(up)]).collect();
                 if let Some(feat) = fit_curve_feature(&pts_2d) {
@@ -1135,18 +1086,17 @@ fn extract_geometric_features(
         }
 
         // B. Periksa permukaan silinder yang tegak lurus kamera (lingkaran penuh)
-        for face in occ.faces() {
-            if let Some((axis_pt, axis_dir)) = face.cylinder_or_cone_axis() {
-                let dir_3d = vec3(axis_dir.x as f32, axis_dir.y as f32, axis_dir.z as f32).normalize();
+        for face in crate::backend::query::axial_faces(shape) {
+            {
+                let dir_3d = face.dir.normalize();
                 if dir_3d.dot(view_dir).abs() > 0.95 {
-                    let p_3d = vec3(axis_pt.x as f32, axis_pt.y as f32, axis_pt.z as f32);
+                    let p_3d = face.origin;
                     let cu = p_3d.dot(right);
                     let cv = p_3d.dot(up);
                     // Hitung radius dari jarak tepi terluar
                     let mut max_r = 0.0f32;
-                    for edge in face.edges() {
-                        for p in edge.approximation_segments() {
-                            let p2 = vec3(p.x as f32, p.y as f32, p.z as f32);
+                    for edge in &face.boundary {
+                        for &p2 in edge {
                             let r = (p2.dot(right) - cu).hypot(p2.dot(up) - cv);
                             if r > max_r {
                                 max_r = r;

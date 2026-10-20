@@ -156,6 +156,48 @@ pub struct DuCADApp {
     pub checks: crate::checks_ui::ChecksState,
     /// Panel properti massa (P16).
     pub mass: crate::mass_ui::MassState,
+    /// Panel Primitif / Cermin Body / Putar Body (Paritas 0.1–0.3).
+    pub body_tools: crate::body_tools::BodyToolsState,
+    /// Alat direct editing Fase 2 (`direct_tools.rs`).
+    pub direct_tools: crate::direct_tools::DirectToolsState,
+    /// Dialog desain yang bisa dipulihkan (Paritas 3.7).
+    pub recovery: crate::recovery::RecoveryState,
+    /// Workspace plastik (Paritas 6B).
+    pub plastic_tools: crate::plastic_tools::PlasticToolsState,
+    /// Workspace permukaan (Paritas 6A).
+    pub surface_tools: crate::surface_tools::SurfaceToolsState,
+    /// Inspeksi Fase 5 (clearance, kurvatur, kontinuitas, …).
+    pub inspect_tools: crate::inspect_tools::InspectToolsState,
+    /// Alat perakitan Fase 4.
+    pub assembly_tools: crate::assembly_tools::AssemblyToolsState,
+    /// Studi gerak Fase 4.9.
+    pub motion_tools: crate::motion_tools::MotionToolsState,
+    /// Clipboard fitur Feature Tree (Paritas 3.4).
+    pub feature_clipboard: Vec<ducad_core::parametric::FeatureNode>,
+    /// Jendela laporan crash (Paritas 3.14).
+    pub crash_reports: crate::crash_reports::CrashReportsState,
+    /// Jendela tampilan bernama (Paritas 3.13).
+    pub named_views: crate::named_views::NamedViewsState,
+    /// Sumbu & titik datum + state tool Datum (Paritas Fase 1A).
+    pub datums: crate::datum_tools::DatumState,
+    /// Toggle R/Ø dan edit dimensi sudut sketsa (Paritas 0.4).
+    pub sketch_dims: crate::sketch_dims::SketchDimState,
+    /// Mode gambar Arc (3 titik / pusat) dan Rectangle (sudut / pusat), Paritas 0.6.
+    pub sketch_modes: crate::sketch_modes::SketchModes,
+    /// Popup Edit Teks (Paritas 0.8).
+    pub text_edit: crate::text_edit::TextEditState,
+    /// Sorotan ujung terbuka sketsa (Paritas 0.16).
+    pub loose_ends: crate::loose_ends::LooseEndsState,
+    /// Clipboard entitas sketsa (Paritas 1.15).
+    pub clipboard: crate::clipboard::SketchClipboard,
+    /// Glyph constraint di kanvas (Paritas 1.18).
+    pub glyphs: crate::constraint_glyphs::GlyphState,
+    /// Popup Insert SVG (Paritas 1.19).
+    pub svg_insert: crate::svg_insert::SvgInsertState,
+    /// Panel Parameters dan Inspect (Paritas 0.9, 0.11).
+    pub design_tools: crate::design_tools::DesignToolsState,
+    /// Export PNG dan Compare Bodies (Paritas 0.15, 0.10).
+    pub view_tools: crate::view_tools::ViewToolsState,
     /// Studi simulasi (P17).
     pub sim: crate::sim_ui::SimState,
     /// Panel Fitur Industri (P18–P20).
@@ -178,6 +220,11 @@ pub struct DuCADApp {
     /// Kartu error operasi + fix terverifikasi (P9.3).
     pub error_card: ducad_ui::ErrorCardState,
     pub error_fixes: Vec<crate::error_card_ui::GuiFix>,
+    /// Shell yang sedang dihitung di thread latar (`modeling::shell_worker`).
+    pub shell_job: Option<crate::modeling::shell_worker::PendingShell>,
+    /// Jalankan operasi kernel berat di tempat, bukan di thread latar
+    /// (tes: hasil langsung tersedia setelah pemanggilan).
+    pub sync_kernel_ops: bool,
     pub file_status: Option<String>,
 
     pub language: ducad_i18n::Language,
@@ -594,6 +641,27 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
+            body_tools: crate::body_tools::BodyToolsState::default(),
+            direct_tools: crate::direct_tools::DirectToolsState::default(),
+            recovery: crate::recovery::RecoveryState::default(),
+            plastic_tools: Default::default(),
+            surface_tools: Default::default(),
+            inspect_tools: Default::default(),
+            assembly_tools: Default::default(),
+            motion_tools: Default::default(),
+            feature_clipboard: Vec::new(),
+            crash_reports: Default::default(),
+            named_views: Default::default(),
+            datums: crate::datum_tools::DatumState::default(),
+            sketch_dims: crate::sketch_dims::SketchDimState::default(),
+            sketch_modes: crate::sketch_modes::SketchModes::default(),
+            text_edit: crate::text_edit::TextEditState::default(),
+            loose_ends: crate::loose_ends::LooseEndsState::default(),
+            clipboard: crate::clipboard::SketchClipboard::default(),
+            glyphs: crate::constraint_glyphs::GlyphState::default(),
+            svg_insert: crate::svg_insert::SvgInsertState::default(),
+            design_tools: crate::design_tools::DesignToolsState::default(),
+            view_tools: crate::view_tools::ViewToolsState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -606,6 +674,8 @@ impl DuCADApp {
             closed_objects: Default::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
+            shell_job: None,
+            sync_kernel_ops: false,
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -931,6 +1001,27 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
+            body_tools: crate::body_tools::BodyToolsState::default(),
+            direct_tools: crate::direct_tools::DirectToolsState::default(),
+            recovery: crate::recovery::RecoveryState::default(),
+            plastic_tools: Default::default(),
+            surface_tools: Default::default(),
+            inspect_tools: Default::default(),
+            assembly_tools: Default::default(),
+            motion_tools: Default::default(),
+            feature_clipboard: Vec::new(),
+            crash_reports: Default::default(),
+            named_views: Default::default(),
+            datums: crate::datum_tools::DatumState::default(),
+            sketch_dims: crate::sketch_dims::SketchDimState::default(),
+            sketch_modes: crate::sketch_modes::SketchModes::default(),
+            text_edit: crate::text_edit::TextEditState::default(),
+            loose_ends: crate::loose_ends::LooseEndsState::default(),
+            clipboard: crate::clipboard::SketchClipboard::default(),
+            glyphs: crate::constraint_glyphs::GlyphState::default(),
+            svg_insert: crate::svg_insert::SvgInsertState::default(),
+            design_tools: crate::design_tools::DesignToolsState::default(),
+            view_tools: crate::view_tools::ViewToolsState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -943,6 +1034,8 @@ impl DuCADApp {
             closed_objects: Default::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
+            shell_job: None,
+            sync_kernel_ops: true,
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -1227,7 +1320,12 @@ impl DuCADApp {
 
         let mut new_model = crate::model::ModelDoc::default();
         for nb in loaded.bodies {
-            let geo = crate::model::BodyGeometry::from_shape(nb.shape);
+            // Snapshot ditulis `serialize_to_json` (selalu dengan STEP), jadi
+            // body turunan tanpa geometri berarti snapshot rusak.
+            let shape = nb.shape.ok_or_else(|| {
+                anyhow::anyhow!("snapshot body '{}' tidak membawa geometri", nb.name)
+            })?;
+            let geo = crate::model::BodyGeometry::from_shape(shape);
             let id = new_model.doc.add_body(&nb.name);
             new_model.geometry.insert(id, geo);
             if let Some(meta) = new_model.doc.bodies.get_mut(id) {
@@ -1691,6 +1789,7 @@ impl DuCADApp {
                 studio_config: self.studio_config,
                 zebra_config: self.zebra_config,
                 draft_config: self.draft_config,
+                curvature_config: self.inspect_tools.curvature,
             },
         ));
 
@@ -1834,6 +1933,7 @@ impl eframe::App for DuCADApp {
         // diproses, supaya perubahan langsung ikut tergambar frame ini.
         self.poll_agent_bridge(&ctx);
         self.poll_import_worker();
+        self.poll_shell_job(&ctx);
         if self.pending_imports > 0 {
             ctx.request_repaint();
         }
@@ -2324,6 +2424,12 @@ impl eframe::App for DuCADApp {
                 .show(&ctx, |ui| {
                     if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
                         match tb_ev {
+                            ToolbarEvent::OpenPrimitive => {
+                                self.open_body_tool(crate::body_tools::BodyToolPanel::Primitive);
+                            }
+                            ToolbarEvent::OpenSurface => {
+                                self.surface_tools.open = !self.surface_tools.open;
+                            }
                             ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::SectionView) => {
                                 self.section_enabled = !self.section_enabled;
                             }
@@ -2364,6 +2470,14 @@ impl eframe::App for DuCADApp {
             .iter()
             .map(|(id, entity)| {
                 let (name, icon_str) = match entity {
+                    Entity::Point { pos, .. } => {
+                        let label = if entity.is_construction() {
+                            format!("Titik [Konstruksi] ({:.1}, {:.1})", pos.x, pos.y)
+                        } else {
+                            format!("Titik ({:.1}, {:.1})", pos.x, pos.y)
+                        };
+                        (label, egui_icons::icons::ICON_FIBER_MANUAL_RECORD.codepoint)
+                    }
                     Entity::Line { start, end, .. } => {
                         let len = start.distance(*end);
                         let label = if entity.is_construction() {
@@ -2894,9 +3008,13 @@ impl eframe::App for DuCADApp {
                         is_active: *idx == self.active_plane_index(),
                         is_custom,
                         custom_id,
+                        visible: custom_id
+                            .and_then(|id| self.datum_planes.iter().find(|p| p.id == id))
+                            .is_none_or(|p| p.visible),
                     }
                 })
                 .collect();
+            let datum_items = self.datum_drawer_items();
 
             let planes_area_resp = egui::Area::new(egui::Id::new("ducad-planes-drawer-area"))
                 .fixed_pos(planes_pos)
@@ -2906,9 +3024,15 @@ impl eframe::App for DuCADApp {
                     if let Some(ev) = self.planes_drawer.show(
                         ui,
                         &all_planes_info,
+                        &datum_items,
                         max_drawer_h,
                         planes_bottom_y,
                     ) {
+                        // Sumbu/titik datum, tampil/sembunyi, ganti nama (Paritas 1.5).
+                        if self.handle_datum_drawer_event(&ev) {
+                            ctx.request_repaint();
+                            return;
+                        }
                         match ev {
                             PlanesDrawerEvent::SelectPlane(idx) => {
                                 self.set_sketch_plane_by_index(idx);
@@ -2937,6 +3061,7 @@ impl eframe::App for DuCADApp {
                             PlanesDrawerEvent::Close => {
                                 self.planes_drawer_open = false;
                             }
+                            _ => {}
                         }
                     }
                 });
@@ -2962,6 +3087,18 @@ impl eframe::App for DuCADApp {
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
                     let needs_regen = self.parametric_dag.needs_regeneration();
+                    let (dependents, parents) = self
+                        .feature_tree_drawer
+                        .selected_feature
+                        .map(|id| self.parametric_dag.dependency_highlight(id))
+                        .unwrap_or_default();
+                    let timeline = ducad_ui::TimelineInfo {
+                        marker: self.parametric_dag.rollback_marker,
+                        groups: &self.parametric_dag.groups,
+                        dependents: &dependents,
+                        parents: &parents,
+                        can_paste: !self.feature_clipboard.is_empty(),
+                    };
                     if let Some(ev) = self.feature_tree_drawer.show(
                         ui,
                         &self.parametric_dag.nodes,
@@ -2969,6 +3106,7 @@ impl eframe::App for DuCADApp {
                         needs_regen,
                         max_drawer_h,
                         feat_bottom_y,
+                        &timeline,
                     ) {
                         match ev {
                             FeatureTreeEvent::Regenerate => {
@@ -3059,6 +3197,10 @@ impl eframe::App for DuCADApp {
                             }
                             FeatureTreeEvent::Close => {
                                 self.feature_tree_drawer_open = false;
+                            }
+                            other => {
+                                self.handle_timeline_event(other);
+                                ctx.request_repaint();
                             }
                         }
                     }
@@ -3176,6 +3318,14 @@ impl eframe::App for DuCADApp {
                                             *opposite_normal = flip;
                                         }
                                     }
+                                    self.solve_and_apply_assembly();
+                                }
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::UpdateMateLimits { id, min, max } => {
+                                if let Some(mate) = self.assembly_tree.mates.get_mut(&id) {
+                                    mate.limits = ducad_core::assembly::MateLimits { min, max };
+                                    self.model.doc.dirty = true;
                                     self.solve_and_apply_assembly();
                                 }
                                 ctx.request_repaint();
@@ -3825,6 +3975,19 @@ impl eframe::App for DuCADApp {
                 ducad_ui::OnboardingTarget::ViewCube,
                 viewcube_resp.response.rect,
             );
+            // Paritas 3.13: tampilan kamera bernama.
+            egui::Area::new(egui::Id::new("ducad-named-views-btn"))
+                .fixed_pos(viewcube_pos + egui::vec2(-14.0, 48.0))
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if ui
+                        .small_button(egui_icons::icons::ICON_BOOKMARKS.codepoint)
+                        .on_hover_text(ducad_i18n::t!("views-title"))
+                        .clicked()
+                    {
+                        self.named_views.open = !self.named_views.open;
+                    }
+                });
         }
 
 
@@ -4332,26 +4495,29 @@ impl eframe::App for DuCADApp {
         }
 
         self.show_transform_dialog(&ctx);
-
-        // Constraint strip untuk seleksi node path (M2.6): muncul di tool
-        // Node Edit, hanya aksi yang berlaku untuk jumlah node terpilih aktif.
-        if self.tool == ToolKind::NodeEdit && !self.vector_state.node_selection.is_empty() {
-            let valid = self.node_constraint_actions();
-            let count = self.vector_state.node_selection.len();
-            let picked = egui::Area::new(egui::Id::new("ducad-node-constraint-strip"))
-                .fixed_pos(egui::pos2(screen_rect.max.x - 40.0 - self.drawer_right_inset(), screen_rect.center().y))
-                .pivot(egui::Align2::RIGHT_CENTER)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    ducad_ui::ConstraintStrip::default().show_with_valid(ui, count, Some(&valid))
-                })
-                .inner;
-            if let Some(action) = picked.filter(|a| *a != ducad_ui::ConstraintAction::ToggleSnap) {
-                self.apply_node_constraint(action);
-            }
-        }
-
+        self.show_body_tools(&ctx, screen_rect);
+        self.show_direct_tools(&ctx);
+        self.show_recovery(&ctx);
+        self.show_plastic_tools(&ctx);
+        self.show_surface_tools(&ctx);
+        self.show_inspect_tools(&ctx);
+        self.enforce_active_component();
+        self.show_assembly_tools(&ctx);
+        self.show_motion_tools(&ctx);
+        self.show_crash_reports(&ctx);
+        self.show_named_views(&ctx);
+        self.show_datum_axis_usage(&ctx, screen_rect);
+        self.show_text_edit(&ctx);
+        self.show_svg_insert(&ctx);
+        // Entitas linked (Paritas 1.14) ikut berubah bila body sumbernya berubah.
+        self.refresh_sketch_links();
+        self.show_design_tools(&ctx);
+        self.show_view_tools(&ctx);
         self.show_sketch_hud(&ctx, screen_rect);
+
+        // Tepi atas bar paling bawah; bar node constraint ditumpuk di atasnya.
+        let mut bottom_stack_top = screen_rect.max.y - 18.0;
+        let context_bar_max_width = screen_rect.width() - 24.0;
 
         // Shapr3D-Style Floating Contextual Action Bar
         let has_sketch_sel = !self.selected.is_empty();
@@ -4385,11 +4551,19 @@ impl eframe::App for DuCADApp {
                                 self.icon_size,
                             )
                         } else {
+                            let sel = self.sorted_selection();
+                            let constraints = if self.is_sketching && self.tool == ToolKind::Select {
+                                crate::sketch_constraints::valid_actions(self.sketch(), &sel)
+                            } else {
+                                Vec::new()
+                            };
                             ContextActionBar::show_sketch_selection(
                                 ui,
                                 self.selected.len(),
                                 has_closed,
+                                &constraints,
                                 self.icon_size,
+                                context_bar_max_width,
                             )
                         };
                         if let Some(act) = maybe_act {
@@ -4443,6 +4617,7 @@ impl eframe::App for DuCADApp {
                                     }
                                 }
                                 ContextAction::ClearSelection => self.selected.clear(),
+                                ContextAction::Constraint(c) => self.apply_sketch_strip_action(c),
                                 ContextAction::VectorUnion => {
                                     self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Union);
                                 }
@@ -4570,6 +4745,12 @@ impl eframe::App for DuCADApp {
                                         self.split_mode = ducad_ui::SplitMode::SplitFace;
                                         self.set_tool(ToolKind::SplitBody);
                                     }
+                                    ContextAction::OffsetFace => {
+                                        self.open_direct_tool(crate::direct_tools::DirectTool::OffsetFace);
+                                    }
+                                    ContextAction::DeleteFace => {
+                                        self.open_direct_tool(crate::direct_tools::DirectTool::DeleteFace);
+                                    }
                                     ContextAction::HoleWizard => {
                                         self.set_tool(ToolKind::HoleWizard);
                                     }
@@ -4603,6 +4784,12 @@ impl eframe::App for DuCADApp {
                                     self.assembly_drawer_open = true;
                                     self.run_clash_detection(0.001);
                                 }
+                                ContextAction::MirrorBody => {
+                                    self.open_body_tool(crate::body_tools::BodyToolPanel::MirrorBody);
+                                }
+                                ContextAction::RotateBody => {
+                                    self.open_body_tool(crate::body_tools::BodyToolPanel::RotateBody);
+                                }
                                 ContextAction::Delete => {
                                     self.delete_selected_bodies();
                                 }
@@ -4631,6 +4818,30 @@ impl eframe::App for DuCADApp {
                 ducad_ui::OnboardingTarget::ContextBar,
                 context_bar.response.rect,
             );
+            bottom_stack_top = context_bar.response.rect.min.y - 8.0;
+        }
+
+        // Baris constraint untuk seleksi node path (M2.6): di bawah-tengah,
+        // di atas context bar bila ada; hanya aksi yang berlaku untuk jumlah
+        // node terpilih yang digambar.
+        if !self.drawing_sheet_state.is_open
+            && self.tool == ToolKind::NodeEdit
+            && !self.vector_state.node_selection.is_empty()
+        {
+            let valid = self.node_constraint_actions();
+            let picked = egui::Area::new(egui::Id::new("ducad-node-constraint-bar"))
+                .fixed_pos(egui::pos2(screen_center_x, bottom_stack_top))
+                .pivot(egui::Align2::CENTER_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    ducad_ui::theme::pill_frame()
+                        .show(ui, |ui| ducad_ui::ConstraintStrip::show_row(ui, &valid, self.icon_size))
+                        .inner
+                })
+                .inner;
+            if let Some(action) = picked {
+                self.apply_node_constraint(action);
+            }
         }
 
         // =========================================================================

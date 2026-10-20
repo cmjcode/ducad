@@ -281,6 +281,7 @@ impl DuCADApp {
             active: active.as_deref() == Some(c.name.as_str()),
             params: c.params.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             suppressed: c.suppressed_ops.clone(),
+            rules: c.rules.iter().map(|r| r.to_string()).collect(),
         }));
 
         let sheets = self
@@ -605,15 +606,28 @@ impl DuCADApp {
                     ok,
                 );
             }
+            IndustryEvent::PreviewConfig(name) => self.preview_configuration(&name),
             IndustryEvent::SaveConfig {
                 name,
                 params,
                 suppressed,
+                rules,
             } => {
                 if !ducad_core::valid_configuration_name(&name) {
                     self.ind_fail(name);
                     return;
                 }
+                let rules: Vec<ducad_core::ConfigRule> = match rules
+                    .iter()
+                    .map(|r| ducad_core::ConfigRule::parse(r))
+                    .collect::<Result<_, _>>()
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        self.model_status = Some(ducad_i18n::t!("ind-cfg-rule-invalid", error = e));
+                        return;
+                    }
+                };
                 self.ind_design_edit(
                     |d| {
                         let params: BTreeMap<String, f64> = params.into_iter().collect();
@@ -621,11 +635,13 @@ impl DuCADApp {
                             Some(c) => {
                                 c.params = params;
                                 c.suppressed_ops = suppressed;
+                                c.rules = rules;
                             }
                             None => {
                                 let mut c = ducad_core::Configuration::named(name.clone());
                                 c.params = params;
                                 c.suppressed_ops = suppressed;
+                                c.rules = rules;
                                 d.configurations.push(c);
                             }
                         }
@@ -1091,6 +1107,7 @@ mod tests {
                 name: "plain".into(),
                 params: Vec::new(),
                 suppressed: vec!["wall_x".into()],
+                rules: Vec::new(),
             },
             &ctx,
         );
@@ -1218,5 +1235,32 @@ mod tests {
         );
         let item: ducad_engine::check::CheckItem = serde_json::from_value(value).unwrap();
         assert_eq!(item.id.as_deref(), Some("stackup1"));
+    }
+}
+
+impl DuCADApp {
+    /// Paritas 4.11: pratinjau konfigurasi `name` tanpa mengaktifkan —
+    /// ringkasan perubahan volume per body di status.
+    pub fn preview_configuration(&mut self, name: &str) {
+        self.sync_agent_meta();
+        match ducad_engine::preview_configuration(&self.model, &self.agent_meta.design, name) {
+            Ok(pv) => {
+                let changed: Vec<String> = pv
+                    .diff
+                    .iter()
+                    .filter(|d| d.status != "unchanged")
+                    .map(|d| match (d.volume_old, d.volume_new) {
+                        (Some(a), Some(b)) => format!("{} {:.0} -> {:.0} mm3", d.name, a, b),
+                        _ => format!("{} ({})", d.name, d.status),
+                    })
+                    .collect();
+                self.model_status = Some(if changed.is_empty() {
+                    ducad_i18n::t!("ind-cfg-preview-same", name = name)
+                } else {
+                    ducad_i18n::t!("ind-cfg-preview-result", name = name, changes = changed.join("; "))
+                });
+            }
+            Err(e) => self.model_status = Some(e.message),
+        }
     }
 }

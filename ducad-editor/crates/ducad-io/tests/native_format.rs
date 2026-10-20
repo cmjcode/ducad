@@ -1,6 +1,6 @@
 use ducad_io::native::{
-    deserialize_from_json, needs_v3, serialize_detailed_to_json_with_design, FORMAT_VERSION,
-    FORMAT_VERSION_DESIGN, FORMAT_VERSION_MINIMAL,
+    deserialize_from_json, needs_v3, serialize_detailed_to_json_with_design,
+    FORMAT_VERSION_DESIGN, FORMAT_VERSION_VECTOR, FORMAT_VERSION_MINIMAL,
 };
 use ducad_sketch::entity::{Entity, PathSeg, Subpath};
 use ducad_sketch::layer::{Layer, Origin};
@@ -126,7 +126,7 @@ fn document_with_path_saves_as_v3() {
 
     let json = serialize_detailed_to_json_with_design(&[&sketch], &[], None).unwrap();
     let val: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(val["format_version"], FORMAT_VERSION);
+    assert_eq!(val["format_version"], FORMAT_VERSION_VECTOR);
     assert_eq!(val["format_version"], 3);
 
     // Pastikan bisa di-deserialize kembali tanpa kehilangan data

@@ -13,6 +13,7 @@ use egui_icons::icons::{
     ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE, ICON_STRAIGHTEN,
     ICON_WARNING,
 };
+use crate::constraint_strip::{ConstraintAction, ConstraintStrip};
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, MIN_TOUCH_TARGET, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,9 @@ pub enum ContextAction {
     DraftAngle,
     SplitBody,
     SplitFace,
+    /// Paritas 2.1/2.2: direct editing face.
+    OffsetFace,
+    DeleteFace,
     Boolean,
     Fillet,
     SketchOnFace,
@@ -65,6 +69,12 @@ pub enum ContextAction {
     DistributeHorizontal,
     DistributeVertical,
     TransformPrecise,
+    /// Cermin body 3D terhadap bidang (Paritas 0.2).
+    MirrorBody,
+    /// Putar body 3D mengelilingi sumbu (Paritas 0.3).
+    RotateBody,
+    /// Constraint sketsa dari baris constraint di bawah aksi pemodelan.
+    Constraint(ConstraintAction),
 }
 
 /// State kontrol ekstrusi vektor pada contextual action bar (M3.4).
@@ -263,19 +273,42 @@ impl ContextActionBar {
     }
 
     /// Render contextual action bar untuk seleksi 2D (Sketch Entities).
+    ///
+    /// Baris 1: aksi pemodelan; dibungkus (wrap) bila melebihi `max_width`
+    /// supaya tidak menumpuk di layar kecil. Baris 2: constraint yang berlaku
+    /// untuk seleksi (`constraints`, hanya yang valid) — selalu tampil bila
+    /// ada, tidak pernah lebih lebar dari baris 1.
     pub fn show_sketch_selection(
         ui: &mut Ui,
         selected_count: usize,
         has_closed_profile: bool,
+        constraints: &[ConstraintAction],
         icon_size: f32,
+        max_width: f32,
     ) -> Option<ContextAction> {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
 
+        // `horizontal_wrapped` selalu memakan seluruh lebar yang tersedia, jadi
+        // ia hanya dipakai bila lebar alami baris (diukur frame sebelumnya)
+        // memang melebihi `max_width`; selain itu pil tetap sekecil isinya.
+        let max_width = max_width.max(160.0);
+        // Kunci ukuran ke komposisi baris: bila tombol berubah (Ekstrusi,
+        // grup boolean ≥2), lebar diukur ulang dalam mode tak-membungkus.
+        let width_id = ui
+            .id()
+            .with("sketch-context-row-width")
+            .with((has_closed_profile, selected_count >= 2, icon_sz as i32));
+        let natural_width: f32 = ui.ctx().data(|d| d.get_temp(width_id)).unwrap_or(0.0);
+        let wrap = natural_width > max_width;
+
         pill_frame().show(ui, |ui| {
+            if wrap {
+                ui.set_max_width(max_width);
+            }
             ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
-            ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
+            let row = |ui: &mut Ui| {
                 // Header ringkas info seleksi
                 ui.label(
                     RichText::new(format!("{} terpilih", selected_count))
@@ -386,7 +419,20 @@ impl ContextActionBar {
                 if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
-            });
+            };
+            if wrap {
+                ui.horizontal_wrapped(row);
+            } else {
+                let resp = ui.horizontal(row);
+                ui.ctx().data_mut(|d| d.insert_temp(width_id, resp.response.rect.width()));
+            }
+
+            if !constraints.is_empty() {
+                ui.separator();
+                if let Some(c) = ConstraintStrip::show_row(ui, constraints, icon_size) {
+                    action = Some(ContextAction::Constraint(c));
+                }
+            }
         });
 
         action
@@ -453,6 +499,14 @@ impl ContextActionBar {
                 // Split Face
                 if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Face", TEXT_PRIMARY, icon_sz, "Bagi permukaan (face) ini menjadi bagian terpisah (S)").clicked() {
                     action = Some(ContextAction::SplitFace);
+                }
+
+                // Offset Face / Delete Face (direct editing, Paritas 2.1/2.2)
+                if context_action_btn(ui, egui_icons::icons::ICON_HEIGHT.codepoint, &t!("direct-offset-face"), TEXT_PRIMARY, icon_sz, &t!("direct-offset-face-help")).clicked() {
+                    action = Some(ContextAction::OffsetFace);
+                }
+                if context_action_btn(ui, egui_icons::icons::ICON_DELETE_SWEEP.codepoint, &t!("direct-delete-face"), TEXT_PRIMARY, icon_sz, &t!("direct-delete-face-help")).clicked() {
+                    action = Some(ContextAction::DeleteFace);
                 }
 
                 // Hole Wizard (Standar ISO Fastener)
@@ -592,6 +646,15 @@ impl ContextActionBar {
                 // Pattern Solid (1 or more bodies)
                 if context_action_btn(ui, ICON_GRID_VIEW.codepoint, "Pattern", TEXT_PRIMARY, icon_sz, "Duplikasi solid 3D dalam kisi Linier / Sirkular (P)").clicked() {
                     action = Some(ContextAction::Pattern);
+                }
+
+                if count == 1 {
+                    if context_action_btn(ui, ICON_FLIP.codepoint, &t!("mirror-body-title"), TEXT_PRIMARY, icon_sz, &t!("mirror-body-desc")).clicked() {
+                        action = Some(ContextAction::MirrorBody);
+                    }
+                    if context_action_btn(ui, egui_icons::icons::ICON_ROTATE_RIGHT.codepoint, &t!("rotate-body-title"), TEXT_PRIMARY, icon_sz, &t!("rotate-body-desc")).clicked() {
+                        action = Some(ContextAction::RotateBody);
+                    }
                 }
 
                 ui.add_space(2.0);

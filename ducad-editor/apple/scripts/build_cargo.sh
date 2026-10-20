@@ -61,12 +61,8 @@ esac
 
 echo "🎯 Selected Rust Target: $RUST_TARGET"
 
-# 3. Configure iOS toolchain & OCCT if compiling for iOS/iPadOS
-TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
-if [[ "$RUST_TARGET" == *"apple-ios-sim"* ]] || [ "${PLATFORM_NAME:-}" = "iphonesimulator" ]; then
-    TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
-fi
 
+# 3. iOS SDK (kernel truck: Rust murni, tanpa pre-build C++/cmake)
 # Detect & export iOS SDK paths for toolchain files before unsetting Xcode variables
 export SDK_IPHONEOS="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "${SDKROOT:-/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk}")"
 export SDK_SIMULATOR="$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || echo "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk")"
@@ -86,73 +82,6 @@ unset CXXFLAGS
 unset LDFLAGS
 unset CC
 unset CXX
-
-if [[ "$RUST_TARGET" == *"apple-ios"* ]]; then
-    export CMAKE_POLICY_VERSION_MINIMUM="3.5"
-    if [ -f "$TOOLCHAIN_FILE" ]; then
-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
-        export CMAKE_TOOLCHAIN_FILE_x86_64_apple_ios="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
-    fi
-
-    # Pre-build OCCT if needed (same serial install safety as build_ipad.sh)
-    OCCT_TARGET_DIR="$EDITOR_DIR/target/$RUST_TARGET/OCCT"
-    OCCT_LIB_STEP="$OCCT_TARGET_DIR/lib/libTKDESTEP.a"
-    OCCT_SRC_DIR="$HOME/.cargo/registry/src"
-    OCCT_VERSION=$(grep -A 2 'name = "occt-sys"' "$EDITOR_DIR/Cargo.lock" 2>/dev/null | grep 'version =' | head -n1 | cut -d '"' -f2 || echo "7.8.1")
-    OCCT_SYS_DIR=$(find "$OCCT_SRC_DIR" -maxdepth 3 -type d -path "*/occt-sys-${OCCT_VERSION}/OCCT" 2>/dev/null | head -n1 || true)
-    if [ -z "$OCCT_SYS_DIR" ] || [ ! -d "$OCCT_SYS_DIR" ]; then
-        OCCT_SYS_DIR=$(find "$OCCT_SRC_DIR" -maxdepth 3 -type d -name "OCCT" 2>/dev/null | grep "occt-sys" | sort -V | tail -n1 || true)
-    fi
-    
-    if [ ! -f "$OCCT_LIB_STEP" ] && [ -n "$OCCT_SYS_DIR" ] && [ -d "$OCCT_SYS_DIR" ]; then
-        echo "⚙️ Pre-building OCCT for target $RUST_TARGET (version: $OCCT_VERSION)..."
-        BUILD_DIR="$OCCT_TARGET_DIR/build"
-        
-        # Clean build directory if CMakeCache was generated with a different source directory
-        if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
-            CACHE_SRC=$(grep -i "CMAKE_HOME_DIRECTORY:INTERNAL=" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | cut -d'=' -f2 || true)
-            if [ -n "$CACHE_SRC" ] && [ "$CACHE_SRC" != "$OCCT_SYS_DIR" ]; then
-                echo "⚠️ CMake cache source mismatch ($CACHE_SRC != $OCCT_SYS_DIR). Resetting build directory..."
-                rm -rf "$BUILD_DIR"
-                rm -rf "$OCCT_TARGET_DIR/lib"
-                rm -rf "$OCCT_TARGET_DIR/include"
-            fi
-        fi
-
-        # Remove stale/conflicting legacy libraries (e.g. pre-7.8 libTKSTEP.a) if present
-        if [ -f "$OCCT_TARGET_DIR/lib/libTKSTEP.a" ] && [ ! -f "$OCCT_LIB_STEP" ]; then
-            echo "🧹 Removing legacy/incompatible OCCT libraries from $OCCT_TARGET_DIR/lib..."
-            rm -rf "$OCCT_TARGET_DIR/lib"
-            rm -rf "$OCCT_TARGET_DIR/include"
-        fi
-
-        mkdir -p "$BUILD_DIR"
-        TOOLCHAIN_FLAG=""
-        if [ -f "$TOOLCHAIN_FILE" ]; then
-            TOOLCHAIN_FLAG="-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE"
-        fi
-        PATCH_DIR="$(dirname "$OCCT_SYS_DIR")/patch"
-        cmake "$OCCT_SYS_DIR" -B "$BUILD_DIR" \
-            -DBUILD_PATCH="$PATCH_DIR" \
-            -DBUILD_LIBRARY_TYPE=Static \
-            -DBUILD_MODULE_ApplicationFramework=FALSE \
-            -DBUILD_MODULE_Draw=FALSE \
-            -DUSE_D3D=FALSE -DUSE_DRACO=FALSE -DUSE_EIGEN=FALSE -DUSE_FFMPEG=FALSE \
-            -DUSE_FREEIMAGE=FALSE -DUSE_FREETYPE=FALSE -DUSE_GLES2=FALSE -DUSE_OPENGL=FALSE \
-            -DUSE_OPENVR=FALSE -DUSE_RAPIDJSON=FALSE -DUSE_TBB=FALSE -DUSE_TCL=FALSE \
-            -DUSE_TK=FALSE -DUSE_VTK=FALSE -DUSE_XLIB=FALSE \
-            -DINSTALL_DIR_LIB=lib -DINSTALL_DIR_INCLUDE=include \
-            $TOOLCHAIN_FLAG \
-            -DCMAKE_INSTALL_PREFIX="$OCCT_TARGET_DIR" \
-            -DCMAKE_BUILD_TYPE=Release
-        
-        NCPUS=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
-        cmake --build "$BUILD_DIR" --config Release --parallel "$NCPUS"
-        cmake --install "$BUILD_DIR"
-        echo "✅ OCCT pre-build complete for $RUST_TARGET"
-    fi
-fi
 
 # 4. Run Cargo Build
 CARGO_FLAGS="--target $RUST_TARGET -p ducad-app"

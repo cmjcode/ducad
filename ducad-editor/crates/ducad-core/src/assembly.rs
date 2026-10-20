@@ -101,6 +101,11 @@ pub enum JointKind {
     Planar,
     /// Bola: bebas berputar di tiga sumbu, 3 DOF rotasi.
     Ball,
+    /// Pin-slot: pin bergeser sepanjang alur + berputar pada sumbunya, 2 DOF.
+    PinSlot,
+    /// Cam-follower: follower bergeser sepanjang sumbunya mengikuti kontur
+    /// cam (nilai dihitung dari kontak), 1 DOF terkendali.
+    Cam,
 }
 
 impl JointKind {
@@ -112,6 +117,8 @@ impl JointKind {
             JointKind::Cylindrical => "Cylindrical",
             JointKind::Planar => "Planar",
             JointKind::Ball => "Ball (Bola)",
+            JointKind::PinSlot => "Pin-slot",
+            JointKind::Cam => "Cam",
         }
     }
 
@@ -124,6 +131,8 @@ impl JointKind {
             JointKind::Cylindrical => (1, 1),
             JointKind::Planar => (2, 1),
             JointKind::Ball => (0, 3),
+            JointKind::PinSlot => (1, 1),
+            JointKind::Cam => (1, 0),
         };
         DegreesOfFreedom {
             translation_dof: t,
@@ -142,7 +151,7 @@ impl JointKind {
                 lock_rotation: false,
                 aligned: true,
             },
-            JointKind::Slider | JointKind::Cylindrical => MateKind::Concentric {
+            JointKind::Slider | JointKind::Cylindrical | JointKind::PinSlot | JointKind::Cam => MateKind::Concentric {
                 lock_rotation: false,
                 aligned: true,
             },
@@ -261,6 +270,20 @@ pub struct MateConstraint {
     /// Joint yang diwakili mate ini, bila ia dibuat lewat preset joint.
     #[serde(default)]
     pub joint: Option<JointKind>,
+    /// Frame + pose relatif + nilai joint (Paritas 4.1–4.4). Bila ada,
+    /// solver memakai model joint kinematik ini, bukan `kind`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub joint_state: Option<crate::joint::JointState>,
+}
+
+impl MateConstraint {
+    /// Nilai utama joint/mate yang bisa digerakkan (sudut °/jarak mm).
+    pub fn driven_value(&self) -> Option<f64> {
+        match (&self.joint_state, self.joint) {
+            (Some(s), Some(k)) if !matches!(k, JointKind::Rigid) => Some(s.values[0]),
+            _ => self.kind.driven_value(),
+        }
+    }
 }
 
 /// Derajat kebebasan (Degrees of Freedom - DOF) sebuah komponen dalam perakitan 3D.
@@ -498,8 +521,19 @@ pub struct AssemblyTree {
     /// Langkah urai berurutan (*exploded view*); melengkapi `explode_offset`.
     #[serde(default)]
     pub explode_steps: Vec<crate::coupling::ExplodeStep>,
+    /// Grup kaku (*rigid group*): instance di satu grup bergerak sebagai
+    /// satu body saat solver mate berjalan.
+    #[serde(default)]
+    pub rigid_groups: Vec<Vec<AssemblyInstanceId>>,
     pub sub_assemblies: HashMap<SubAssemblyId, SubAssembly>,
     pub mates: HashMap<MateConstraintId, MateConstraint>,
+    /// Contact set (Paritas 4.8): instance yang tidak boleh saling menembus.
+    #[serde(default)]
+    pub contact_sets: Vec<ContactSet>,
+    /// Posisi tersimpan lewat "Capture position" (Paritas 4.7):
+    /// instance → (translasi, rotasi) lokal.
+    #[serde(default)]
+    pub captured_poses: HashMap<AssemblyInstanceId, ((f64, f64, f64), (f64, f64, f64, f64))>,
     pub next_instance_id: AssemblyInstanceId,
     pub next_mate_id: MateConstraintId,
     pub next_sub_id: SubAssemblyId,
@@ -513,8 +547,11 @@ impl Default for AssemblyTree {
             motion_studies: Vec::new(),
             couplings: Vec::new(),
             explode_steps: Vec::new(),
+            rigid_groups: Vec::new(),
             sub_assemblies: HashMap::new(),
             mates: HashMap::new(),
+            contact_sets: Vec::new(),
+            captured_poses: HashMap::new(),
             next_instance_id: 1,
             next_mate_id: 1,
             next_sub_id: 1,
@@ -522,9 +559,124 @@ impl Default for AssemblyTree {
     }
 }
 
+/// Contact set: anggota tidak boleh saling menembus saat perakitan
+/// digerakkan (Paritas 4.8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContactSet {
+    pub name: String,
+    pub instances: Vec<AssemblyInstanceId>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 impl AssemblyTree {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Paritas 4.5: ganti nama instance (nama kosong ditolak).
+    pub fn rename_instance(&mut self, id: AssemblyInstanceId, name: &str) -> bool {
+        let name = name.trim();
+        match self.instances.get_mut(&id) {
+            Some(i) if !name.is_empty() => {
+                i.name = name.to_string();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Paritas 4.7: simpan posisi semua instance sekarang.
+    pub fn capture_positions(&mut self) {
+        self.captured_poses = self
+            .instances
+            .iter()
+            .map(|(id, i)| (*id, (i.translation, i.rotation_quat)))
+            .collect();
+    }
+
+    /// Paritas 4.7: kembalikan instance ke posisi tersimpan. Mengembalikan
+    /// instance yang berpindah.
+    pub fn revert_positions(&mut self) -> Vec<AssemblyInstanceId> {
+        let mut moved = Vec::new();
+        for (id, (t, q)) in &self.captured_poses {
+            if let Some(i) = self.instances.get_mut(id) {
+                if i.translation != *t || i.rotation_quat != *q {
+                    i.translation = *t;
+                    i.rotation_quat = *q;
+                    moved.push(*id);
+                }
+            }
+        }
+        moved.sort_unstable();
+        moved
+    }
+
+    /// Paritas 4.8: tambah contact set (≥ 2 instance valid).
+    pub fn add_contact_set(&mut self, name: &str, ids: &[AssemblyInstanceId]) -> bool {
+        let mut members: Vec<AssemblyInstanceId> =
+            ids.iter().copied().filter(|i| self.instances.contains_key(i)).collect();
+        members.sort_unstable();
+        members.dedup();
+        if members.len() < 2 {
+            return false;
+        }
+        let name = if name.trim().is_empty() {
+            format!("Contact {}", self.contact_sets.len() + 1)
+        } else {
+            name.trim().to_string()
+        };
+        self.contact_sets.push(ContactSet { name, instances: members, enabled: true });
+        true
+    }
+
+    /// Pasangan instance yang dijaga contact set aktif.
+    pub fn contact_pairs(&self) -> Vec<(AssemblyInstanceId, AssemblyInstanceId)> {
+        let mut out = Vec::new();
+        for set in self.contact_sets.iter().filter(|s| s.enabled) {
+            for (k, a) in set.instances.iter().enumerate() {
+                for b in &set.instances[k + 1..] {
+                    let p = ((*a).min(*b), (*a).max(*b));
+                    if !out.contains(&p) {
+                        out.push(p);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Jadikan `ids` satu grup kaku. Instance yang sudah ada di grup lain
+    /// dipindahkan; grup yang tersisa < 2 anggota dibuang. `false` bila
+    /// kurang dari 2 instance valid.
+    pub fn make_rigid_group(&mut self, ids: &[AssemblyInstanceId]) -> bool {
+        let mut members: Vec<AssemblyInstanceId> =
+            ids.iter().copied().filter(|id| self.instances.contains_key(id)).collect();
+        members.sort_unstable();
+        members.dedup();
+        if members.len() < 2 {
+            return false;
+        }
+        for g in &mut self.rigid_groups {
+            g.retain(|id| !members.contains(id));
+        }
+        self.rigid_groups.retain(|g| g.len() >= 2);
+        self.rigid_groups.push(members);
+        true
+    }
+
+    /// Lepas grup kaku yang memuat `id`.
+    pub fn dissolve_rigid_group(&mut self, id: AssemblyInstanceId) {
+        self.rigid_groups.retain(|g| !g.contains(&id));
+    }
+
+    /// Grup kaku tempat `id` berada.
+    pub fn rigid_group_of(&self, id: AssemblyInstanceId) -> Option<&[AssemblyInstanceId]> {
+        self.rigid_groups.iter().find(|g| g.contains(&id)).map(Vec::as_slice)
     }
 
     /// Tambahkan instance part baru ke perakitan.
@@ -547,6 +699,11 @@ impl AssemblyTree {
 
     /// Hapus instance part dan semua mate constraints yang terhubung dengannya.
     pub fn remove_instance(&mut self, id: AssemblyInstanceId) {
+        for set in &mut self.contact_sets {
+            set.instances.retain(|i| *i != id);
+        }
+        self.contact_sets.retain(|s| s.instances.len() >= 2);
+        self.captured_poses.remove(&id);
         self.instances.remove(&id);
         // Hapus mate yang mereferensikan instance ini
         self.mates
@@ -868,6 +1025,7 @@ impl AssemblyTree {
         let constraint = MateConstraint {
             limits: MateLimits::default(),
             joint: None,
+            joint_state: None,
             id,
             name: name.into(),
             kind,
@@ -1490,5 +1648,33 @@ mod bom_tests {
         let lines: Vec<&str> = csv.trim_end().lines().collect();
         assert_eq!(lines[0], BomRow::csv_header());
         assert_eq!(lines.len(), 3, "header + 2 baris");
+    }
+}
+
+#[cfg(test)]
+mod fase4_tests {
+    use super::*;
+
+    #[test]
+    fn rename_capture_revert_contact_sets() {
+        let mut t = AssemblyTree::default();
+        let a = t.add_instance("a", 1);
+        let b = t.add_instance("b", 2);
+        let c = t.add_instance("c", 3);
+        assert!(t.rename_instance(a, " Rangka "));
+        assert_eq!(t.instances[&a].name, "Rangka");
+        assert!(!t.rename_instance(a, " "));
+        t.capture_positions();
+        t.instances.get_mut(&b).unwrap().translation = (5.0, 0.0, 0.0);
+        assert_eq!(t.revert_positions(), vec![b]);
+        assert_eq!(t.instances[&b].translation, (0.0, 0.0, 0.0));
+        assert!(t.add_contact_set("", &[a, b, c]));
+        assert!(!t.add_contact_set("x", &[a, a]));
+        assert_eq!(t.contact_pairs().len(), 3);
+        t.remove_instance(c);
+        assert_eq!(t.contact_pairs(), vec![(a.min(b), a.max(b))]);
+        let json = serde_json::to_string(&t).unwrap();
+        let back: AssemblyTree = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.contact_sets.len(), 1);
     }
 }

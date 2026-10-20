@@ -4,23 +4,20 @@
 # `pkgver`, `pkgrel`, and the local-file checksums are maintained by
 # `scripts/update-aur.sh`; edit everything else here by hand.
 #
-# The OpenCASCADE bindings live in a git SUBMODULE (ducad-editor/vendors/
-# opencascade-rs), so the GitHub tarball is NOT buildable. The submodule is
-# fetched as a second git source and wired in during prepare().
+# Since 0.6.0 the geometry kernel (SolidCraft on truck) is pure Rust and
+# vendored in-tree: no submodule, no system CAD library, no CMake.
 
 pkgname=ducad
 pkgver=0.4.0
 pkgrel=1
-pkgdesc="Parametric 2D/3D CAD: constraint-based sketching and B-rep solid modeling on OpenCASCADE, with a headless CLI and MCP server"
+pkgdesc="Parametric 2D/3D CAD: constraint-based sketching and B-rep solid modeling, with a headless CLI and MCP server"
 arch=('x86_64' 'aarch64')
 url="https://github.com/cmjcode/ducad"
 license=('AGPL-3.0-only')
-# OCCT is linked dynamically from the system package (>= 7.8 required by
-# opencascade-sys). winit/wgpu need xkbcommon + xcb/x11 + wayland + Vulkan.
+# winit/wgpu need xkbcommon + xcb/x11 + wayland + Vulkan.
 depends=(
   gcc-libs
   glibc
-  opencascade
   libxkbcommon
   libxkbcommon-x11
   libxcb
@@ -32,28 +29,20 @@ depends=(
   vulkan-icd-loader
   hicolor-icon-theme
 )
-makedepends=(cargo cmake git)
+makedepends=(cargo git)
 optdepends=(
   'xdg-desktop-portal: native file open/save dialogs'
   'vulkan-driver: GPU rendering backend (e.g. vulkan-radeon, vulkan-intel, nvidia-utils)'
 )
 source=(
   "$pkgname::git+$url.git#tag=v$pkgver"
-  "opencascade-rs::git+https://github.com/cmjcode/opencascade-rs.git"
   "ducad.desktop"
 )
 sha256sums=('SKIP'
-            'SKIP'
-            '00583e812954846985aba944e89e0f98b4ab999b12661df6993724e86ffd4a39')
+            'f0f59e0333a13b1f96dab4a85651255ee7273ebe99eaaeeb03d17e9c4485bad5')
 
 prepare() {
-  cd "$srcdir/$pkgname"
-  # Point the submodule at the locally cloned mirror instead of the network.
-  git submodule init
-  git config submodule.ducad-editor/vendors/opencascade-rs.url "$srcdir/opencascade-rs"
-  git -c protocol.file.allow=always submodule update
-
-  cd ducad-editor
+  cd "$srcdir/$pkgname/ducad-editor"
   export CARGO_HOME="$srcdir/cargo"
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
@@ -73,8 +62,8 @@ check() {
   export CARGO_HOME="$srcdir/cargo"
   export CARGO_TARGET_DIR="$srcdir/target"
   export RUSTUP_TOOLCHAIN=stable
-  # Only the kernel-free crates: the OCCT-backed suites take very long and
-  # the GUI suites need a display.
+  # Only the kernel-free crates: the kernel suites take long and the GUI
+  # suites need a display.
   cargo test --release --frozen -p ducad-core -p ducad-sketch
 }
 

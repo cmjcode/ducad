@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/enclosure.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 6,
+  "bodies": [
+    {
+      "name": "box",
+      "valid": true,
+      "volume": 21312.5663,
+      "area": 22008.4954,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          80.0,
+          50.0,
+          30.0
+        ]
+      ],
+      "faces": 26,
+      "edges": 69,
+      "mesh": {
+        "vertices": 3126,
+        "triangles": 3092,
+        "sha": "88a678a9518796a8"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "min_wall#0",
+      "status": "pass"
+    },
+    {
+      "label": "hole_count#1",
+      "status": "pass"
+    }
+  ]
+}

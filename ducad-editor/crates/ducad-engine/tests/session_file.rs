@@ -25,7 +25,9 @@ fn save_then_load_replays_same_geometry_and_keeps_uuid() {
     s.save(&path).unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(json["format_version"], 2);
+    assert_eq!(json["format_version"], 4);
+    assert!(json["bodies"][0].get("step").is_none(), "body turunan tanpa STEP");
+    assert!(json["bodies"][0]["brep"]["producer"].is_string());
     assert_eq!(json["design"]["oplog"].as_array().unwrap().len(), 4);
     let uuid = json["bodies"][0]["uuid"].as_str().unwrap().to_string();
 
@@ -57,7 +59,7 @@ fn file_without_design_is_adopted_with_unique_names() {
     .unwrap();
     assert!(s.run(ops, false).committed);
     let path = temp("adopt");
-    s.save(&path).unwrap();
+    s.save_legacy(&path).unwrap();
     let mut json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     json.as_object_mut().unwrap().remove("design");
@@ -81,7 +83,7 @@ fn file_without_design_is_adopted_with_unique_names() {
 fn edited_file_is_adopted_with_oplog_stale_warning() {
     let mut s = plate_session();
     let path = temp("stale");
-    s.save(&path).unwrap();
+    s.save_legacy(&path).unwrap();
 
     // STEP box lain dari sesi terpisah.
     let mut other = Session::new();
@@ -90,7 +92,7 @@ fn edited_file_is_adopted_with_oplog_stale_warning() {
             .unwrap();
     assert!(other.run(ops, false).committed);
     let other_path = temp("stale-other");
-    other.save(&other_path).unwrap();
+    other.save_legacy(&other_path).unwrap();
     let other_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&other_path).unwrap()).unwrap();
 
@@ -132,4 +134,197 @@ fn explicit_replay_of_design_with_wrong_fingerprint_is_oplog_stale() {
         Err(e) => e,
     };
     assert_eq!(err.code, ducad_engine::OpErrorCode::OplogStale);
+}
+
+fn read_json(path: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+#[test]
+fn legacy_save_keeps_step_and_v2() {
+    let mut s = plate_session();
+    let path = temp("legacy");
+    s.save_legacy(&path).unwrap();
+    let json = read_json(&path);
+    assert_eq!(json["format_version"], 2);
+    assert!(json["bodies"][0]["step"].is_string());
+    assert!(json["bodies"][0].get("brep").is_none());
+    let loaded = Session::from_file(&path).unwrap();
+    assert_eq!(loaded.design().oplog.len(), 4);
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Load tanpa cache == load dengan cache (F1.2): oplog adalah sumber kebenaran.
+#[test]
+fn v4_load_without_cache_equals_load_with_cache() {
+    let mut s = plate_session();
+    let path = temp("nocache");
+    s.save(&path).unwrap();
+    let with_cache = Session::from_file(&path).unwrap();
+
+    let mut json = read_json(&path);
+    for b in json["bodies"].as_array_mut().unwrap() {
+        b.as_object_mut().unwrap().remove("brep");
+    }
+    let without = Session::from_json(&json.to_string()).unwrap();
+
+    // Cache dari backend lain = miss, bukan error.
+    let mut foreign = read_json(&path);
+    foreign["bodies"][0]["brep"]["producer"] = "ducad-truck/1".into();
+    let foreign = Session::from_json(&foreign.to_string()).unwrap();
+
+    let v = |s: &Session| s.body("plate").unwrap().1.shape.volume().abs();
+    assert!((v(&with_cache) - v(&without)).abs() < 1e-9);
+    assert!((v(&with_cache) - v(&foreign)).abs() < 1e-9);
+    assert_eq!(
+        ducad_engine::session::fingerprint(with_cache.model()),
+        ducad_engine::session::fingerprint(without.model())
+    );
+    assert!(without.summary().warnings.is_empty());
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Replay gagal → body diambil dari cache (non-strict) dan jadi body dasar
+/// yang membawa STEP; strict → error.
+#[test]
+fn v4_failed_replay_falls_back_to_cache_with_warning() {
+    let mut s = plate_session();
+    let path = temp("fallback");
+    s.save(&path).unwrap();
+    let mut json = read_json(&path);
+    // Oplog tidak lagi menghasilkan geometri tercatat: sidik jari DAN
+    // ringkasan geometri berbeda (sidik jari saja bisa beda antar-backend).
+    json["design"]["fingerprint"] = "0000000000000000".into();
+    json["design"]["geometry"][0]["volume"] = 1.0.into();
+    let text = json.to_string();
+
+    let loaded = Session::from_json(&text).unwrap();
+    let w = loaded.summary().warnings;
+    assert!(w.contains(&"oplog_stale".to_string()), "{w:?}");
+    assert!(loaded.design().oplog.is_empty());
+    assert!(loaded.design().base_bodies[0].step.is_some());
+    assert!(loaded.body("plate").is_ok());
+
+    assert!(Session::from_json_strict(&text).is_err());
+
+    // Tanpa cache dan replay gagal → error, bukan body hilang diam-diam.
+    for b in json["bodies"].as_array_mut().unwrap() {
+        b.as_object_mut().unwrap().remove("brep");
+    }
+    assert!(Session::from_json(&json.to_string()).is_err());
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Pembaca toleran (F1.4): STEP body berkas lama rusak, oplog masih utuh.
+#[test]
+fn legacy_file_with_corrupt_step_replays_oplog() {
+    let mut s = plate_session();
+    let path = temp("corrupt");
+    s.save_legacy(&path).unwrap();
+    let mut json = read_json(&path);
+    json["bodies"][0]["step"] = "ISO-10303-21;\nrusak".into();
+    let loaded = Session::from_json(&json.to_string()).unwrap();
+    assert_eq!(loaded.design().oplog.len(), 4);
+    assert!(loaded
+        .summary()
+        .warnings
+        .iter()
+        .any(|w| w.starts_with("step_unreadable")));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn migrate_legacy_v2_to_v4_preserves_geometry_and_metadata() {
+    let mut s = plate_session();
+    let path = temp("migrate");
+    s.save_legacy(&path).unwrap();
+    let legacy = std::fs::read_to_string(&path).unwrap();
+    let before = Session::from_json(&legacy).unwrap();
+
+    let (out, report) = ducad_engine::migrate::migrate_json(&legacy).unwrap();
+    assert!(report.changed, "{report:?}");
+    assert_eq!((report.input_version, report.output_version), (2, 4));
+    assert_eq!(report.derived, vec!["plate".to_string()]);
+    assert!(report.kept_step.is_empty());
+
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let old: serde_json::Value = serde_json::from_str(&legacy).unwrap();
+    assert!(v["bodies"][0].get("step").is_none());
+    assert_eq!(v["bodies"][0]["uuid"], old["bodies"][0]["uuid"]);
+    assert_eq!(v["design"], old["design"], "oplog tidak boleh berubah");
+    assert_eq!(v["sketch"], old["sketch"]);
+
+    let after = Session::from_json(&out).unwrap();
+    assert_eq!(
+        ducad_engine::session::fingerprint(before.model()),
+        ducad_engine::session::fingerprint(after.model())
+    );
+    // Idempoten.
+    let (again, r2) = ducad_engine::migrate::migrate_json(&out).unwrap();
+    assert!(!r2.changed);
+    assert_eq!(again, out);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn migrate_leaves_files_without_oplog_or_stale_untouched() {
+    let mut s = plate_session();
+    let path = temp("migrate-skip");
+    s.save_legacy(&path).unwrap();
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+    let mut no_design = json.clone();
+    no_design.as_object_mut().unwrap().remove("design");
+    no_design["format_version"] = 1.into();
+    let text = no_design.to_string();
+    let (out, r) = ducad_engine::migrate::migrate_json(&text).unwrap();
+    assert!(!r.changed);
+    assert_eq!(r.skipped.as_deref(), Some("no_oplog"));
+    assert_eq!(out, text);
+
+    // Basi sungguhan: oplog (param diubah) tidak lagi menghasilkan body STEP
+    // berkas. Sidik jari palsu saja tidak cukup — itu juga terjadi pada
+    // berkas dari backend kernel lain, yang tetap di-replay.
+    json["design"]["fingerprint"] = "0000000000000000".into();
+    let params = json["design"]["params"].as_object_mut().unwrap();
+    let key = params.keys().next().unwrap().clone();
+    let v = params[&key].as_f64().unwrap();
+    params.insert(key, (v * 1.5).into());
+    let text = json.to_string();
+    let (out, r) = ducad_engine::migrate::migrate_json(&text).unwrap();
+    assert!(!r.changed, "{r:?}");
+    assert_eq!(out, text);
+    assert_eq!(r.kept_step.len(), 1);
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Berkas dari backend kernel lain (PLAN_MIGRASI_TRUCK F3): sidik jari hash
+/// tidak cocok persis, tetapi geometri replay sama dalam toleransi → oplog
+/// dipakai, bukan dianggap basi.
+#[test]
+fn foreign_backend_fingerprint_still_replays_v4_and_v2() {
+    for legacy in [false, true] {
+        let mut s = plate_session();
+        let path = temp(if legacy { "foreign-v2" } else { "foreign-v4" });
+        if legacy {
+            s.save_legacy(&path).unwrap();
+        } else {
+            s.save(&path).unwrap();
+        }
+        let mut json = read_json(&path);
+        if !legacy {
+            assert!(json["design"]["geometry"].as_array().is_some_and(|g| !g.is_empty()));
+        } else {
+            // Berkas lama tidak punya ringkasan geometri.
+            json["design"].as_object_mut().unwrap().remove("geometry");
+        }
+        json["design"]["fingerprint"] = "0123456789abcdef".into();
+        std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+        let loaded = Session::from_file(&path).unwrap();
+        assert_eq!(loaded.design().oplog.len(), 4, "legacy={legacy}");
+        let w = loaded.summary().warnings;
+        assert!(!w.contains(&"oplog_stale".to_string()), "legacy={legacy}: {w:?}");
+        let _ = std::fs::remove_file(&path);
+    }
 }

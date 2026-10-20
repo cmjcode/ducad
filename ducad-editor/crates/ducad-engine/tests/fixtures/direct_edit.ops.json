@@ -1,0 +1,26 @@
+{ "params": { "w": 40, "d": 30, "h": 10, "lift": 5 },
+  "ops": [
+    {"op":"primitive","id":"block","shape":{"box":{"size":["$w","$d","$h"]}}},
+    {"op":"fillet","id":"round","body":"block","edges":"|Z","radius":3},
+    {"op":"delete_face","id":"unround","body":"block","faces":"all[kind=cylinder]"},
+    {"op":"offset_face","id":"lift_top","body":"block","faces":">Z","distance":"$lift"},
+    {"op":"replace_face","id":"extend_left","body":"block","face":"<X","with":{"base":"YZ","offset":-5}},
+    {"op":"split_face","id":"mark","body":"block","faces":"<Z","tool":{"plane":{"base":"YZ","offset":20}}},
+    {"op":"sketch","id":"web_sk","plane":{"base":"XY","offset":15},"entities":[
+      {"line":{"from":[0,5],"to":[30,5],"name":"w1"}},
+      {"line":{"from":[0,25],"to":[30,25],"name":"w2"}}]},
+    {"op":"web","id":"ribs","body":"block","sketch":"web_sk","thickness":2,"depth":4},
+    {"op":"sketch","id":"logo_sk","plane":{"base":"XY","offset":15},"entities":[
+      {"circle":{"center":[35,15],"r":3,"name":"dot"}}]},
+    {"op":"emboss","id":"logo","sketch":"logo_sk","body":"block","depth":1,"deboss":true},
+    {"op":"primitive","id":"ring","shape":{"torus":{"major":10,"minor":2}},"at":[20,15,40]},
+    {"op":"bounding_solid","id":"ring_box","body":"ring","margin":1},
+    {"op":"pipe","id":"rail","path":{"points":[[0,-20,0],[40,-20,0],[40,-50,0]]},"r":2,"wall":0.5},
+    {"op":"primitive","id":"stud","shape":{"cylinder":{"r":1.5,"h":3}},"at":[0,-30,0]},
+    {"op":"pattern","id":"studs","body":"stud","kind":{"path":{"path":{"points":[[0,-30,0],[40,-30,0]]},"count":5}}},
+    {"op":"primitive","id":"cap","shape":{"box":{"size":[10,10,4]}},"at":[100,100,100]},
+    {"op":"align","id":"seat","body":"cap","from":"<Z","to":{"body":"block","face":"<Z"}},
+    {"op":"primitive","id":"ba","shape":{"box":{"size":[10,10,10]}},"at":[200,0,0]},
+    {"op":"primitive","id":"bb","shape":{"box":{"size":[10,10,10]}},"at":[205,0,0]},
+    {"op":"boundary_fill","id":"overlap","bodies":["ba","bb"],"points":[[207,5,5]]}
+  ] }

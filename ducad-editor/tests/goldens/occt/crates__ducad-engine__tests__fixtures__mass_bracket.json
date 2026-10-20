@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/mass_bracket.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 7,
+  "bodies": [
+    {
+      "name": "bracket",
+      "valid": true,
+      "volume": 13750.0,
+      "area": 6550.0,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          50.0,
+          30.0,
+          30.0
+        ]
+      ],
+      "faces": 8,
+      "edges": 18,
+      "mesh": {
+        "vertices": 36,
+        "triangles": 20,
+        "sha": "7c20b66f637f2b70"
+      }
+    },
+    {
+      "name": "pin",
+      "valid": true,
+      "volume": 1005.3096,
+      "area": 603.1858,
+      "bbox": [
+        [
+          21.0,
+          16.0012,
+          5.0
+        ],
+        [
+          29.0,
+          23.9988,
+          25.0
+        ]
+      ],
+      "faces": 3,
+      "edges": 3,
+      "mesh": {
+        "vertices": 506,
+        "triangles": 500,
+        "sha": "f7a180b40290e6e2"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "bracket_mass",
+      "status": "pass"
+    },
+    {
+      "label": "pin_on_centerline",
+      "status": "pass"
+    },
+    {
+      "label": "pin_spin_inertia",
+      "status": "pass"
+    }
+  ]
+}
