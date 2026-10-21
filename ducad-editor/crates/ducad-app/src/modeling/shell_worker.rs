@@ -152,15 +152,40 @@ impl DuCADApp {
                 } else {
                     format!("Membuat rongga hollow dinding tebal {:.1} mm", thickness)
                 };
-                self.execute_model_command(
-                    Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
-                    &details,
-                );
-                let (open_rays, open_direction) = match pick {
-                    ShellPick::Rays(rays) => (rays, None),
-                    ShellPick::Direction(dir) => (Vec::new(), Some(dir)),
+                // Jalur oplog (ADR 0010): shell dihitung di thread latar; op
+                // setaranya dicatat ke oplog dalam langkah undo yang sama
+                // (tanpa menghitung ulang). Nama body kembar → jalur lama.
+                let name = self.model.doc.bodies.get(id).map(|b| b.name.clone());
+                let unique = name.as_ref().is_some_and(|n| {
+                    self.model.doc.bodies.values().filter(|b| &b.name == n).count() == 1
+                });
+                let op = match (&name, self.model.geometry.get(id)) {
+                    (Some(n), Some(g)) if unique => {
+                        self.shell_op_for(n, &g.shape, &pick, thickness, depth)
+                    }
+                    _ => None,
                 };
-                self.record_shell_feature(thickness, &open_rays, open_direction, depth);
+                if let Some(op) = op {
+                    self.sync_agent_meta();
+                    let mark = self.begin_oplog_step();
+                    self.execute_model_command(
+                        Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
+                        &details,
+                    );
+                    self.agent_meta.design.oplog.push(op);
+                    self.end_oplog_step(mark, label);
+                    self.sync_design_after_agent();
+                } else {
+                    self.execute_model_command(
+                        Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
+                        &details,
+                    );
+                    let (open_rays, open_direction) = match pick {
+                        ShellPick::Rays(rays) => (rays, None),
+                        ShellPick::Direction(dir) => (Vec::new(), Some(dir)),
+                    };
+                    self.record_shell_feature(thickness, &open_rays, open_direction, depth);
+                }
                 self.round_history.remove(&id);
                 self.selected_faces.clear();
                 self.active_face = None;

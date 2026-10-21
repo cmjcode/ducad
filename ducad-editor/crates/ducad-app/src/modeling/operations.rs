@@ -439,6 +439,26 @@ impl DuCADApp {
             }
         };
 
+        // Jalur oplog (ADR 0010): dua op sketch turunan (bidang aktif + offset
+        // setinggi `height`) + op loft, di bidang sebenarnya.
+        let plane = self.active_plane;
+        match self.loft_via_oplog(&bottom, &top, &plane, height) {
+            Ok(true) => {
+                self.set_tool(crate::types::ToolKind::Select);
+                self.selected.clear();
+                self.selection_box = None;
+                self.loft_alignment_dismissed = false;
+                self.model_status = Some("Loft 3D berhasil dibuat".to_string());
+                return;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                self.model_status = Some(op_status("Loft", &e));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                return;
+            }
+        }
         match ducad_kernel::loft_profiles(&bottom, &top, height) {
             Ok(shape) => {
                 let geo = BodyGeometry::from_shape(shape);
@@ -529,6 +549,26 @@ impl DuCADApp {
             return;
         };
 
+        // Jalur oplog (ADR 0010) untuk jalur lurus/polyline di bidang standar.
+        match self.sweep_via_oplog(&profile, &profile_plane, &path_segments) {
+            Ok(true) => {
+                self.pending_sweep_profile = None;
+                self.pending_sweep_path = None;
+                self.sweep_path_plane_idx = None;
+                self.hovered_plane_idx = None;
+                self.selected.clear();
+                self.model_status = Some("Solid Sweep 3D berhasil dibuat".to_string());
+                self.set_tool(ToolKind::Select);
+                return;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                self.model_status = Some(op_status("Sweep", &e));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                return;
+            }
+        }
         let origin = [
             profile_plane.origin.x as f64,
             profile_plane.origin.y as f64,
@@ -1301,6 +1341,26 @@ impl DuCADApp {
             }
         };
 
+        // Jalur oplog (ADR 0010): arah tarik sejajar sumbu, bidang netral =
+        // face terbawah searah tarik.
+        match self.draft_via_oplog(target_id, &rays, angle_deg, pull_dir) {
+            Ok(true) => {
+                self.round_history.remove(&target_id);
+                self.selected_faces.clear();
+                self.active_face = None;
+                self.picking_mode = crate::types::PickMode::None;
+                self.model_status = Some(format!("Draft Angle {angle_deg:.1}° diterapkan"));
+                self.set_tool(crate::types::ToolKind::Select);
+                return;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                self.model_status = Some(op_status("Draft Angle", &e));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                return;
+            }
+        }
         let Some(geo) = self.model.geometry.get(target_id) else {
             self.model_status = Some("Geometri body tidak ditemukan".to_string());
             return;

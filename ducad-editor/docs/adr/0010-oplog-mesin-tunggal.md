@@ -109,8 +109,13 @@ regenerasi setelah edit dimensi awal, dan tidak lagi dicatat ke DAG.
 | Urutan 4: hole wizard | ✅ `hole_via_oplog`: lubang baru dan edit lubang hasil op; spec yang tidak bisa dinyatakan op (counterbore custom) dan lubang lama tetap jalur lama |
 | Urutan 5: boolean, pattern 3D | ✅ `boolean_via_oplog`, `pattern_via_oplog` (satu batch per aksi); seleksi body berurutan (`IndexSet`) sehingga subtract = pertama − kedua |
 | Dimensi sketsa terikat param | ✅ `Sketch::dim_exprs` → `Num::Expr` di op `sketch`; replay karena param memperbarui slot GUI terikat (`adopt_replayed_session`), snapshot slot ikut di command undo oplog |
-| Urutan 6: revolve | ✅ `revolve_via_oplog` lewat `run_feature_on_sketch` (helper bersama extrude); bidang sebenarnya, bukan selalu XY. Loft, sweep, shell, draft, emboss belum |
-| Urutan 6 (sisa) – 10 | ☐ |
+| Urutan 6: revolve | ✅ `revolve_via_oplog` lewat `run_feature_on_sketch` (helper bersama extrude); bidang sebenarnya, bukan selalu XY |
+| Urutan 6: shell | ✅ komputasi tetap di thread latar (`shell_worker`); op `shell` setara (`>Z`/`<Z`… atau `suggest_faces` dari face yang dibuka) dicatat ke oplog dalam langkah undo yang sama tanpa hitung ulang. Shell variabel dan body bernama kembar tetap jalur lama |
+| Urutan 6: loft | ✅ dua op `sketch` turunan (bidang aktif + offset setinggi `height`) + op `loft`, di bidang sebenarnya. Sketsa turunan tidak terikat ke slot GUI (edit sketsa tidak mengalir ke loft); profil bawah tertunda dari bidang datum tetap jalur lama |
+| Urutan 6: sweep | ✅ op `sketch` turunan untuk profil + op `sweep` dengan jalur `points`; jalur berbusur dan bidang datum tetap jalur lama (titik polyline akan menghilangkan lengkung) |
+| Urutan 6: draft | ✅ op `draft` untuk arah tarik sejajar sumbu; **perubahan perilaku:** bidang netral = face terbawah searah tarik (`<Z` untuk tarik +Z), bukan bidang melalui titik asal dunia. Sama untuk part yang duduk di z = 0 |
+| Urutan 6: emboss | ☐ |
+| Urutan 7–10 | ☐ |
 | Buka berkas memulihkan oplog + ikatan sketsa | ✅ `restore_oplog_from_design` (`oplog_gui.rs`), dipanggil `open_native_path`; hanya bila geometri replay cocok (toleransi `same_geometry`) |
 
 ## Rancangan urutan 1–2: slot sketsa GUI yang terikat ke op

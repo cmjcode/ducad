@@ -264,6 +264,8 @@ fn adapter_shell_depth_too_deep_offers_fixes_and_keeps_body() {
 
 #[test]
 fn adapter_shell_records_opening_for_regeneration() {
+    // Sejak ADR 0010 shell GUI dicatat sebagai op oplog (bukan fitur DAG):
+    // sisi terbuka, tebal, dan kedalaman ikut, dan replay-nya setara.
     let mut app = DuCADApp::new_for_test();
     let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
     app.selected_bodies = [id].into_iter().collect();
@@ -271,22 +273,15 @@ fn adapter_shell_records_opening_for_regeneration() {
     app.shell_thickness_input = "2".to_string();
     app.shell_depth_input = "5".to_string();
     app.commit_shell();
-    let node = app.parametric_dag.nodes.last().expect("fitur shell tercatat");
-    match &node.payload {
-        ducad_core::parametric::FeaturePayload::Shell {
-            thickness,
-            open_rays,
-            open_direction,
-            depth,
-            ..
-        } => {
-            assert_eq!(*thickness, 2.0);
-            assert!(open_rays.is_empty());
-            assert_eq!(open_direction.as_deref(), Some("-Y"));
-            assert_eq!(*depth, 5.0);
-        }
-        other => panic!("payload bukan Shell: {other:?}"),
-    }
+    let op = app.agent_meta.design.oplog.last().expect("op shell tercatat");
+    let v = serde_json::to_value(op).unwrap();
+    assert_eq!(v["op"], "shell");
+    assert_eq!(v["remove_faces"], "<Y");
+    assert_eq!(v["thickness"], 2.0);
+    assert_eq!(v["depth"], 5.0);
+    let replay = ducad_engine::Session::replay(app.agent_meta.design.clone()).unwrap();
+    let v_replay: f64 = replay.summary().bodies.iter().map(|b| b.volume).sum();
+    assert_volume("replay = GUI", v_replay, total_volume(&app));
 }
 
 #[test]

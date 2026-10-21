@@ -337,7 +337,9 @@ impl DuCADApp {
             .map_err(|e| OpError::invalid(format!("op extrude GUI tidak valid: {e}")))?;
         let details = format!("Extrude {:.1} mm dari {sketch_id}", distance.abs());
 
-        self.run_feature_on_sketch(sid, bound, sketch_id, sketch_op, extrude, "Extrude", &details)
+        self.run_feature_on_sketch(
+            sid, bound, sketch_id, sketch_op, extrude, "Extrude", &details,
+        )
     }
 
     /// Jalankan op fitur `feature` yang merujuk op `sketch` slot `sid`:
@@ -420,9 +422,14 @@ impl DuCADApp {
         }
         let feature: Op = serde_json::from_value(v)
             .map_err(|e| OpError::invalid(format!("op revolve GUI tidak valid: {e}")))?;
-        let details = format!("Revolve {:.0} deg dari {sketch_id}", angle_deg.unwrap_or(360.0));
-        self.run_feature_on_sketch(sid, bound, sketch_id, sketch_op, feature, "Revolve", &details)
-            .map(|()| true)
+        let details = format!(
+            "Revolve {:.0} deg dari {sketch_id}",
+            angle_deg.unwrap_or(360.0)
+        );
+        self.run_feature_on_sketch(
+            sid, bound, sketch_id, sketch_op, feature, "Revolve", &details,
+        )
+        .map(|()| true)
     }
 
     /// Sketsa terikat yang isinya berubah sejak op-nya dicatat → ganti op
@@ -839,6 +846,268 @@ impl DuCADApp {
                 *slot = updated;
             }
         }
+    }
+}
+
+/// Entitas spec (JSON) yang menggambar `profile` persis: garis, busur
+/// (`arc3`), Bezier (`path`), lingkaran, elips, dan lubang di dalamnya.
+fn profile_entity_specs(profile: &ducad_kernel::Profile, out: &mut Vec<serde_json::Value>) {
+    use ducad_kernel::{Profile, ProfileSegment};
+    let p = |v: (f64, f64)| serde_json::json!([v.0, v.1]);
+    match profile {
+        Profile::Circle { center, radius } => {
+            out.push(serde_json::json!({ "circle": { "center": p(*center), "r": radius } }))
+        }
+        Profile::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+        } => out.push(serde_json::json!({ "ellipse": {
+            "center": p(*center), "rx": radius_x, "ry": radius_y } })),
+        Profile::Loop(segs) => {
+            for seg in segs {
+                out.push(match *seg {
+                    ProfileSegment::Line { start, end } => {
+                        serde_json::json!({ "line": { "from": p(start), "to": p(end) } })
+                    }
+                    ProfileSegment::Arc { start, via, end } => {
+                        serde_json::json!({ "arc3": { "p1": p(start), "p2": p(via), "p3": p(end) } })
+                    }
+                    ProfileSegment::Bezier { start, c1, c2, end } => {
+                        serde_json::json!({ "path": { "subpaths": [{
+                            "start": p(start),
+                            "segs": [{ "cubic": { "c1": p(c1), "c2": p(c2), "to": p(end) } }],
+                        }] } })
+                    }
+                });
+            }
+        }
+        Profile::WithHoles { outer, holes } => {
+            profile_entity_specs(outer, out);
+            for h in holes {
+                profile_entity_specs(h, out);
+            }
+        }
+    }
+}
+
+/// Nama bidang op untuk bidang standar GUI di titik asal; `None` = datum.
+fn standard_plane_name(plane: &ducad_render::SketchPlane) -> Option<&'static str> {
+    if plane.origin.length() > 1e-6 {
+        return None;
+    }
+    match plane.kind {
+        ducad_render::PlaneKind::Top => Some("XY"),
+        ducad_render::PlaneKind::Front => Some("XZ"),
+        ducad_render::PlaneKind::Right => Some("YZ"),
+        ducad_render::PlaneKind::Custom(_) => None,
+    }
+}
+
+/// Selector sumbu (`"X"`, `"Y"`, `"Z"`) dan tanda untuk arah sejajar sumbu.
+fn axis_of(dir: (f64, f64, f64)) -> Option<(&'static str, bool)> {
+    let v = [dir.0, dir.1, dir.2];
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len < 1e-12 {
+        return None;
+    }
+    ["X", "Y", "Z"]
+        .iter()
+        .enumerate()
+        .find(|(i, _)| (v[*i] / len).abs() > 1.0 - 1e-9)
+        .map(|(i, a)| (*a, v[i] > 0.0))
+}
+
+impl DuCADApp {
+    /// Op `sketch` turunan yang menggambar `profile` di `plane` (JSON spec).
+    #[allow(clippy::result_large_err)]
+    fn profile_sketch_op(
+        &self,
+        id: &str,
+        plane: serde_json::Value,
+        profile: &ducad_kernel::Profile,
+    ) -> Result<Op, OpError> {
+        let mut entities = Vec::new();
+        profile_entity_specs(profile, &mut entities);
+        serde_json::from_value(serde_json::json!({
+            "op": "sketch", "id": id, "plane": plane, "entities": entities,
+        }))
+        .map_err(|e| OpError::invalid(format!("profil tidak bisa dijadikan op sketch: {e}")))
+    }
+
+    /// Loft dua profil (`bottom` di `plane`, `top` setinggi `height` di
+    /// sepanjang normal bidang) sebagai op oplog. `Ok(false)` = bidang datum
+    /// → jalur lama.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn loft_via_oplog(
+        &mut self,
+        bottom: &ducad_kernel::Profile,
+        top: &ducad_kernel::Profile,
+        plane: &ducad_render::SketchPlane,
+        height: f64,
+    ) -> Result<bool, OpError> {
+        let Some(base) = standard_plane_name(plane) else {
+            return Ok(false);
+        };
+        self.sync_agent_meta();
+        let a = self.unique_op_id("loft_bottom");
+        let b = self.unique_op_id("loft_top");
+        let id = self.unique_op_id("loft");
+        let ops = vec![
+            self.profile_sketch_op(&a, serde_json::json!(base), bottom)?,
+            self.profile_sketch_op(
+                &b,
+                serde_json::json!({ "base": base, "offset": height }),
+                top,
+            )?,
+            serde_json::from_value(
+                serde_json::json!({ "op": "loft", "id": id, "sections": [a, b] }),
+            )
+            .map_err(|e| OpError::invalid(format!("op loft GUI tidak valid: {e}")))?,
+        ];
+        let details = format!("Loft 2 profil, tinggi {height:.1} mm");
+        self.run_gui_ops(ops, "Loft", &details).map(|_| true)
+    }
+
+    /// Sweep `profile` (di `profile_plane`) sepanjang jalur lurus/polyline
+    /// sebagai op oplog. Jalur berbusur → `Ok(false)` (jalur lama): titik
+    /// polyline akan menghilangkan lengkungnya.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn sweep_via_oplog(
+        &mut self,
+        profile: &ducad_kernel::Profile,
+        profile_plane: &ducad_render::SketchPlane,
+        path: &[ducad_kernel::PathSegment],
+    ) -> Result<bool, OpError> {
+        use ducad_kernel::PathSegment;
+        let Some(plane) = standard_plane_name(profile_plane) else {
+            return Ok(false);
+        };
+        let mut points: Vec<[f64; 3]> = Vec::new();
+        let mut push = |p: [f64; 3]| {
+            let same = points
+                .last()
+                .is_some_and(|q: &[f64; 3]| (0..3).all(|k| (q[k] - p[k]).abs() < 1e-9));
+            if !same {
+                points.push(p);
+            }
+        };
+        for seg in path {
+            match seg {
+                PathSegment::Line { start, end } => {
+                    push(*start);
+                    push(*end);
+                }
+                PathSegment::Polyline(pts) => pts.iter().for_each(|p| push(*p)),
+                PathSegment::Arc { .. } => return Ok(false),
+            }
+        }
+        if points.len() < 2 {
+            return Ok(false);
+        }
+        self.sync_agent_meta();
+        let section = self.unique_op_id("sweep_section");
+        let id = self.unique_op_id("sweep");
+        let ops = vec![
+            self.profile_sketch_op(&section, serde_json::json!(plane), profile)?,
+            serde_json::from_value(serde_json::json!({
+                "op": "sweep", "id": id, "sketch": section, "path": { "points": points },
+            }))
+            .map_err(|e| OpError::invalid(format!("op sweep GUI tidak valid: {e}")))?,
+        ];
+        self.run_gui_ops(ops, "Sweep", "Sweep profil sepanjang jalur")
+            .map(|_| true)
+    }
+
+    /// Draft face yang dipilih (ray) sebagai op oplog. Bidang netral = face
+    /// terbawah searah tarik (`<Z` untuk tarik +Z). Arah tarik tidak sejajar
+    /// sumbu → `Ok(false)` (jalur lama).
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn draft_via_oplog(
+        &mut self,
+        body: BodyId,
+        rays: &[PickRay],
+        angle_deg: f64,
+        pull: (f64, f64, f64),
+    ) -> Result<bool, OpError> {
+        let Some((axis, positive)) = axis_of(pull) else {
+            return Ok(false);
+        };
+        let Some(geo) = self.model.geometry.get(body) else {
+            return Ok(false);
+        };
+        let mut picked: Vec<usize> = rays
+            .iter()
+            .filter_map(|r| ducad_kernel::face_index_for_ray(&geo.shape, *r))
+            .collect();
+        picked.sort_unstable();
+        picked.dedup();
+        let Some(faces) = ducad_engine::select::suggest_faces(&geo.shape, &picked) else {
+            return Ok(false);
+        };
+        let neutral = if positive {
+            format!("<{axis}")
+        } else {
+            format!(">{axis}")
+        };
+        self.sync_agent_meta();
+        let (names, renames) = self
+            .unique_body_names(&[body])
+            .ok_or_else(|| OpError::invalid("body terpilih tidak ada lagi"))?;
+        let id = self.unique_op_id("draft");
+        let op = serde_json::json!({
+            "op": "draft", "id": id, "body": names[0], "faces": faces.selector,
+            "angle_deg": angle_deg, "neutral": neutral, "pull": [pull.0, pull.1, pull.2],
+        });
+        let details = format!("Draft {angle_deg:.1} deg pada {}", names[0]);
+        self.run_with_renames(op, renames, "Draft Angle", &details)
+            .map(|()| true)
+    }
+
+    /// Op `shell` setara dengan pilihan shell GUI pada `shape` (SEBELUM
+    /// shell): face yang dibuka → selector semantik. `None` bila pilihan
+    /// tidak bisa dinyatakan (shell variabel, face tak ditemukan).
+    pub(crate) fn shell_op_for(
+        &self,
+        body: &str,
+        shape: &ducad_kernel::KernelShape,
+        pick: &crate::modeling::operations::ShellPick,
+        thickness: f64,
+        depth: f64,
+    ) -> Option<Op> {
+        use crate::modeling::operations::ShellPick;
+        use ducad_kernel::Direction;
+        let remove = match pick {
+            ShellPick::Direction(d) => match d {
+                Direction::PosX => ">X",
+                Direction::NegX => "<X",
+                Direction::PosY => ">Y",
+                Direction::NegY => "<Y",
+                Direction::PosZ => ">Z",
+                Direction::NegZ => "<Z",
+            }
+            .to_string(),
+            ShellPick::Rays(rays) => {
+                let mut idx: Vec<usize> = rays
+                    .iter()
+                    .filter_map(|r| ducad_kernel::face_index_for_ray(shape, *r))
+                    .collect();
+                idx.sort_unstable();
+                idx.dedup();
+                if idx.len() != rays.len() {
+                    return None;
+                }
+                ducad_engine::select::suggest_faces(shape, &idx)?.selector
+            }
+        };
+        let mut v = serde_json::json!({
+            "op": "shell", "id": self.unique_op_id("shell"), "body": body,
+            "remove_faces": remove, "thickness": thickness,
+        });
+        if depth > 0.0 {
+            v["depth"] = serde_json::json!(depth);
+        }
+        serde_json::from_value(v).ok()
     }
 }
 
@@ -1665,8 +1934,145 @@ mod tests {
         assert_eq!(oplog_kinds(&app), ["sketch", "revolve"]);
         let expected = std::f64::consts::PI * (15.0 * 15.0 - 5.0 * 5.0) * 20.0;
         assert!(close(volume(&app), expected), "{}", volume(&app));
-        let bbox = app.model.geometry[only_body(&app)].mesh.bounding_box().unwrap();
-        assert!(bbox.0[2].abs() < 1e-3 && (bbox.1[2] - 20.0).abs() < 1e-3, "{bbox:?}");
+        let bbox = app.model.geometry[only_body(&app)]
+            .mesh
+            .bounding_box()
+            .unwrap();
+        assert!(
+            bbox.0[2].abs() < 1e-3 && (bbox.1[2] - 20.0).abs() < 1e-3,
+            "{bbox:?}"
+        );
+    }
+
+    /// Volume total hasil replay design GUI (pembuktian op setara).
+    fn replay_volume(app: &DuCADApp) -> f64 {
+        let s = ducad_engine::Session::replay(app.agent_meta.design.clone()).expect("replay");
+        s.summary().bodies.iter().map(|b| b.volume).sum()
+    }
+
+    fn total_volume(app: &DuCADApp) -> f64 {
+        app.model
+            .geometry
+            .values()
+            .map(|g| g.shape.volume().abs())
+            .sum()
+    }
+
+    #[test]
+    fn gui_shell_records_equivalent_op() {
+        let (mut app, id) = app_with_box("Box", [0.0; 3]);
+        app.selected_bodies.insert(id);
+        app.shell_thickness_input = "2".into();
+        app.shell_direction = ducad_kernel::Direction::PosZ;
+        app.selected_faces.clear();
+        app.active_face = None;
+        app.shell_selected_body();
+        assert_eq!(oplog_kinds(&app), ["shell"]);
+        let v = serde_json::to_value(&app.agent_meta.design.oplog[0]).unwrap();
+        assert_eq!(v["remove_faces"], ">Z");
+        let expected = 8000.0 - 16.0 * 16.0 * 18.0;
+        assert!(
+            close(total_volume(&app), expected),
+            "{}",
+            total_volume(&app)
+        );
+        assert!(close(replay_volume(&app), total_volume(&app)));
+        app.undo_model();
+        assert!(close(total_volume(&app), 8000.0));
+        assert!(app.agent_meta.design.oplog.is_empty());
+    }
+
+    #[test]
+    fn gui_draft_records_op_with_bottom_neutral_plane() {
+        let (mut app, id) = app_with_box("Box", [0.0; 3]);
+        app.selected_bodies.insert(id);
+        // Ray menembak dinding +X (x=20) di tengahnya.
+        let ray = PickRay {
+            origin: (50.0, 10.0, 10.0),
+            dir: (-1.0, 0.0, 0.0),
+        };
+        app.selected_faces = vec![ray];
+        app.apply_draft_angle(5.0, (0.0, 0.0, 1.0));
+        assert_eq!(oplog_kinds(&app), ["draft"], "{:?}", app.model_status);
+        let v = serde_json::to_value(&app.agent_meta.design.oplog[0]).unwrap();
+        assert_eq!(v["neutral"], "<Z");
+        assert!(total_volume(&app) < 8000.0, "dinding miring ke dalam");
+        assert!(close(replay_volume(&app), total_volume(&app)));
+    }
+
+    #[test]
+    fn gui_loft_records_ops_on_the_real_plane() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_sketch_plane(ducad_render::PlaneKind::Front);
+        app.enter_sketching();
+        let sq = [
+            DVec2::new(-10.0, -10.0),
+            DVec2::new(10.0, -10.0),
+            DVec2::new(10.0, 10.0),
+            DVec2::new(-10.0, 10.0),
+        ];
+        let mut ids: Vec<_> = (0..4)
+            .map(|i| {
+                app.sketch_mut()
+                    .entities
+                    .insert(ducad_sketch::Entity::line(sq[i], sq[(i + 1) % 4]))
+            })
+            .collect();
+        ids.push(
+            app.sketch_mut()
+                .entities
+                .insert(ducad_sketch::Entity::circle(DVec2::new(40.0, 0.0), 5.0)),
+        );
+        app.selected = ids.iter().copied().collect();
+        app.loft_height_input = "30".into();
+        app.loft_selected();
+        assert_eq!(
+            oplog_kinds(&app),
+            ["sketch", "sketch", "loft"],
+            "{:?}",
+            app.model_status
+        );
+        assert!(close(replay_volume(&app), total_volume(&app)));
+        // Bidang Front: loft berjalan sepanjang -Y (normal bidang), bukan Z.
+        let bbox = app.model.geometry[only_body(&app)]
+            .mesh
+            .bounding_box()
+            .unwrap();
+        assert!(
+            (bbox.0[1] + 30.0).abs() < 1e-3 && bbox.1[1].abs() < 1e-3,
+            "{bbox:?}"
+        );
+    }
+
+    #[test]
+    fn gui_sweep_along_line_records_ops() {
+        let mut app = DuCADApp::new_for_test();
+        app.pending_sweep_profile = Some((
+            ducad_kernel::Profile::Circle {
+                center: (0.0, 0.0),
+                radius: 4.0,
+            },
+            ducad_render::SketchPlane::top(),
+        ));
+        app.pending_sweep_path = Some(vec![ducad_kernel::PathSegment::Line {
+            start: [0.0, 0.0, 0.0],
+            end: [0.0, 0.0, 30.0],
+        }]);
+        app.sweep_selected();
+        assert_eq!(
+            oplog_kinds(&app),
+            ["sketch", "sweep"],
+            "{:?}",
+            app.model_status
+        );
+        // Sapuan lingkaran diaproksimasi kernel (selisih relatif ~1.6e-4).
+        let expected = std::f64::consts::PI * 16.0 * 30.0;
+        assert!(
+            (total_volume(&app) - expected).abs() / expected < 1e-3,
+            "{}",
+            total_volume(&app)
+        );
+        assert!(close(replay_volume(&app), total_volume(&app)));
     }
 
     #[test]
