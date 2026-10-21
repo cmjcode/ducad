@@ -174,8 +174,6 @@ pub struct SessionMeta {
     pub consumed: BTreeMap<String, String>,
     /// Penghitung datum (`PlaneRef::Datum(n)`), mulai 1.
     pub datum_counter: u32,
-    /// Jumlah op per batch yang di-commit (untuk undo tingkat sesi).
-    pub batches: Vec<usize>,
     /// Peringatan tingkat sesi (mis. `"oplog_stale"`).
     pub warnings: Vec<String>,
     /// Id sketch → entitas yang namanya dibuat otomatis oleh `build_sketch`.
@@ -243,7 +241,9 @@ pub struct Session {
     model_undo: UndoStack<ModelDoc>,
     sketches: SketchSet,
     meta: SessionMeta,
-    redo: Vec<Vec<Op>>,
+    /// Riwayat undo tingkat sesi (batch op dan edit di tempat).
+    history: Vec<UndoStep>,
+    redo: Vec<RedoStep>,
     /// Proposal tertunda (maks [`MAX_PROPOSALS`], yang tertua dibuang).
     proposals: std::collections::VecDeque<StoredProposal>,
     next_proposal: u32,
@@ -475,30 +475,37 @@ pub fn preview_edit(
     })
 }
 
-/// Riwayat batch undo setelah op di posisi `removed_at` (posisi oplog lama
-/// sepanjang `old_len`) dihapus. Batch mencakup op TERAKHIR oplog; op di
-/// depannya (mis. hasil muat berkas) tidak termasuk batch mana pun. Batch
-/// yang menjadi kosong dibuang.
-pub(crate) fn batches_after_remove(
-    batches: &[usize],
-    old_len: usize,
-    removed_at: &[usize],
-) -> Vec<usize> {
-    let covered: usize = batches.iter().sum();
-    let mut start = old_len.saturating_sub(covered);
-    let mut out = Vec::with_capacity(batches.len());
-    for &n in batches {
-        let gone = removed_at
-            .iter()
-            .filter(|&&p| p >= start && p < start + n)
-            .count();
-        if n > gone {
-            out.push(n - gone);
-        }
-        start += n;
-    }
-    out
+/// Bagian design yang dipulihkan undo/redo: params dasar + oplog. Checks,
+/// brief, drawing, dan konfigurasi tidak ikut (sama seperti sebelumnya).
+#[derive(Debug, Clone)]
+struct ModelState {
+    params: Params,
+    oplog: Vec<Op>,
 }
+
+/// Satu langkah undo tingkat sesi (Step 1a `PLAN_DESIGNER_UX`).
+#[derive(Debug, Clone)]
+enum UndoStep {
+    /// Batch op yang ditambahkan di ujung oplog: undo = potong oplog ke
+    /// panjang ini. Murah disimpan; valid karena semua langkah di atasnya
+    /// sudah di-undo lebih dulu, sehingga oplog saat itu sama persis.
+    Truncate(usize),
+    /// Edit di tempat (`set_params`, `replace_op`, `remove_op`, proposal
+    /// edit): keadaan SEBELUM edit.
+    Restore(ModelState),
+}
+
+/// Satu langkah redo.
+#[derive(Debug, Clone)]
+enum RedoStep {
+    /// Batch yang di-undo; redo = jalankan lagi.
+    Ops(Vec<Op>),
+    /// Keadaan SESUDAH edit yang di-undo.
+    Restore(ModelState),
+}
+
+/// Batas langkah undo per sesi; yang tertua dibuang.
+pub const MAX_UNDO_STEPS: usize = 256;
 
 /// Replay gagal setelah menghapus op: rujukan yang putus hampir selalu
 /// berarti op lain masih memakai op yang dihapus.
@@ -757,11 +764,7 @@ impl SessionCore<'_> {
 
         self.model_undo.commit();
         self.meta.sketch_backups.clear();
-        let n = ops.len();
         self.meta.design.oplog.extend(ops);
-        if n > 0 {
-            self.meta.batches.push(n);
-        }
         self.meta.design.fingerprint = fingerprint(self.model);
         let checks = (!self.meta.design.checks.is_empty())
             .then(|| crate::check::run_checks_on(self.model, self.meta, &self.meta.design.checks));
@@ -2576,6 +2579,7 @@ impl Session {
             model_undo: UndoStack::default(),
             sketches: SketchSet::new(),
             meta: SessionMeta::default(),
+            history: Vec::new(),
             redo: Vec::new(),
             proposals: std::collections::VecDeque::new(),
             next_proposal: 1,
@@ -2673,11 +2677,50 @@ impl Session {
 
     /// Jalankan batch op secara atomik.
     pub fn run(&mut self, ops: Vec<Op>, dry_run: bool) -> BatchReport {
+        let before = self.meta.design.oplog.len();
         let report = self.core().run(ops, dry_run);
         if report.committed {
             self.redo.clear();
+            if self.meta.design.oplog.len() > before {
+                self.push_undo(UndoStep::Truncate(before));
+            }
         }
         report
+    }
+
+    fn model_state(&self) -> ModelState {
+        ModelState {
+            params: self.meta.design.params.clone(),
+            oplog: self.meta.design.oplog.clone(),
+        }
+    }
+
+    fn push_undo(&mut self, step: UndoStep) {
+        self.history.push(step);
+        if self.history.len() > MAX_UNDO_STEPS {
+            let excess = self.history.len() - MAX_UNDO_STEPS;
+            self.history.drain(..excess);
+        }
+    }
+
+    /// Ganti sesi ini dengan hasil rebuild `s`, pertahankan riwayat
+    /// undo/redo, proposal, dan peringatan.
+    fn adopt_rebuilt(&mut self, mut s: Session) {
+        s.history = std::mem::take(&mut self.history);
+        s.redo = std::mem::take(&mut self.redo);
+        s.meta.warnings = std::mem::take(&mut self.meta.warnings);
+        s.proposals = std::mem::take(&mut self.proposals);
+        s.next_proposal = self.next_proposal;
+        *self = s;
+    }
+
+    /// Design sesi ini dengan params + oplog dari `state`.
+    fn design_with(&self, state: ModelState) -> DesignDoc {
+        DesignDoc {
+            params: state.params,
+            oplog: state.oplog,
+            ..self.meta.design.clone()
+        }
     }
 
     /// Bangun sesi dari `base_bodies` + seluruh oplog. Tidak memeriksa
@@ -2752,7 +2795,10 @@ impl Session {
             ));
         }
         // Tanpa riwayat batch asli: tiap op menjadi satu langkah undo.
-        s.meta.batches = vec![1; n];
+        s.history = (n.saturating_sub(MAX_UNDO_STEPS)..n)
+            .map(UndoStep::Truncate)
+            .collect();
+        s.redo.clear();
         Ok(s)
     }
 
@@ -3218,21 +3264,27 @@ impl Session {
     }
 
     /// Ganti params DASAR lalu replay penuh; gagal → sesi lama utuh.
+    /// Perubahan yang ter-commit menjadi satu langkah undo.
     pub fn set_params(&mut self, p: Params) -> OpResult<BatchReport> {
-        self.swap_rebuilt(DesignDoc {
+        let before = self.model_state();
+        let changed = before.params != p;
+        let report = self.swap_rebuilt(DesignDoc {
             params: p,
             ..self.meta.design.clone()
-        })
+        })?;
+        if report.committed && changed {
+            self.redo.clear();
+            self.push_undo(UndoStep::Restore(before));
+        }
+        Ok(report)
     }
 
-    /// Replay `design` di sesi baru; sukses → gantikan sesi ini.
+    /// Replay `design` di sesi baru; sukses → gantikan sesi ini. Tidak
+    /// mencatat langkah undo (pemanggil yang memutuskan).
     fn swap_rebuilt(&mut self, design: DesignDoc) -> OpResult<BatchReport> {
         match Self::rebuild(design) {
-            Ok((mut s, report)) => {
-                s.meta.batches = std::mem::take(&mut self.meta.batches);
-                s.meta.warnings = std::mem::take(&mut self.meta.warnings);
-                s.redo = std::mem::take(&mut self.redo);
-                *self = s;
+            Ok((s, report)) => {
+                self.adopt_rebuilt(s);
                 Ok(BatchReport {
                     summary: self.summary(),
                     ..report
@@ -3321,34 +3373,8 @@ impl Session {
         edit_design(&self.meta.design, params, replace, remove, append)
     }
 
-    /// Ganti sesi dengan hasil rebuild, pertahankan riwayat batch, proposal,
-    /// dan peringatan. `removed_at`: posisi oplog (lama) op yang dihapus.
-    fn adopt_rebuilt(&mut self, mut s: Session, removed_at: &[usize], appended: usize) {
-        let old_len = self.meta.design.oplog.len();
-        s.meta.batches =
-            batches_after_remove(&std::mem::take(&mut self.meta.batches), old_len, removed_at);
-        if appended > 0 {
-            s.meta.batches.push(appended);
-        }
-        s.meta.warnings = std::mem::take(&mut self.meta.warnings);
-        s.proposals = std::mem::take(&mut self.proposals);
-        s.next_proposal = self.next_proposal;
-        *self = s;
-    }
-
-    /// Posisi oplog op-op yang akan dihapus (id tak dikenal diabaikan;
-    /// sudah divalidasi [`edit_design`]).
-    fn positions_of(&self, remove: &[String]) -> Vec<usize> {
-        self.meta
-            .design
-            .oplog
-            .iter()
-            .enumerate()
-            .filter(|(_, o)| remove.iter().any(|r| r == o.id()))
-            .map(|(i, _)| i)
-            .collect()
-    }
-
+    /// Edit di tempat (params, ganti/hapus op, tambah op) lalu replay penuh.
+    /// Sukses → satu langkah undo yang memulihkan params + oplog sebelumnya.
     fn apply_edit(
         &mut self,
         params: Option<Params>,
@@ -3362,8 +3388,10 @@ impl Session {
         };
         match Self::rebuild(design) {
             Ok((s, report)) => {
-                let removed_at = self.positions_of(remove);
-                self.adopt_rebuilt(s, &removed_at, append.len());
+                let before = self.model_state();
+                self.adopt_rebuilt(s);
+                self.redo.clear();
+                self.push_undo(UndoStep::Restore(before));
                 BatchReport {
                     summary: self.summary(),
                     ..report
@@ -3578,53 +3606,61 @@ impl Session {
         ))
     }
 
-    /// Buang batch terakhir lalu replay. `false` bila tidak ada yang bisa di-undo.
+    /// Batalkan langkah terakhir (batch op atau edit params/op) lalu replay.
+    /// `false` bila tidak ada yang bisa di-undo. Replay gagal → sesi utuh.
     pub fn undo(&mut self) -> OpResult<bool> {
-        let Some(&n) = self.meta.batches.last() else {
+        let Some(step) = self.history.last().cloned() else {
             return Ok(false);
         };
-        let mut design = self.meta.design.clone();
-        let cut = design.oplog.split_off(design.oplog.len() - n);
-        let (mut s, _) = Self::rebuild(design)?;
-        let mut batches = std::mem::take(&mut self.meta.batches);
-        batches.pop();
-        s.meta.batches = batches;
-        s.meta.warnings = std::mem::take(&mut self.meta.warnings);
-        s.redo = std::mem::take(&mut self.redo);
-        s.redo.push(cut);
-        *self = s;
+        let current = self.model_state();
+        let (state, redo) = match step {
+            UndoStep::Truncate(len) => {
+                let mut state = current;
+                let cut = state.oplog.split_off(len.min(state.oplog.len()));
+                (state, RedoStep::Ops(cut))
+            }
+            UndoStep::Restore(before) => (before, RedoStep::Restore(current)),
+        };
+        let (s, _) = Self::rebuild(self.design_with(state))?;
+        self.adopt_rebuilt(s);
+        self.history.pop();
+        self.redo.push(redo);
         Ok(true)
     }
 
-    /// Terapkan ulang batch yang terakhir di-undo.
+    /// Terapkan ulang langkah yang terakhir di-undo.
     pub fn redo(&mut self) -> OpResult<bool> {
-        let Some(ops) = self.redo.pop() else {
+        let Some(step) = self.redo.pop() else {
             return Ok(false);
         };
         let rest = std::mem::take(&mut self.redo);
-        let report = self.core().run(ops.clone(), false);
+        let result = match &step {
+            RedoStep::Ops(ops) => {
+                let before = self.meta.design.oplog.len();
+                let report = self.core().run(ops.clone(), false);
+                match report.error {
+                    Some(e) => Err(e),
+                    None => {
+                        self.push_undo(UndoStep::Truncate(before));
+                        Ok(())
+                    }
+                }
+            }
+            RedoStep::Restore(after) => {
+                let before = self.model_state();
+                Self::rebuild(self.design_with(after.clone())).map(|(s, _)| {
+                    self.adopt_rebuilt(s);
+                    self.push_undo(UndoStep::Restore(before));
+                })
+            }
+        };
         self.redo = rest;
-        match report.error {
-            Some(e) => {
-                self.redo.push(ops);
+        match result {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                self.redo.push(step);
                 Err(e)
             }
-            None => Ok(true),
         }
-    }
-}
-
-#[cfg(test)]
-mod edit_tests {
-    use super::batches_after_remove;
-
-    #[test]
-    fn batches_after_remove_adjusts_only_covering_batch() {
-        // oplog 6 op: 1 op dari berkas (tanpa batch), batch [2, 3].
-        assert_eq!(batches_after_remove(&[2, 3], 6, &[2]), vec![1, 3]);
-        assert_eq!(batches_after_remove(&[2, 3], 6, &[1, 2]), vec![3]);
-        assert_eq!(batches_after_remove(&[2, 3], 6, &[0]), vec![2, 3]);
-        assert_eq!(batches_after_remove(&[2, 3], 6, &[3, 4, 5]), vec![2]);
-        assert_eq!(batches_after_remove(&[], 3, &[1]), Vec::<usize>::new());
     }
 }

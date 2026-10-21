@@ -54,6 +54,7 @@ pub mod named_views;
 pub mod model;
 pub mod modeling;
 pub mod onboarding_ui;
+pub mod oplog_undo;
 pub mod overlay;
 pub mod plastic_tools;
 pub mod platform;

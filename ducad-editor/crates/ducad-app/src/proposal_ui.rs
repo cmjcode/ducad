@@ -231,6 +231,7 @@ impl DuCADApp {
             self.model_status = Some(ducad_i18n::t!("proposal-accepted"));
             return;
         }
+        let mark = self.begin_oplog_step();
         let report = {
             let mut core = ducad_engine::SessionCore {
                 model: &mut self.model,
@@ -240,6 +241,7 @@ impl DuCADApp {
             };
             core.run(p.ops.clone(), false)
         };
+        self.end_oplog_step(mark, &p.id);
         let committed = report.committed;
         let payload = ducad_engine::tooling::to_value(report).unwrap_or(Value::Null);
         if let Some((id, tx)) = p.reply.take() {

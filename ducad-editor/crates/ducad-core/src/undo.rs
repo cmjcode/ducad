@@ -405,6 +405,29 @@ impl<T> UndoStack<T> {
         self.pending = None;
         self.last_push = None;
     }
+
+    /// Tempelkan command yang SUDAH diterapkan ke transaksi yang sedang
+    /// terbuka, atau bila tidak ada, ke transaksi undo teratas. Dipakai
+    /// untuk state pendamping yang harus ikut satu langkah undo dengan
+    /// transaksi yang baru di-commit oleh pemanggil lain (mis. oplog
+    /// engine yang menyertai transaksi geometri `SessionCore::run`).
+    /// `false` (command dibuang) bila tumpukan kosong.
+    pub fn attach_to_top(&mut self, cmd: Box<dyn Command<T>>) -> bool {
+        if let Some(tx) = self.pending.as_mut() {
+            tx.push_applied(cmd);
+            return true;
+        }
+        match self.undo.last_mut() {
+            Some(tx) => {
+                tx.push_applied(cmd);
+                // Aksi kontinu berikutnya tidak boleh tergabung ke
+                // transaksi yang isinya baru saja diperluas.
+                self.last_push = None;
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -459,6 +482,43 @@ mod tests {
         fn coalesce_key(&self) -> Option<(&'static str, u64)> {
             self.key
         }
+    }
+
+    #[test]
+    fn attach_to_top_joins_last_step_and_survives_redo() {
+        let mut t = Counter::default();
+        let mut stack: UndoStack<Counter> = UndoStack::default();
+        stack.execute(AddCmd::new("a", 1), &mut t);
+        stack.execute(AddCmd::new("b", 10), &mut t);
+        // Command pendamping sudah diterapkan oleh pemanggil.
+        let mut extra = AddCmd::new("b2", 100);
+        extra.apply(&mut t);
+        assert!(stack.attach_to_top(extra));
+        assert_eq!(t.value, 111);
+        assert_eq!(stack.undo_count(), 2, "tidak menambah langkah");
+        stack.undo(&mut t);
+        assert_eq!(t.value, 1, "b dan b2 batal bersama");
+        stack.redo(&mut t);
+        assert_eq!(t.value, 111, "b dan b2 kembali bersama");
+    }
+
+    #[test]
+    fn attach_to_top_prefers_open_transaction_and_rejects_empty_stack() {
+        let mut t = Counter::default();
+        let mut stack: UndoStack<Counter> = UndoStack::default();
+        let mut lone = AddCmd::new("x", 5);
+        lone.apply(&mut t);
+        assert!(!stack.attach_to_top(lone), "tumpukan kosong");
+        t.value = 0;
+        stack.execute(AddCmd::new("a", 1), &mut t);
+        stack.begin("tx");
+        stack.execute(AddCmd::new("b", 10), &mut t);
+        let mut extra = AddCmd::new("c", 100);
+        extra.apply(&mut t);
+        assert!(stack.attach_to_top(extra));
+        assert!(stack.commit());
+        stack.undo(&mut t);
+        assert_eq!(t.value, 1, "c masuk transaksi terbuka, bukan langkah a");
     }
 
     #[test]

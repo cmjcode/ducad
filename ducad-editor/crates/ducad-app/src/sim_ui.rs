@@ -254,6 +254,7 @@ impl DuCADApp {
     /// Jalankan tool core langsung di atas state GUI (tanpa mode usul).
     pub(crate) fn sim_core_tool(&mut self, tool: &str, args: serde_json::Value) -> Result<(), String> {
         self.sync_agent_meta();
+        let mark = self.begin_oplog_step();
         let out = {
             let mut core = SessionCore {
                 model: &mut self.model,
@@ -268,6 +269,7 @@ impl DuCADApp {
                 &ducad_engine::tooling::NoPaths,
             )
         };
+        self.end_oplog_step(mark, tool);
         match out {
             Ok(o) if !o.is_error && o.payload["committed"] != json!(false) => {
                 self.sync_design_after_agent();

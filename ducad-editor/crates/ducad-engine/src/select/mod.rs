@@ -4,6 +4,7 @@
 
 pub mod eval;
 pub mod parse;
+pub mod suggest;
 
 /// Ringkasan tata bahasa & semantik selector untuk agent (≤ 40 baris).
 pub const SELECTOR_CHEATSHEET: &str = "\
@@ -44,6 +45,7 @@ point:<id>  datum point of op construct_point (points such as through / two_poin
 
 pub use eval::{eval_edges, eval_faces, ANG_TOL_DEG};
 pub use parse::{parse, parse_datum_ref, DatumRef, SelCtx, SelExpr};
+pub use suggest::{suggest_edges, suggest_faces, Robustness, Suggestion};
 
 use ducad_kernel::KernelShape;
 

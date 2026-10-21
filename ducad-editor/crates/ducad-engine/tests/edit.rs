@@ -107,8 +107,12 @@ fn remove_op_replays_and_keeps_undo_history_consistent() {
     let ids: Vec<&str> = s.design().oplog.iter().map(|o| o.id()).collect();
     assert_eq!(ids, ["base", "plate", "f1"]);
 
-    // Batch pertama (run 4 op) tinggal 3 op: undo membuang ketiganya
-    // tanpa panik atau memotong oplog di tempat yang salah.
+    // Undo pertama membatalkan penghapusan (Step 1a): lubang kembali.
+    assert!(s.undo().unwrap());
+    let ids: Vec<&str> = s.design().oplog.iter().map(|o| o.id()).collect();
+    assert_eq!(ids, ["base", "plate", "f1", "h1"]);
+    assert!((volume(&s) - v_holes).abs() / v_holes < 1e-9);
+    // Undo berikutnya membuang batch run awal (4 op).
     assert!(s.undo().unwrap());
     assert!(s.design().oplog.is_empty());
     assert!(s.summary().bodies.is_empty());

@@ -530,14 +530,8 @@ impl DuCADApp {
             PaletteAction::Redo => {
                 self.redo();
             }
-            PaletteAction::ModelUndo => {
-                self.model_undo.undo(&mut self.model);
-                self.selected_bodies.clear();
-            }
-            PaletteAction::ModelRedo => {
-                self.model_undo.redo(&mut self.model);
-                self.selected_bodies.clear();
-            }
+            PaletteAction::ModelUndo => self.undo_model(),
+            PaletteAction::ModelRedo => self.redo_model(),
             PaletteAction::DeleteSelection => {
                 if !self.selected.is_empty() {
                     let ids: Vec<_> = self.selected.drain().collect();

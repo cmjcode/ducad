@@ -78,12 +78,12 @@ Belum ada sesi uji designer. Dugaan berikut berasal dari membaca
 
 | ID | Temuan | Dampak designer | Step |
 |---|---|---|---|
-| B0-1 | `Session::undo` hanya mencabut batch op terakhir. `set_params`, `replace_op`, dan `remove_op` tidak tercatat di riwayat undo; undo setelah edit parameter malah mencabut op. | Undo setelah mengubah dimensi tidak mengembalikan dimensi | 1a |
+| B0-1 ✅ | *(Diperbaiki Step 1a, 2026-10-21: riwayat undo sesi mencakup batch op dan edit; GUI membawa oplog di transaksi undo — ADR 0010.)* `Session::undo` hanya mencabut batch op terakhir. `set_params`, `replace_op`, dan `remove_op` tidak tercatat di riwayat undo; undo setelah edit parameter malah mencabut op. | Undo setelah mengubah dimensi tidak mengembalikan dimensi | 1a |
 | B0-2 | Saran perbaikan (`fixes[].verified = true`) hanya diuji pada op yang gagal, tanpa me-replay op hilir. Contoh: fillet r=40 → fix r=26.9 "terverifikasi", tetapi `base_holes` lalu gagal `hole_outside_face`. | Menerima saran resmi bisa merusak fitur lain | 3 |
 | B0-3 | Filter selector tidak menerima parameter (`+Z[z=$t]` → `selector_syntax`). Selector berbasis koordinat (`[z=5]`) putus saat dimensi berubah. | Penulis oplog/agent mudah membuat model yang rapuh; perlu pola selector relasional (bagian 2) atau filter ber-ekspresi | 1b |
 | B0-4 | Hint `hole_outside_face` selalu menyebut "koordinat 'at' relatif terhadap pusat face", juga saat yang dipakai `at_world`; tidak ada `fixes`. | Pesan menyesatkan saat pulih dari error | 3 |
 | B0-5 | GUI: `Fillet` diregenerasi sebagai `fillet_all`; `Hole`, `Helix`, `Boolean` tidak diregenerasi. | Edit dimensi awal di GUI merusak/menghilangkan fitur hilir | 1a (migrasi ke oplog) |
-| B0-7 | Op `hole` lambat: ±0,5–0,6 s per op (2 lubang tembus) pada part kecil; regenerasi dan buka berkas proyek contoh ±1,1–1,3 s. | Edit dimensi terasa tersendat; buka berkas lambat | 1b (regenerasi) |
+| B0-7 | Op `hole` lambat: ±0,5–0,6 s per op (2 lubang tembus) pada part kecil; regenerasi dan buka berkas proyek contoh ±1,1–1,3 s. Analisis Step 1a: biaya ada di boolean kernel, satu boolean per titik lubang (1 titik 112 ms, 2 titik 215 ms pada bracket tanpa fillet), dan naik ±3× bila body punya face lengkung (2 lubang setelah fillet: 703 ms). Lubang buta dengan kedalaman tepat = tebal (bidang koplanar) ±1 s. | Edit dimensi terasa tersendat; buka berkas lambat | 1b: satu boolean untuk semua titik lubang; replay inkremental dari op pertama yang terdampak; profil boolean kernel untuk face lengkung/koplanar |
 | B0-8 | GUI: DAG fitur tidak disimpan ke `.ducad` dan direset saat buka/baru; riwayat aktivitas (dan cabangnya) dikosongkan setiap aplikasi start (`app.rs:569`). | Setelah buka ulang, riwayat fitur GUI hilang — T4 gagal di GUI | 1a/1c |
 | B0-9 | Oplog belum punya op assembly/mate/coupling, datum bersudut/3 titik, teks sketsa, atau edit sketsa (trim/extend/offset/mirror). | Penghalang keputusan "oplog = sumber kebenaran"; harus masuk daftar ADR Step 1a | 1a |
 | B0-10 | Platform utama persona adalah desktop macOS, tetapi CI tidak punya lane workspace macOS dan tes Windows `continue-on-error`. | Regresi di platform utama tidak tertangkap CI | 5 (gate rilis) |
@@ -129,6 +129,16 @@ terhadap kernel truck).
 - **Sesi uji designer (Bagian P)** belum dijalankan; butuh penguji manusia.
   Hasilnya mengisi tabel P.3/P.4 dan target angka §6 rencana.
 - **Tanggal berlaku rencana** (bagian 1) menunggu keputusan pemilik produk.
+
+## 8a. Kemajuan Step 1 (2026-10-21)
+
+| Butir | Hasil | Bukti |
+|---|---|---|
+| ADR mesin tunggal | ✅ `docs/adr/0010-oplog-mesin-tunggal.md` (keputusan, urutan migrasi 10 langkah, alternatif yang ditolak) | — |
+| B0-1 undo edit (headless) | ✅ batch op, `set_params`, `replace_op`, `remove_op` → satu langkah undo/redo masing-masing; edit gagal tidak menambah langkah; bertahan setelah buka ulang | `sample_project.rs::{param_edit_is_one_undo_step, failed_param_edit_adds_no_undo_step, mixed_edits_undo_and_redo_in_order, undo_after_reopen_covers_ops_and_param_edits}`, `edit.rs` |
+| Undo GUI membawa oplog | ✅ undo/redo geometri memulihkan oplog yang menyertainya; tidak lagi `oplog_stale` setelah undo | `ducad-app/src/oplog_undo.rs` (4 tes), `ducad-core` `UndoStack::attach_to_top` (2 tes) |
+| Pembuat selector dari klik GUI | ✅ `select::suggest_faces/suggest_edges`: pada bracket contoh 46 face/tepi tunggal → 30 semantik, 16 numerik, 0 `idx:`; selector tepi sudut dalam & face atas alas tetap benar setelah `t` 5→8 | `tests/select_suggest.rs` (6 tes) |
+| Migrasi fitur GUI ke op | ☐ belum dimulai (urutan 1: sketsa) | ADR 0010 §Urutan migrasi |
 
 ## 9. Berkas yang ditambahkan/diubah oleh Step 0
 

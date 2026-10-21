@@ -287,21 +287,109 @@ fn drawing_exports_pdf_and_dxf() {
     );
 }
 
-/// Target Step 1a: perubahan parameter adalah satu langkah undo. Saat ini
-/// `Session::undo` hanya mencabut batch op terakhir; `set_params`,
-/// `replace_op`, dan `remove_op` tidak tercatat di riwayat undo.
+/// Step 1a (B0-1): perubahan parameter adalah satu langkah undo, dan redo
+/// mengembalikannya.
 #[test]
-#[ignore = "Step 1a: undo perubahan parameter belum didukung"]
 fn param_edit_is_one_undo_step() {
     let mut s = build();
     let v0 = volume(&s);
     let mut params = s.design().params.clone();
     params.insert("t".into(), 8.0);
-    assert!(s.set_params(params).unwrap().committed);
+    assert!(s.set_params(params.clone()).unwrap().committed);
+    let v8 = volume(&s);
     assert!(s.undo().unwrap());
     assert_eq!(s.design().params["t"], 5.0);
     assert_eq!(s.design().oplog.len(), 5, "undo tidak boleh mencabut op");
     assert_close(volume(&s), v0, "undo parameter");
+    assert!(s.redo().unwrap());
+    assert_eq!(s.design().params["t"], 8.0);
+    assert_close(volume(&s), v8, "redo parameter");
+    assert_close(v8, analytic_volume(&params), "redo = analitik");
+}
+
+/// Step 1a: edit yang gagal tidak menambah langkah undo.
+#[test]
+fn failed_param_edit_adds_no_undo_step() {
+    let mut s = build();
+    let mut params = s.design().params.clone();
+    params.insert("r".into(), 40.0);
+    assert!(!s.set_params(params).unwrap().committed);
+    // Riwayat tetap: batch awal (5 op), lalu pengisian param awal oleh
+    // `build()`; tidak ada langkah untuk edit yang gagal.
+    assert!(s.undo().unwrap());
+    assert!(s.design().oplog.is_empty());
+    assert_eq!(s.design().params["r"], 3.0);
+    assert!(s.undo().unwrap());
+    assert!(s.design().params.is_empty());
+    assert!(!s.undo().unwrap());
+}
+
+/// Step 1a: urutan campuran run → edit param → replace_op → remove_op
+/// di-undo mundur satu per satu, lalu di-redo maju lagi.
+#[test]
+fn mixed_edits_undo_and_redo_in_order() {
+    let mut s = build();
+    let v_build = volume(&s);
+    let ids = |s: &Session| -> Vec<String> {
+        s.design().oplog.iter().map(|o| o.id().to_string()).collect()
+    };
+
+    let mut params = s.design().params.clone();
+    params.insert("len".into(), 90.0);
+    assert!(s.set_params(params).unwrap().committed);
+    let v_len = volume(&s);
+
+    let fillet: ducad_engine::ops::Op = serde_json::from_value(serde_json::json!({
+        "op": "fillet", "id": "inner_fillet", "body": "bracket",
+        "edges": "of(+Z except >Z) and of(+X except >X)", "radius": 5
+    }))
+    .unwrap();
+    assert!(s.replace_op("inner_fillet", fillet).unwrap().committed);
+    let v_r5 = volume(&s);
+
+    let r = s
+        .edit_oplog(None, Vec::new(), vec!["wall_holes".into()], false)
+        .unwrap();
+    assert!(r.committed, "{:?}", r.error);
+    let v_removed = volume(&s);
+    assert!(!ids(&s).contains(&"wall_holes".to_string()));
+
+    assert!(s.undo().unwrap());
+    assert!(ids(&s).contains(&"wall_holes".to_string()));
+    assert_close(volume(&s), v_r5, "undo remove_op");
+    assert!(s.undo().unwrap());
+    assert_close(volume(&s), v_len, "undo replace_op");
+    assert!(s.undo().unwrap());
+    assert_close(volume(&s), v_build, "undo set_params");
+    assert_eq!(s.design().params["len"], 60.0);
+
+    assert!(s.redo().unwrap());
+    assert_close(volume(&s), v_len, "redo set_params");
+    assert!(s.redo().unwrap());
+    assert_close(volume(&s), v_r5, "redo replace_op");
+    assert!(s.redo().unwrap());
+    assert_close(volume(&s), v_removed, "redo remove_op");
+    assert!(!s.redo().unwrap());
+}
+
+/// Step 1a: langkah undo bertahan setelah simpan → buka ulang (tiap op
+/// menjadi satu langkah), dan edit param setelah buka ulang bisa di-undo.
+#[test]
+fn undo_after_reopen_covers_ops_and_param_edits() {
+    let mut s = build();
+    let path = temp("undo-reopen", "ducad");
+    s.save(&path).unwrap();
+    let mut loaded = Session::from_file(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    let v0 = volume(&loaded);
+
+    let mut params = loaded.design().params.clone();
+    params.insert("height".into(), 50.0);
+    assert!(loaded.set_params(params).unwrap().committed);
+    assert!(loaded.undo().unwrap());
+    assert_close(volume(&loaded), v0, "undo param setelah buka ulang");
+    assert!(loaded.undo().unwrap(), "op terakhir dari berkas bisa di-undo");
+    assert_eq!(loaded.design().oplog.len(), 4);
 }
 
 /// Baseline waktu (bukan gate): `cargo test --release -p ducad-engine

@@ -162,6 +162,11 @@ Step 1 dipecah menjadi tiga sub-step dengan titik rilis masing-masing.
 
 #### Step 1a — Satu mesin, satu dokumen, satu undo
 
+> **Kemajuan 2026-10-21:** ADR 0010 ditulis; undo headless mencakup edit
+> (B0-1); undo GUI membawa oplog; pembuat selector dari klik GUI tersedia di
+> engine. Migrasi fitur GUI ke op belum dimulai. Rincian:
+> `docs/BASELINE_DESIGNER_UX.md` §8a.
+
 1. Tulis dan setujui ADR "satu mesin pemodelan" (lihat bagian 3).
 2. Audit semua referensi fitur yang memakai indeks face/edge/body atau indeks
    bidang; dokumentasikan pemilik data dan masa hidup referensinya, serta fitur

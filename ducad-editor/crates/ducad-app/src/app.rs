@@ -148,6 +148,9 @@ pub struct DuCADApp {
     /// Metadata sesi agent (oplog + bidang sketch) untuk jembatan live
     /// (P5): `SessionCore` dibangun di atasnya + state GUI di atas.
     pub agent_meta: ducad_engine::SessionMeta,
+    /// Slot pemulihan oplog saat undo/redo geometri (Step 1a, lihat
+    /// `oplog_undo`).
+    pub oplog_slot: crate::oplog_undo::OplogSlot,
     /// Jembatan agent live; mati secara default (P5.1).
     pub bridge: crate::agent_bridge::AgentBridge,
     /// Proposal agent yang menunggu keputusan pengguna (P8.4).
@@ -644,6 +647,7 @@ impl DuCADApp {
             current_file_path: None,
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
+            oplog_slot: Default::default(),
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
@@ -1014,6 +1018,7 @@ impl DuCADApp {
             current_file_path: None,
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
+            oplog_slot: Default::default(),
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
@@ -4348,14 +4353,8 @@ impl eframe::App for DuCADApp {
                     self.apply_hole_wizard(spec);
                     self.set_tool(ToolKind::Select);
                 }
-                ToolPopupEvent::UndoModel => {
-                    self.model_undo.undo(&mut self.model);
-                    self.selected_bodies.clear();
-                }
-                ToolPopupEvent::RedoModel => {
-                    self.model_undo.redo(&mut self.model);
-                    self.selected_bodies.clear();
-                }
+                ToolPopupEvent::UndoModel => self.undo_model(),
+                ToolPopupEvent::RedoModel => self.redo_model(),
                 ToolPopupEvent::ToggleShowAllDimensions => {
                     self.show_all_dimensions = !self.show_all_dimensions;
                 }

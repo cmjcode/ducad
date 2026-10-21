@@ -484,10 +484,7 @@ impl DuCADApp {
     pub fn undo(&mut self) {
         match self.next_undo_target() {
             Some(crate::types::UndoTarget::Sketch) => self.undo_active_sketch(),
-            Some(crate::types::UndoTarget::Model) => {
-                self.model_undo.undo(&mut self.model);
-                self.selected_bodies.clear();
-            }
+            Some(crate::types::UndoTarget::Model) => self.undo_model(),
             Some(crate::types::UndoTarget::Ink) => self.undo_active_ink(),
             None => {}
         }
@@ -497,10 +494,7 @@ impl DuCADApp {
     pub fn redo(&mut self) {
         match self.next_redo_target() {
             Some(crate::types::UndoTarget::Sketch) => self.redo_active_sketch(),
-            Some(crate::types::UndoTarget::Model) => {
-                self.model_undo.redo(&mut self.model);
-                self.selected_bodies.clear();
-            }
+            Some(crate::types::UndoTarget::Model) => self.redo_model(),
             Some(crate::types::UndoTarget::Ink) => self.redo_active_ink(),
             None => {}
         }

@@ -582,6 +582,7 @@ impl DuCADApp {
             ),
             _ => {
                 let paths = BridgePaths(self.bridge_root());
+                let mark = self.begin_oplog_step();
                 let out = {
                     let mut core = SessionCore {
                         model: &mut self.model,
@@ -591,6 +592,7 @@ impl DuCADApp {
                     };
                     call_core_tool(&mut core, method, params, &paths)
                 };
+                self.end_oplog_step(mark, method);
                 let out = out.unwrap_or_else(ToolOut::err);
                 if matches!(
                     method,
@@ -734,11 +736,13 @@ impl DuCADApp {
         meta: ducad_engine::SessionMeta,
         what: &str,
     ) {
+        let mark = self.begin_oplog_step();
         self.model_undo.execute(
             Box::new(crate::modeling::SwapModelCommand::new(model)),
             &mut self.model,
         );
         self.agent_meta = meta;
+        self.end_oplog_step(mark, what);
         self.sync_design_after_agent();
         self.after_model_changed(&ducad_i18n::t!("bridge-title"), what);
     }
