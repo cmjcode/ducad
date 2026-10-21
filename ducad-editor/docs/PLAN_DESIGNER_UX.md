@@ -316,6 +316,13 @@ menghentikan pekerjaan.
 
 ### Step 4 — Validasi penyimpanan, impor/ekspor, dan drawing
 
+> **Kemajuan 2026-10-21:** butir 1–6 selesai untuk jalur otomatis: matriks
+> format `docs/FORMAT_MATRIX.md`, suite `ducad-engine/tests/format_validation.rs`
+> (native, STEP, STL, drawing PDF/DXF, input rusak), satuan DXF (`$INSUNITS`)
+> saat ekspor dan impor, subset drawing produksi, label satuan di dialog simpan
+> dan ringkasan setelah ekspor. Terbuka: fixture dari CAD lain dan pemeriksaan
+> visual di aplikasi target. Lihat `BASELINE_DESIGNER_UX.md` §8d.
+
 **Tujuan**
 
 Menjamin hasil dapat disimpan, dibuka kembali, dibagikan, dan digunakan dalam

@@ -696,6 +696,17 @@ impl DuCADApp {
             .collect()
     }
 
+    /// Shape body yang terlihat (ekspor STEP, Step 4).
+    pub fn visible_body_shapes(&self) -> Vec<&KernelShape> {
+        self.model
+            .doc
+            .bodies
+            .iter()
+            .filter(|(_, meta)| meta.visible)
+            .filter_map(|(id, _)| Some(&self.geometry_of(id)?.shape))
+            .collect()
+    }
+
     pub fn visible_body_meshes(&self) -> Vec<(&str, &KernelMesh)> {
         self.model
             .doc
@@ -830,6 +841,31 @@ mod tests {
         let rh = export_bodies[0].round_history.as_ref().expect("round history must exist");
         assert_eq!(rh.1.len(), 1);
         assert_eq!(rh.1[0].radius, 10.0);
+    }
+
+    /// Step 4: ekspor STEP hanya body terlihat (sama dengan STL/OBJ/GLB),
+    /// dan ringkasan ekspor menyebut satuan serta body tersembunyi.
+    #[test]
+    fn step_export_uses_visible_bodies_and_note_mentions_hidden() {
+        let mut app = DuCADApp::new_for_test();
+        for name in ["A", "B"] {
+            let shape = ducad_kernel::make_box(10.0, 10.0, 10.0, false).unwrap();
+            let geo = ducad_engine::model::BodyGeometry::from_shape(shape);
+            app.execute_model_command(
+                Box::new(ducad_engine::model::AddSolidCommand::new(name, geo)),
+                "add",
+            );
+        }
+        app.model.doc.bodies.values_mut().next().unwrap().visible = false;
+        assert_eq!(app.all_body_shapes().len(), 2);
+        assert_eq!(app.visible_body_shapes().len(), 1);
+
+        let note = app.export_note(1, "mm", None);
+        assert!(note.contains(&ducad_i18n::t!("file-export-note", count = "1", unit = "mm")));
+        assert!(
+            note.contains(&ducad_i18n::t!("file-export-note-hidden", count = "1")),
+            "{note}"
+        );
     }
 
     #[test]

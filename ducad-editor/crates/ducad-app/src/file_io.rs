@@ -232,23 +232,47 @@ impl DuCADApp {
         }
     }
 
+    /// Catatan hasil ekspor (Step 4): jumlah body, satuan, batasan format,
+    /// dan body tersembunyi yang tidak ikut.
+    pub(crate) fn export_note(&self, exported: usize, unit: &str, extra: Option<String>) -> String {
+        let hidden = self.model.doc.bodies.values().filter(|b| !b.visible).count();
+        let count = exported.to_string();
+        let mut note = ducad_i18n::t!("file-export-note", count = count.as_str(), unit = unit);
+        if let Some(e) = extra {
+            note.push_str("; ");
+            note.push_str(&e);
+        }
+        if hidden > 0 {
+            let h = hidden.to_string();
+            note.push_str("; ");
+            note.push_str(&ducad_i18n::t!("file-export-note-hidden", count = h.as_str()));
+        }
+        format!("({note})")
+    }
+
     pub fn export_step(&mut self) {
-        let filter_name = ducad_i18n::t!("file-step-filter");
+        let filter_name = ducad_i18n::t!("file-step-export-filter");
         let Some(path) = self.pick_save_path(&filter_name, &["step", "stp"], "model.step") else {
             return;
         };
-        let shapes = self.all_body_shapes();
+        // Hanya body terlihat, sama dengan STL/OBJ/GLB dan ekspor CLI/MCP
+        // (Step 4: tidak ada body tersembunyi yang ikut diam-diam).
+        let shapes = self.visible_body_shapes();
         if shapes.is_empty() {
             self.file_status = Some(ducad_i18n::t!("file-no-bodies-step"));
             return;
         }
+        let note = self.export_note(shapes.len(), "mm", None);
         match ducad_io::step_io::export(&shapes, &path) {
             Ok(_) => {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.step");
-                self.file_status = Some(ducad_i18n::t!("file-exported-step", name = name));
+                self.file_status = Some(format!(
+                    "{} {note}",
+                    ducad_i18n::t!("file-exported-step", name = name)
+                ));
                 self.onboarding.note_exported("step");
             }
             Err(e) => {
@@ -347,7 +371,7 @@ impl DuCADApp {
     }
 
     pub fn export_stl(&mut self) {
-        let filter_name = ducad_i18n::t!("file-stl-filter");
+        let filter_name = ducad_i18n::t!("file-stl-export-filter");
         let Some(path) = self.pick_save_path(&filter_name, &["stl"], "model.stl") else {
             return;
         };
@@ -359,13 +383,21 @@ impl DuCADApp {
         let mesh_refs: Vec<&ducad_kernel::KernelMesh> =
             meshes.iter().map(|(_, m)| *m).collect();
         let merged = ducad_kernel::KernelMesh::merge(&mesh_refs);
+        let note = self.export_note(
+            meshes.len(),
+            "mm",
+            Some(ducad_i18n::t!("file-export-note-stl")),
+        );
         match ducad_io::mesh_export::write_stl_binary(&merged, &path) {
             Ok(_) => {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.stl");
-                self.file_status = Some(ducad_i18n::t!("file-exported-stl", name = name));
+                self.file_status = Some(format!(
+                    "{} {note}",
+                    ducad_i18n::t!("file-exported-stl", name = name)
+                ));
             }
             Err(e) => {
                 let err_str = e.to_string();
@@ -384,13 +416,21 @@ impl DuCADApp {
             self.file_status = Some(ducad_i18n::t!("file-no-meshes-obj"));
             return;
         }
+        let note = self.export_note(
+            meshes.len(),
+            "mm",
+            Some(ducad_i18n::t!("file-export-note-obj")),
+        );
         match ducad_io::mesh_export::write_obj(&meshes, &path) {
             Ok(_) => {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.obj");
-                self.file_status = Some(ducad_i18n::t!("file-exported-obj", name = name));
+                self.file_status = Some(format!(
+                    "{} {note}",
+                    ducad_i18n::t!("file-exported-obj", name = name)
+                ));
             }
             Err(e) => {
                 let err_str = e.to_string();
@@ -409,13 +449,21 @@ impl DuCADApp {
             self.file_status = Some(ducad_i18n::t!("file-no-meshes-glb"));
             return;
         }
+        let note = self.export_note(
+            bodies.len(),
+            "m",
+            Some(ducad_i18n::t!("file-export-note-glb")),
+        );
         match ducad_io::write_glb(&bodies, &path) {
             Ok(_) => {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.glb");
-                self.file_status = Some(ducad_i18n::t!("file-exported-glb", name = name));
+                self.file_status = Some(format!(
+                    "{} {note}",
+                    ducad_i18n::t!("file-exported-glb", name = name)
+                ));
             }
             Err(e) => {
                 let err_str = e.to_string();
@@ -430,17 +478,25 @@ impl DuCADApp {
                 Some(ducad_i18n::t!("file-sketch-empty-dxf"));
             return;
         }
-        let filter_name = ducad_i18n::t!("file-dxf-filter");
+        let filter_name = ducad_i18n::t!("file-dxf-export-filter");
         let Some(path) = self.pick_save_path(&filter_name, &["dxf"], "sketch.dxf") else {
             return;
         };
         match ducad_io::dxf::export(self.sketch(), &path) {
-            Ok(_) => {
+            Ok(skipped) => {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("sketch.dxf");
-                self.file_status = Some(ducad_i18n::t!("file-exported-dxf", name = name));
+                let mut status = ducad_i18n::t!("file-exported-dxf", name = name);
+                // DXF R12: elips, spline, dan path tidak ikut — sebutkan,
+                // jangan hilang diam-diam (Step 4).
+                if skipped > 0 {
+                    let n = skipped.to_string();
+                    status.push(' ');
+                    status.push_str(&ducad_i18n::t!("file-export-dxf-skipped", count = n.as_str()));
+                }
+                self.file_status = Some(status);
             }
             Err(e) => {
                 let err_str = e.to_string();
@@ -498,7 +554,12 @@ impl DuCADApp {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("file.dxf");
-                self.file_status = Some(ducad_i18n::t!("file-imported-dxf", name = name, count = count));
+                let mut status = ducad_i18n::t!("file-imported-dxf", name = name, count = count);
+                if let Some(unit) = res.source_unit.filter(|u| *u != "mm") {
+                    status.push(' ');
+                    status.push_str(&ducad_i18n::t!("file-import-dxf-units", unit = unit));
+                }
+                self.file_status = Some(status);
             }
             Err(e) => {
                 let err_str = e.to_string();

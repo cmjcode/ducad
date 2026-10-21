@@ -26,14 +26,39 @@ use crate::drawing::DrawingSheet;
 pub struct ImportResult {
     pub entities: Vec<Entity>,
     pub skipped: usize,
+    /// Satuan sumber dari `$INSUNITS` (mis. `"in"`); `None` = tidak dinyatakan
+    /// (dibaca sebagai mm). Entitas sudah diskalakan ke mm.
+    pub source_unit: Option<&'static str>,
 }
+
+/// `$INSUNITS` → (label, faktor ke mm). Kode tak dikenal/0 = tanpa satuan.
+fn insunits_factor(code: i64) -> Option<(&'static str, f64)> {
+    Some(match code {
+        1 => ("in", 25.4),
+        2 => ("ft", 304.8),
+        4 => ("mm", 1.0),
+        5 => ("cm", 10.0),
+        6 => ("m", 1000.0),
+        8 => ("uin", 25.4e-6),
+        9 => ("mil", 0.0254),
+        10 => ("yd", 914.4),
+        14 => ("dm", 100.0),
+        _ => return None,
+    })
+}
+
+/// Header DXF: versi R12 + satuan milimeter. Tanpa `$INSUNITS`/
+/// `$MEASUREMENT`, aplikasi lain bisa membaca angka mm sebagai inci atau
+/// tanpa satuan (Step 4 `PLAN_DESIGNER_UX`). Variabel yang tidak dikenal
+/// pembaca R12 lama diabaikan.
+const DXF_HEADER: &str = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n9\n$MEASUREMENT\n70\n1\n0\nENDSEC\n";
 
 /// Export Dokumen Lembar Kerja 2D (Drawing Sheet) ke file DXF lengkap dengan layer terorganisir.
 pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Result<()> {
     let mut out = String::new();
 
     // 1. Header Section dengan tabel Linetypes dan Layers
-    out.push_str("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n");
+    out.push_str(DXF_HEADER);
     out.push_str("0\nSECTION\n2\nTABLES\n");
 
     // Linetype Table
@@ -141,7 +166,7 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
 pub fn vector_snapshot_dxf_string(snapshot: &ducad_kernel::VectorSnapshot) -> String {
     use ducad_kernel::HlrLineKind as K;
     let mut out = String::with_capacity(4096 + snapshot.segments.len() * 96);
-    out.push_str("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n");
+    out.push_str(DXF_HEADER);
     out.push_str("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n70\n3\n");
     out.push_str("0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n");
     out.push_str("0\nLTYPE\n2\nHIDDEN\n70\n0\n3\n__ __ __ __ __\n72\n65\n73\n2\n40\n9.525\n49\n6.35\n49\n-3.175\n");
@@ -211,7 +236,7 @@ fn push_circle_layer(out: &mut String, layer: &str, cx: f64, cy: f64, radius: f6
 /// — lihat catatan lingkup di atas modul.
 pub fn export(sketch: &Sketch, path: impl AsRef<Path>) -> Result<usize> {
     let mut out = String::new();
-    out.push_str("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n");
+    out.push_str(DXF_HEADER);
     out.push_str("0\nSECTION\n2\nENTITIES\n");
 
     let mut skipped = 0usize;
@@ -364,7 +389,18 @@ pub fn import_str(text: &str) -> Result<ImportResult> {
     // supaya tidak kehilangan sinkronisasi kode/nilai DXF (tiap entri
     // group-code SELALU 2 baris: kode lalu nilai).
     let mut found_entities = false;
+    let mut units: Option<(&'static str, f64)> = None;
+    let mut want_insunits = false;
     while let (Some(code), Some(value)) = (lines.next(), lines.next()) {
+        if code == "9" {
+            want_insunits = value == "$INSUNITS";
+            continue;
+        }
+        if want_insunits && code == "70" {
+            units = value.parse::<i64>().ok().and_then(insunits_factor);
+            want_insunits = false;
+            continue;
+        }
         if code == "2" && value == "ENTITIES" {
             found_entities = true;
             break;
@@ -374,6 +410,7 @@ pub fn import_str(text: &str) -> Result<ImportResult> {
         return Ok(ImportResult {
             entities: Vec::new(),
             skipped: 0,
+            source_unit: units.map(|u| u.0),
         });
     }
 
@@ -571,7 +608,23 @@ pub fn import_str(text: &str) -> Result<ImportResult> {
         }
     }
 
-    Ok(ImportResult { entities, skipped })
+    // Skalakan ke mm bila berkas menyatakan satuan lain (Step 4): tanpa
+    // ini DXF berinci masuk 25.4x terlalu kecil tanpa peringatan.
+    let entities = match units {
+        Some((_, f)) if (f - 1.0).abs() > 1e-12 => {
+            let affine = ducad_sketch::kurbo::Affine::scale(f);
+            entities
+                .iter()
+                .map(|e| ducad_sketch::path_edit::transform_entity(e, affine))
+                .collect()
+        }
+        _ => entities,
+    };
+    Ok(ImportResult {
+        entities,
+        skipped,
+        source_unit: units.map(|u| u.0),
+    })
 }
 
 #[cfg(test)]
@@ -923,5 +976,56 @@ mod import_coverage_tests {
             .iter()
             .any(|e| matches!(e, Entity::Circle { .. })));
         assert!(res.entities.iter().any(|e| matches!(e, Entity::Arc { .. })));
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    fn dxf_line(units: Option<i64>) -> String {
+        let header = match units {
+            Some(u) => format!("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n{u}\n0\nENDSEC\n"),
+            None => String::new(),
+        };
+        format!("{header}0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n2\n21\n0\n0\nENDSEC\n0\nEOF\n")
+    }
+
+    fn length(r: &ImportResult) -> f64 {
+        match &r.entities[0] {
+            Entity::Line { start, end, .. } => (*end - *start).length(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn inch_dxf_is_scaled_to_mm_and_reported() {
+        let r = import_str(&dxf_line(Some(1))).unwrap();
+        assert_eq!(r.source_unit, Some("in"));
+        assert!((length(&r) - 50.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn mm_and_unitless_dxf_stay_as_is() {
+        let r = import_str(&dxf_line(Some(4))).unwrap();
+        assert_eq!(r.source_unit, Some("mm"));
+        assert!((length(&r) - 2.0).abs() < 1e-12);
+        let r = import_str(&dxf_line(None)).unwrap();
+        assert_eq!(r.source_unit, None);
+        assert!((length(&r) - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn exported_sketch_dxf_declares_millimetres() {
+        let mut sk = ducad_sketch::Sketch::default();
+        sk.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let path = std::env::temp_dir().join(format!("ducad-units-{}.dxf", std::process::id()));
+        export(&sk, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(text.contains("$INSUNITS\n70\n4"), "{}", &text[..text.len().min(200)]);
+        let back = import_str(&text).unwrap();
+        assert_eq!(back.source_unit, Some("mm"));
+        assert!((length(&back) - 10.0).abs() < 1e-9);
     }
 }

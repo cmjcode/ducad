@@ -199,6 +199,34 @@ Kriteria selesai Step 3:
 | Error umum tidak menyebabkan crash atau kehilangan pekerjaan | ✅ panik → `internal`, kernel beku → `kernel_timeout`, semua dengan rollback |
 | Perbaikan otomatis tervalidasi sebelum ditampilkan | ✅ |
 
+## 8d. Kemajuan Step 4 (2026-10-21)
+
+| Butir Step 4 | Hasil | Bukti |
+|---|---|---|
+| 1. Matriks format dan batas dukungan | ✅ `docs/FORMAT_MATRIX.md`: buka/buat/round-trip, satuan, yang hilang per format | — |
+| 2. Fixture satuan, analitik, multi-body, drawing, malformed | ✅ sintetis (bracket contoh, dua kotak, DXF inci, berkas terpotong) | `format_validation.rs`, `dxf.rs::unit_tests` |
+| 3. Round-trip native (param, oplog, datum `frame`, suppressed, material, drawing) | ✅ | `format_validation.rs::native_roundtrip_keeps_design_intent` |
+| 4. STEP buka ulang; DXF entitas/layer/satuan; PDF halaman/ukuran/teks | ✅ otomatis; ☐ visual manual | `step_multibody_reimports_with_same_volume`, `drawing_dxf_declares_mm_and_layers`, `drawing_pdf_has_paper_size_and_title` |
+| 5. Subset drawing produksi | ✅ didefinisikan di `FORMAT_MATRIX.md` (satu lembar A4/A3, HLR, dimensi otomatis, catatan lubang, title block, mm) | idem |
+| 6. Dialog ekspor menyatakan satuan; ringkasan hasil | ✅ label filter dialog simpan berisi satuan; status setelah ekspor: jumlah body, satuan, batasan, body tersembunyi, entitas DXF yang dilewati; impor DXF menyebut satuan asal | `document::tests::step_export_uses_visible_bodies_and_note_mentions_hidden` |
+
+Bug yang ditemukan dan ditutup di Step 4:
+
+| ID | Masalah | Perbaikan |
+|---|---|---|
+| B4-1 | Ekspor STEP GUI ikut menyertakan body tersembunyi, berbeda dari STL/OBJ/GLB/CLI/MCP | `visible_body_shapes()` |
+| B4-2 | DXF tidak menyatakan satuan; impor DXF berkas inci dibaca sebagai mm (25,4× terlalu kecil) | header `$INSUNITS 4` di tiga penulis DXF; impor membaca `$INSUNITS` dan menskalakan ke mm |
+| B4-3 | Ekspor DXF sketsa membuang elips/spline/path tanpa pemberitahuan | jumlah yang dilewati disebut di status |
+
+Kriteria selesai Step 4:
+
+| Kriteria | Status |
+|---|---|
+| Round-trip native lulus untuk fixture dan versi format yang didukung | ✅ |
+| Format eksternal tidak diam-diam menghilangkan data yang diklaim | ✅ setelah B4-1..B4-3; batasan tercantum di matriks |
+| PDF/DXF/STEP lolos validasi otomatis + pemeriksaan visual | 🟡 otomatis ✅; visual ☐ (Bagian P, T6) |
+| Dokumentasi membedakan dapat dibuka/dibuat/round-trip | ✅ `FORMAT_MATRIX.md` |
+
 ## 9. Berkas yang ditambahkan/diubah oleh Step 0
 
 - `crates/ducad-engine/tests/fixtures/sample_bracket.ops.json` (baru)

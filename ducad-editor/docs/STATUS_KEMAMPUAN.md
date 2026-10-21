@@ -66,8 +66,8 @@ ulang langsung. Path relatif dari `crates/` kecuali disebut lain.
 | **Berkas** | | | | |
 | `.ducad` native | keduanya | terbatas | `ducad-io/tests/native_format.rs`; `ducad-engine/tests/session_file.rs`; `sample_project.rs::save_and_reopen_roundtrip` | Format kini v4; DAG GUI dan anotasi GD&T GUI tidak disimpan |
 | Impor STEP | keduanya | terbatas | `ducad-kernel/tests/step_roundtrip.rs` | Hanya round-trip berkas sendiri; tanpa fixture CAD lain |
-| Ekspor STEP | keduanya | stabil | `step_roundtrip.rs`; `sample_project.rs::export_step_reopens_and_stl_is_written` | Dibatasi tier lisensi lewat MCP (WIP belum di-commit) |
-| Impor / ekspor DXF | GUI (+ flat oplog) | terbatas | `ducad-io/src/dxf.rs` (12 tes); `ducad-io/src/flat_dxf.rs` | Tanpa SPLINE/TEXT/INSERT/HATCH; R12; tanpa entitas DIMENSION |
+| Ekspor STEP | keduanya | stabil | `step_roundtrip.rs`; `sample_project.rs::export_step_reopens_and_stl_is_written`; `format_validation.rs::step_multibody_reimports_with_same_volume` | Dibatasi tier lisensi lewat MCP (WIP belum di-commit) |
+| Impor / ekspor DXF | GUI (+ flat oplog) | terbatas | `ducad-io/src/dxf.rs` (17 tes); `ducad-io/src/flat_dxf.rs`; `format_validation.rs::drawing_dxf_declares_mm_and_layers` | Tanpa SPLINE/TEXT/INSERT/HATCH; R12; tanpa entitas DIMENSION. Satuan `$INSUNITS` ditulis dan dibaca (Step 4). Detail: `FORMAT_MATRIX.md` |
 | Impor STL, ekspor STL/OBJ | GUI + CLI | stabil | `ducad-io/src/mesh_export.rs`; `ducad-io/tests/hostile_stl.rs` | — |
 | Ekspor GLB / SVG | GUI | stabil | `ducad-io/src/glb.rs`; `ducad-io/src/svg.rs` | AR Quick Look tidak terverifikasi |
 | Ekspor PDF | keduanya | stabil | `ducad-io/tests/sheet_p21.rs`; `sample_project.rs::drawing_exports_pdf_and_dxf` | Dibatasi lisensi lewat MCP (WIP) |
