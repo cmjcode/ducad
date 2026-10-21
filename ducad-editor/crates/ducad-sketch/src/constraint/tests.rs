@@ -1491,3 +1491,65 @@ mod fase1 {
         assert_eq!(b, PointRef::LineStart(s1));
     }
 }
+
+/// Status sketsa untuk UI (Step 2 `PLAN_DESIGNER_UX`).
+mod sketch_status_tests {
+    use crate::constraint::{sketch_status, Constraint, ConstraintState, PointRef};
+    use crate::entity::Entity;
+    use crate::sketch::Sketch;
+    use glam::DVec2;
+
+    #[test]
+    fn unconstrained_line_is_under_and_free() {
+        let mut s = Sketch::default();
+        let l = s.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let st = sketch_status(&s);
+        assert_eq!(st.state, ConstraintState::Under);
+        assert_eq!(st.dof, 4);
+        assert_eq!(st.free_entities, vec![l]);
+    }
+
+    #[test]
+    fn fixed_line_is_fully_constrained_and_other_line_stays_free() {
+        let mut s = Sketch::default();
+        let a = s.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let b = s
+            .entities
+            .insert(Entity::line(DVec2::new(0.0, 5.0), DVec2::new(10.0, 5.0)));
+        s.constraints.push(Constraint::Fixed {
+            point: PointRef::LineStart(a),
+            target: DVec2::ZERO,
+        });
+        s.constraints.push(Constraint::Fixed {
+            point: PointRef::LineEnd(a),
+            target: DVec2::new(10.0, 0.0),
+        });
+        let st = sketch_status(&s);
+        assert_eq!(st.state, ConstraintState::Under);
+        assert_eq!(st.free_entities, vec![b], "hanya garis b yang masih bebas");
+        assert_eq!(st.dof, 4);
+
+        s.entities.remove(b);
+        let st = sketch_status(&s);
+        assert_eq!(st.state, ConstraintState::Fully);
+        assert_eq!(st.dof, 0);
+        assert!(st.free_entities.is_empty());
+    }
+
+    #[test]
+    fn duplicate_constraint_is_redundant_and_dangling_is_unresolved() {
+        let mut s = Sketch::default();
+        let a = s.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        s.constraints.push(Constraint::Horizontal { line: a });
+        s.constraints.push(Constraint::Horizontal { line: a });
+        let st = sketch_status(&s);
+        assert_eq!(st.state, ConstraintState::Over);
+        assert_eq!(st.redundant, vec![1]);
+
+        let gone = s.entities.insert(Entity::line(DVec2::ZERO, DVec2::ONE));
+        s.entities.remove(gone);
+        s.constraints.push(Constraint::Vertical { line: gone });
+        let st = sketch_status(&s);
+        assert_eq!(st.unresolved, vec![2]);
+    }
+}

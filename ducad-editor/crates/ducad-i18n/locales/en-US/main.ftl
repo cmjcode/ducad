@@ -2473,3 +2473,21 @@ plastic-groove-btn = Groove
 plastic-snap = Snap fit (length, width, hook)
 plastic-rest = Rest (diameter, height)
 plastic-strain = Snap fit strain { $strain } % (allowed { $max } %)
+
+# Status kendala sketsa (Step 2 PLAN_DESIGNER_UX)
+sketch-status-fully = Sketch fully constrained
+sketch-status-under = Sketch: { $dof } DOF left, { $free } entities not locked (green = locked)
+sketch-status-over = Sketch: { $count } redundant or broken constraints (marked red)
+fix-close-gap = Close gap
+fix-close-gap-mm = Close the { $value } mm gap
+
+# Feature Tree oplog (Step 2 PLAN_DESIGNER_UX)
+oplog-section-title = PARAMETRIC HISTORY (OPLOG)
+oplog-count = { $count } ops
+oplog-delete = Delete this op
+oplog-suppress = Enable / disable this op
+oplog-edit-value = Edit main value
+oplog-apply = Apply
+oplog-invalid-number = Not a valid number
+oplog-depends-on = Depends on: { $list }
+oplog-used-by = Used by: { $list }

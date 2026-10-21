@@ -54,6 +54,12 @@ pub(crate) fn edge_points(shape: &KernelShape, edges: &[usize]) -> Result<Vec<Ve
 }
 
 /// Edge logis yang ditunjuk ray (diresolusi ulang di shape ini).
+/// Indeks tepi (`enumerate_edges`) yang ditunjuk pick ray GUI — dipakai GUI
+/// untuk membuat selector semantik dari tepi yang diklik (ADR 0010).
+pub fn edges_for_rays(shape: &KernelShape, rays: &[PickRay], tolerance: f64) -> Result<Vec<usize>> {
+    ray_edges(shape, rays, tolerance)
+}
+
 fn ray_edges(shape: &KernelShape, rays: &[PickRay], tolerance: f64) -> Result<Vec<usize>> {
     let topo = shape.topology();
     let mut out = Vec::with_capacity(rays.len());

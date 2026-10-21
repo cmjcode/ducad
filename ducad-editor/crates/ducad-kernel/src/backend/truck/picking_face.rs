@@ -54,6 +54,12 @@ pub(crate) fn resolve_face_hit(topo: &Topology, ray: PickRay) -> Option<(usize, 
     best.map(|(t, f, [a, b, c])| (f, o + d * t, (b - a).cross(c - a).normalize_or_zero()))
 }
 
+/// Indeks face (`enumerate_faces`) terdekat yang ditembus `ray` — dipakai GUI
+/// untuk membuat selector semantik dari face yang diklik (ADR 0010).
+pub fn face_index_for_ray(shape: &KernelShape, ray: PickRay) -> Option<usize> {
+    resolve_face_hit(shape.topology(), ray).map(|(f, _, _)| f)
+}
+
 /// Cast `ray` ke `shape`, kembalikan detail face terdekat.
 pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
     let topo = shape.topology();

@@ -812,6 +812,10 @@ impl DuCADApp {
             ToolKind::Gradient => ducad_i18n::t!("tool-gradient-desc"),
             ToolKind::History => ducad_i18n::t!("status-prompt-history"),
         };
+        let hint = match self.sketch_status_text() {
+            Some(status) => format!("{status}  ·  {hint}"),
+            None => hint,
+        };
         match &self.last_snap {
             Some(snap) => format!("{hint}  ·  snap: {:?}", snap.kind),
             None => hint,

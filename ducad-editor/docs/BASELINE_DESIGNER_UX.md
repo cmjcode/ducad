@@ -84,9 +84,10 @@ Belum ada sesi uji designer. Dugaan berikut berasal dari membaca
 | B0-4 | Hint `hole_outside_face` selalu menyebut "koordinat 'at' relatif terhadap pusat face", juga saat yang dipakai `at_world`; tidak ada `fixes`. | Pesan menyesatkan saat pulih dari error | 3 |
 | B0-5 | GUI: `Fillet` diregenerasi sebagai `fillet_all`; `Hole`, `Helix`, `Boolean` tidak diregenerasi. | Edit dimensi awal di GUI merusak/menghilangkan fitur hilir | 1a (migrasi ke oplog) |
 | B0-7 | Op `hole` lambat: ±0,5–0,6 s per op (2 lubang tembus) pada part kecil; regenerasi dan buka berkas proyek contoh ±1,1–1,3 s. Analisis Step 1a: biaya ada di boolean kernel, satu boolean per titik lubang (1 titik 112 ms, 2 titik 215 ms pada bracket tanpa fillet), dan naik ±3× bila body punya face lengkung (2 lubang setelah fillet: 703 ms). Lubang buta dengan kedalaman tepat = tebal (bidang koplanar) ±1 s. | Edit dimensi terasa tersendat; buka berkas lambat | 1b: satu boolean untuk semua titik lubang; replay inkremental dari op pertama yang terdampak; profil boolean kernel untuk face lengkung/koplanar |
-| B0-8 | GUI: DAG fitur tidak disimpan ke `.ducad` dan direset saat buka/baru; riwayat aktivitas (dan cabangnya) dikosongkan setiap aplikasi start (`app.rs:569`). | Setelah buka ulang, riwayat fitur GUI hilang — T4 gagal di GUI | 1a/1c |
+| B0-8 🟡 | *(Untuk fitur yang sudah dimigrasi ke oplog — sketsa, extrude, fillet/chamfer, hole — diperbaiki: oplog dan ikatan sketsa dipulihkan saat berkas dibuka, tes `gui_oplog_survives_save_and_reopen`. DAG fitur lama tetap tidak disimpan.)* GUI: DAG fitur tidak disimpan ke `.ducad` dan direset saat buka/baru; riwayat aktivitas (dan cabangnya) dikosongkan setiap aplikasi start (`app.rs:569`). | Setelah buka ulang, riwayat fitur GUI hilang — T4 gagal di GUI | 1a/1c |
 | B0-9 | Oplog belum punya op assembly/mate/coupling, datum bersudut/3 titik, teks sketsa, atau edit sketsa (trim/extend/offset/mirror). | Penghalang keputusan "oplog = sumber kebenaran"; harus masuk daftar ADR Step 1a | 1a |
 | B0-10 | Platform utama persona adalah desktop macOS, tetapi CI tidak punya lane workspace macOS dan tes Windows `continue-on-error`. | Regresi di platform utama tidak tertangkap CI | 5 (gate rilis) |
+| B1-1 | `diff` geometris (CLI/MCP `diff`, ghost proposal `preview_edit`) macet >60 s pada dua versi bracket dengan fillet sudut dalam + lubang (alas 40 vs 55). Stack: `truck_geometry::intersection_curve::hinted_sub_division`. Union silinder koaksial biasa tidak terdampak. Jalur edit GUI sudah menghindari diff. | Proposal agent dengan ghost preview pada part seperti ini membuat aplikasi/MCP macet | 3 (audit kernel: gagal jadi error, bukan macet); tes `diff.rs::diff_of_filleted_bracket_versions_finishes_in_time` (ignored), fixture `gui_bracket_hole.ops.json` |
 | B0-6 | `docs/PLAN_DESIGNER_UX.md` merujuk `README.md` di `ducad-editor/`, padahal README ada di root repo. | Dokumentasi | 0 (diperbaiki di rencana) |
 
 ## 6. Baseline waktu (jalur oplog, build release)
@@ -130,6 +131,14 @@ terhadap kernel truck).
   Hasilnya mengisi tabel P.3/P.4 dan target angka §6 rencana.
 - **Tanggal berlaku rencana** (bagian 1) menunggu keputusan pemilik produk.
 
+### Kegagalan tes yang sudah ada sebelum pekerjaan ini (bukan regresi)
+
+- `ducad-core` `hole::tests::iso_table_in_vault_template_matches_engine`:
+  membaca `scripts/memory-vault/Standards/ISO-Metric-Fasteners.md` di repo
+  luar, yang dihapus di commit `cd57db0f`.
+- `ducad-core/tests/layering.rs` (2 tes): crate `ducad-update` belum ada di
+  tabel layering dan peta CLAUDE.md.
+
 ## 8a. Kemajuan Step 1 (2026-10-21)
 
 | Butir | Hasil | Bukti |
@@ -138,7 +147,32 @@ terhadap kernel truck).
 | B0-1 undo edit (headless) | ✅ batch op, `set_params`, `replace_op`, `remove_op` → satu langkah undo/redo masing-masing; edit gagal tidak menambah langkah; bertahan setelah buka ulang | `sample_project.rs::{param_edit_is_one_undo_step, failed_param_edit_adds_no_undo_step, mixed_edits_undo_and_redo_in_order, undo_after_reopen_covers_ops_and_param_edits}`, `edit.rs` |
 | Undo GUI membawa oplog | ✅ undo/redo geometri memulihkan oplog yang menyertainya; tidak lagi `oplog_stale` setelah undo | `ducad-app/src/oplog_undo.rs` (4 tes), `ducad-core` `UndoStack::attach_to_top` (2 tes) |
 | Pembuat selector dari klik GUI | ✅ `select::suggest_faces/suggest_edges`: pada bracket contoh 46 face/tepi tunggal → 30 semantik, 16 numerik, 0 `idx:`; selector tepi sudut dalam & face atas alas tetap benar setelah `t` 5→8 | `tests/select_suggest.rs` (6 tes) |
-| Migrasi fitur GUI ke op | ☐ belum dimulai (urutan 1: sketsa) | ADR 0010 §Urutan migrasi |
+| Migrasi fitur GUI ke op | 🟡 urutan 1–4 selesai (sketsa terikat, extrude, fillet/chamfer, hole); T1–T2 lewat GUI lulus tes otomatis. Sebelumnya: urutan 3 selesai: fillet/chamfer GUI (termasuk variabel) menjadi op oplog dengan selector semantik dari tepi yang diklik; menutup B0-5 untuk fillet/chamfer. Urutan 1–2 (sketsa, extrude) dirancang di ADR 0010 | `ducad-app/src/oplog_gui.rs` (4 tes), tes lama `error_card_ui::failed_fillet_offers_verified_fix_that_reapplies` kini lewat op |
+
+## 8b. Kemajuan Step 2 (2026-10-21)
+
+Butir rencana Step 2 dan hasilnya. Kriteria "pengguna uji dapat membuat dan
+merevisi proyek contoh tanpa petunjuk lisan" hanya bisa dinilai lewat sesi
+uji Bagian P — **belum dilakukan**.
+
+| Butir Step 2 | Hasil | Bukti |
+|---|---|---|
+| 1. Urutan kerja sketsa → constraint → solid → revisi | 🟡 alur T1–T2 lewat GUI berjalan ujung-ke-ujung dan teruji otomatis; urutan tampilan menu tidak diubah | `oplog_gui::gui_sketch_extrude_fillet_then_edit_sketch_updates_downstream` |
+| 2. Status sketsa yang bisa ditindaklanjuti | ✅ `ducad_sketch::constraint::sketch_status` (semua entitas dihitung, entitas bebas lewat ruang nol Jacobian, constraint redundan/putus per indeks); GUI: entitas terkunci hijau, glyph constraint bermasalah merah, baris status "N DOF tersisa, M entitas belum terkunci" | `constraint/tests.rs::sketch_status_tests` (3), `sketch_status_ui` (2) |
+| 3. Dimensi bisa diedit langsung + validasi | 🟡 nilai utama fitur (jarak extrude, radius fillet, …) bisa diedit dari Feature Tree; popup dimensi menerima satuan eksplisit dan ekspresi (`1 in + 3 mm`, `25.4/2`), input tidak valid tidak lagi ditutup diam-diam. **Belum:** mengikat dimensi sketsa GUI ke parameter `$param` | `units_input` (4 tes), `feature_tree_edits_value_suppresses_and_refuses_unsafe_delete` |
+| 4. Dependensi fitur terbaca + edit/suppress/rollback | ✅ seksi "Riwayat parametrik (oplog)" di Feature Tree: nama, jenis, ringkasan, dependensi (bergantung pada / dipakai oleh), edit nilai, suppress (`DesignDoc.suppressed`), hapus (ditolak dengan pesan bila masih dipakai); tiap aksi satu langkah undo. Roll-to marker untuk oplog belum ada | `ducad-engine/src/oplog_view.rs` (2 tes), tes app di atas |
+| 5. Validasi profil sebelum solid | ✅ celah profil ditunjuk lokasinya (ujung terbuka disorot merah, ukuran celah di pesan) + tombol aman "Tutup celah N mm" (satu langkah undo, lalu extrude diulang) | `open_profile_offers_close_gap_fix_that_extrudes` |
+| 6. Satuan dan presisi | ✅ satuan aktif sudah ada di UI (`LengthUnit`); input kini eksplisit: angka polos = satuan aktif (popup dimensi) atau mm (input fitur, seperti sebelumnya), satuan tertulis selalu menang, ekspresi didukung, input salah ditolak dengan alasan | `ducad-core/src/units_input.rs` |
+
+Kriteria selesai Step 2:
+
+| Kriteria | Status |
+|---|---|
+| Pengguna uji membuat dan merevisi proyek contoh tanpa petunjuk lisan | ☐ butuh sesi uji Bagian P |
+| Perubahan parameter awal memperbarui model secara benar dan terprediksi | ✅ otomatis (engine + GUI) |
+| Status constraint dan profil membantu menemukan masalah tanpa membaca log | ✅ (perlu dikonfirmasi sesi uji) |
+| T4 lewat GUI: simpan → buka → edit sketsa tetap memperbarui hilir | ✅ `gui_oplog_survives_save_and_reopen` |
+| Satu perintah = satu undo step, termasuk edit dimensi | ✅ untuk aksi oplog; edit dimensi sketsa = satu langkah sketsa + satu langkah pembaruan model saat keluar dari mode sketsa |
 
 ## 9. Berkas yang ditambahkan/diubah oleh Step 0
 

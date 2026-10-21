@@ -200,6 +200,9 @@ impl DuCADApp {
                 self.model_undo = ducad_core::UndoStack::default();
                 // Paritas Fase 4: perakitan tersimpan (body lewat UUID).
                 self.assembly_from_json(assembly_json);
+                // Riwayat parametrik (oplog) ikut hidup lagi, termasuk ikatan
+                // sketsa GUI ↔ op `sketch` (ADR 0010, Step 1c).
+                self.restore_oplog_from_design();
                 self.ink = loaded.ink.unwrap_or_default();
                 self.ink_undo = ducad_core::UndoStack::default();
                 self.selected_bodies.clear();

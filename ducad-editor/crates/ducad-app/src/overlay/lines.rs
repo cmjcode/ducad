@@ -58,11 +58,15 @@ impl DuCADApp {
                     &empty_set
                 };
 
-                verts.extend(sketch_render::entity_lines(
+                let locked = (is_active_plane && !is_sweep)
+                    .then(|| self.locked_sketch_entities())
+                    .flatten();
+                verts.extend(sketch_render::entity_lines_with_status(
                     self.sketch_at_index(idx),
                     h,
                     sel,
                     &plane,
+                    locked.as_ref(),
                 ));
             } else {
                 verts.extend(sketch_render::inactive_entity_lines(

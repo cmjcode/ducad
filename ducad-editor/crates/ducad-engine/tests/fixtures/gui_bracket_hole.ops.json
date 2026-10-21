@@ -1,0 +1,147 @@
+{
+ "params": {
+  "base": 40
+ },
+ "ops": [
+  {
+   "constraints": [],
+   "entities": [
+    {
+     "line": {
+      "construction": false,
+      "from": [
+       0.0,
+       0.0
+      ],
+      "name": "g100000001",
+      "to": [
+       "$base",
+       0.0
+      ]
+     }
+    },
+    {
+     "line": {
+      "construction": false,
+      "from": [
+       "$base",
+       0.0
+      ],
+      "name": "g100000002",
+      "to": [
+       "$base",
+       5.0
+      ]
+     }
+    },
+    {
+     "line": {
+      "construction": false,
+      "from": [
+       "$base",
+       5.0
+      ],
+      "name": "g100000003",
+      "to": [
+       5.0,
+       5.0
+      ]
+     }
+    },
+    {
+     "line": {
+      "construction": false,
+      "from": [
+       5.0,
+       5.0
+      ],
+      "name": "g100000004",
+      "to": [
+       5.0,
+       35.0
+      ]
+     }
+    },
+    {
+     "line": {
+      "construction": false,
+      "from": [
+       5.0,
+       35.0
+      ],
+      "name": "g100000005",
+      "to": [
+       0.0,
+       35.0
+      ]
+     }
+    },
+    {
+     "line": {
+      "construction": false,
+      "from": [
+       0.0,
+       35.0
+      ],
+      "name": "g100000006",
+      "to": [
+       0.0,
+       0.0
+      ]
+     }
+    }
+   ],
+   "id": "sketch1",
+   "op": "sketch",
+   "plane": "XZ"
+  },
+  {
+   "direction": "normal",
+   "distance": 60.0,
+   "id": "extrude1",
+   "material": "default",
+   "mode": "new",
+   "op": "extrude",
+   "outline": null,
+   "per_object": false,
+   "profile": {
+    "names": [
+     "g100000003",
+     "g100000004",
+     "g100000006",
+     "g100000001",
+     "g100000002",
+     "g100000005"
+    ]
+   },
+   "sketch": "sketch1",
+   "target": null
+  },
+  {
+   "body": "extrude1",
+   "edges": "of(+X except >X) and of(+Z except >Z)",
+   "id": "fillet1",
+   "op": "fillet",
+   "radius": 3.0
+  },
+  {
+   "at": [],
+   "at_world": [
+    [
+     22.5,
+     -15.0,
+     5.0
+    ]
+   ],
+   "body": "extrude1",
+   "face": "+Z except >Z",
+   "id": "hole1",
+   "op": "hole",
+   "spec": {
+    "depth": null,
+    "iso": "M5",
+    "kind": "clearance"
+   }
+  }
+ ]
+}

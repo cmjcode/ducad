@@ -151,6 +151,10 @@ pub struct DuCADApp {
     /// Slot pemulihan oplog saat undo/redo geometri (Step 1a, lihat
     /// `oplog_undo`).
     pub oplog_slot: crate::oplog_undo::OplogSlot,
+    /// Cache status kendala sketsa aktif (Step 2, `sketch_status_ui`).
+    pub sketch_status_cache: crate::sketch_status_ui::StatusCache,
+    /// Pesan input dimensi yang ditolak (popup tetap terbuka).
+    pub dimension_input_error: Option<String>,
     /// Jembatan agent live; mati secara default (P5.1).
     pub bridge: crate::agent_bridge::AgentBridge,
     /// Proposal agent yang menunggu keputusan pengguna (P8.4).
@@ -648,6 +652,8 @@ impl DuCADApp {
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
             oplog_slot: Default::default(),
+            sketch_status_cache: Default::default(),
+            dimension_input_error: None,
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
@@ -1019,6 +1025,8 @@ impl DuCADApp {
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
             oplog_slot: Default::default(),
+            sketch_status_cache: Default::default(),
+            dimension_input_error: None,
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
@@ -1418,6 +1426,9 @@ impl DuCADApp {
             self.is_sketching = false;
             self.left_toolbar.is_sketching = false;
             self.set_tool(ToolKind::Select);
+            // Sketsa yang sudah jadi op oplog: perubahan isinya diteruskan
+            // ke fitur hilir (ADR 0010).
+            self.sync_bound_sketches();
         }
     }
 
@@ -3129,7 +3140,9 @@ impl eframe::App for DuCADApp {
                         .selected_feature
                         .map(|id| self.parametric_dag.dependency_highlight(id))
                         .unwrap_or_default();
+                    let oplog_rows = self.oplog_row_infos();
                     let timeline = ducad_ui::TimelineInfo {
+                        oplog: &oplog_rows,
                         marker: self.parametric_dag.rollback_marker,
                         groups: &self.parametric_dag.groups,
                         dependents: &dependents,

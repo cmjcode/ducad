@@ -741,6 +741,16 @@ impl DuCADApp {
             Box::new(crate::modeling::SwapModelCommand::new(model)),
             &mut self.model,
         );
+        // Replay di sesi salinan membangun slot sketsa sendiri; op `sketch`
+        // yang terikat ke slot GUI (ADR 0010) dipetakan kembali ke slot GUI.
+        let mut meta = meta;
+        let live = std::mem::take(&mut self.agent_meta.live_sketches);
+        for (id, sid) in live {
+            if meta.sketch_ids.contains_key(&id) && self.sketch_set.get(sid).is_some() {
+                meta.sketch_ids.insert(id.clone(), sid);
+                meta.live_sketches.insert(id, sid);
+            }
+        }
         self.agent_meta = meta;
         self.end_oplog_step(mark, what);
         self.sync_design_after_agent();

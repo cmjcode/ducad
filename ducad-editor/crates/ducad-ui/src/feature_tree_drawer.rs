@@ -20,9 +20,25 @@ use egui_icons::icons::{
     ICON_FOLDER_OFF,
 };
 
+/// Satu op oplog untuk Feature Tree (Step 2 `PLAN_DESIGNER_UX`). Struct UI
+/// sendiri agar `ducad-ui` tidak bergantung pada engine.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OplogRowInfo {
+    pub id: String,
+    pub kind: String,
+    pub summary: String,
+    /// `(nama field, nilai)` yang bisa diedit langsung.
+    pub value: Option<(String, f64)>,
+    pub suppressed: bool,
+    pub depends_on: Vec<String>,
+    pub dependents: Vec<String>,
+}
+
 /// Info timeline Feature Tree (Paritas 3.1–3.6) yang disediakan app.
 #[derive(Debug, Clone, Default)]
 pub struct TimelineInfo<'a> {
+    /// Riwayat parametrik dari oplog (sumber kebenaran, ADR 0010).
+    pub oplog: &'a [OplogRowInfo],
     /// Indeks roll-to marker (fitur sesudahnya tidak dievaluasi).
     pub marker: Option<usize>,
     pub groups: &'a [FeatureGroup],
@@ -80,6 +96,14 @@ pub enum FeatureTreeEvent {
     Ungroup(u64),
     /// Paritas 3.3: buka/tutup folder.
     ToggleGroup(u64),
+    /// Oplog: pilih op (sorot dependensinya).
+    OplogSelect(String),
+    /// Oplog: ganti nilai utama op lalu regenerasi.
+    OplogSetValue { id: String, key: String, value: f64 },
+    /// Oplog: aktifkan/nonaktifkan op.
+    OplogToggleSuppress(String),
+    /// Oplog: hapus op (gagal bila masih dirujuk op lain).
+    OplogDelete(String),
 }
 
 #[derive(Default)]
@@ -95,6 +119,10 @@ pub struct FeatureTreeDrawer {
     pub selected_feature: Option<FeatureId>,
     /// Ganti nama in-line: (fitur, teks).
     pub renaming: Option<(FeatureId, String)>,
+    /// Op oplog terpilih.
+    pub selected_op: Option<String>,
+    /// Edit nilai op in-line: (id op, teks).
+    pub editing_op: Option<(String, String)>,
 }
 
 impl FeatureTreeDrawer {
@@ -151,6 +179,161 @@ impl FeatureTreeDrawer {
             _ => {
                 self.edit_input_val1 = "10.0".to_string();
                 self.edit_input_val2.clear();
+            }
+        }
+    }
+
+    /// Seksi riwayat parametrik dari oplog: satu baris per op dengan nilai
+    /// utama yang bisa diedit, suppress, hapus, dan sorotan dependensi.
+    fn show_oplog_section(
+        &mut self,
+        ui: &mut Ui,
+        rows: &[OplogRowInfo],
+        query: &str,
+        event: &mut Option<FeatureTreeEvent>,
+    ) {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(t!("oplog-section-title"))
+                    .size(8.5)
+                    .strong()
+                    .color(ACCENT_BLUE),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(
+                    RichText::new(t!("oplog-count", count = rows.len()))
+                        .size(8.0)
+                        .color(TEXT_MUTED),
+                );
+            });
+        });
+        let selected = self.selected_op.clone();
+        let related: Vec<&str> = selected
+            .as_deref()
+            .and_then(|s| rows.iter().find(|r| r.id == s))
+            .map(|r| {
+                r.depends_on
+                    .iter()
+                    .chain(r.dependents.iter())
+                    .map(String::as_str)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for row in rows.iter().filter(|r| {
+            query.is_empty()
+                || r.id.to_lowercase().contains(query)
+                || r.kind.to_lowercase().contains(query)
+                || r.summary.to_lowercase().contains(query)
+        }) {
+            let is_sel = selected.as_deref() == Some(row.id.as_str());
+            let is_related = related.contains(&row.id.as_str());
+            let mut frame = card_frame();
+            if is_sel {
+                frame.stroke = Stroke::new(1.0, ACCENT_BLUE);
+            } else if is_related {
+                frame.stroke = Stroke::new(1.0, ACCENT_ORANGE);
+            }
+            let resp = frame.show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    let name_color = if row.suppressed { TEXT_MUTED } else { TEXT_PRIMARY };
+                    ui.label(RichText::new(&row.id).size(9.5).strong().color(name_color));
+                    ui.label(RichText::new(&row.kind).size(8.5).color(TEXT_SECONDARY));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui
+                            .small_button(RichText::new(ICON_DELETE.codepoint).size(11.0))
+                            .on_hover_text(t!("oplog-delete"))
+                            .clicked()
+                        {
+                            *event = Some(FeatureTreeEvent::OplogDelete(row.id.clone()));
+                        }
+                        let vis = if row.suppressed {
+                            ICON_VISIBILITY_OFF.codepoint
+                        } else {
+                            ICON_VISIBILITY.codepoint
+                        };
+                        if ui
+                            .small_button(RichText::new(vis).size(11.0))
+                            .on_hover_text(t!("oplog-suppress"))
+                            .clicked()
+                        {
+                            *event = Some(FeatureTreeEvent::OplogToggleSuppress(row.id.clone()));
+                        }
+                        if let Some((key, value)) = &row.value {
+                            if ui
+                                .small_button(RichText::new(ICON_EDIT.codepoint).size(11.0))
+                                .on_hover_text(t!("oplog-edit-value"))
+                                .clicked()
+                            {
+                                self.editing_op = Some((row.id.clone(), format!("{value}")));
+                                let _ = key;
+                            }
+                        }
+                    });
+                });
+                ui.label(RichText::new(&row.summary).size(8.5).color(TEXT_SECONDARY));
+                let editing_this = self
+                    .editing_op
+                    .as_ref()
+                    .is_some_and(|(id, _)| *id == row.id);
+                if editing_this {
+                    if let (Some((key, _)), Some((_, text))) = (&row.value, self.editing_op.as_mut()) {
+                        let mut commit = false;
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(key).size(8.5).color(TEXT_SECONDARY));
+                            let r = ui.add(egui::TextEdit::singleline(text).desired_width(70.0));
+                            commit = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if ui.small_button(t!("oplog-apply")).clicked() {
+                                commit = true;
+                            }
+                        });
+                        if commit {
+                            match text.trim().replace(',', ".").parse::<f64>() {
+                                Ok(value) => {
+                                    *event = Some(FeatureTreeEvent::OplogSetValue {
+                                        id: row.id.clone(),
+                                        key: key.clone(),
+                                        value,
+                                    });
+                                    self.editing_op = None;
+                                }
+                                Err(_) => {
+                                    ui.label(
+                                        RichText::new(t!("oplog-invalid-number"))
+                                            .size(8.5)
+                                            .color(ACCENT_ORANGE),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                if is_sel && (!row.depends_on.is_empty() || !row.dependents.is_empty()) {
+                    if !row.depends_on.is_empty() {
+                        ui.label(
+                            RichText::new(t!(
+                                "oplog-depends-on",
+                                list = row.depends_on.join(", ")
+                            ))
+                            .size(8.0)
+                            .color(TEXT_MUTED),
+                        );
+                    }
+                    if !row.dependents.is_empty() {
+                        ui.label(
+                            RichText::new(t!(
+                                "oplog-used-by",
+                                list = row.dependents.join(", ")
+                            ))
+                            .size(8.0)
+                            .color(ACCENT_ORANGE),
+                        );
+                    }
+                }
+            });
+            if resp.response.interact(egui::Sense::click()).clicked() {
+                self.selected_op = Some(row.id.clone());
+                *event = Some(FeatureTreeEvent::OplogSelect(row.id.clone()));
             }
         }
     }
@@ -379,6 +562,11 @@ impl FeatureTreeDrawer {
                     .show(ui, |ui| {
                         ui.set_min_height(scroll_height);
                         ui.spacing_mut().item_spacing = Vec2::new(0.0, 4.0);
+
+                        if !timeline.oplog.is_empty() {
+                            self.show_oplog_section(ui, timeline.oplog, &query, &mut event);
+                            ui.add_space(6.0);
+                        }
 
                         // -------------------------------------------------------------
                         // SEKSI ATAS: POHON FITUR PARAMETRIK

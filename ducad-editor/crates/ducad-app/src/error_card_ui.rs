@@ -19,6 +19,13 @@ pub enum GuiFix {
     ShellThickness(f64),
     /// Kedalaman rongga shell (0 = rongga penuh).
     ShellDepth(f64),
+    /// Tutup celah profil: pindahkan ujung `at_end` entitas sketsa aktif ke
+    /// `to` (dari diagnosis `profile_open_gap`), lalu ulangi extrude.
+    CloseSketchGap {
+        entity: ducad_sketch::EntityId,
+        at_end: bool,
+        to: [f64; 2],
+    },
 }
 
 /// Maksimum kandidat yang diverifikasi per error (sama dengan engine P9.2).
@@ -74,6 +81,7 @@ pub(crate) fn shell_fix_label(fix: &GuiFix) -> String {
         GuiFix::ShellThickness(v) => ducad_i18n::t!("fix-use-thickness", value = format!("{v}")),
         GuiFix::FilletRadius(v) => ducad_i18n::t!("fix-use-radius", value = format!("{v}")),
         GuiFix::ChamferDistance(v) => ducad_i18n::t!("fix-use-distance", value = format!("{v}")),
+        GuiFix::CloseSketchGap { .. } => ducad_i18n::t!("fix-close-gap"),
     }
 }
 
@@ -165,7 +173,47 @@ impl DuCADApp {
                 self.shell_depth_input = format!("{v}");
                 self.commit_shell();
             }
+            GuiFix::CloseSketchGap { entity, at_end, to } => {
+                if self.close_sketch_gap(entity, at_end, to) {
+                    self.extrude_selected();
+                }
+            }
         }
+    }
+
+    /// Pindahkan satu ujung entitas sketsa aktif ke `to` (bisa di-undo).
+    /// `false` bila entitasnya tidak ada atau jenisnya tidak didukung.
+    pub fn close_sketch_gap(
+        &mut self,
+        entity: ducad_sketch::EntityId,
+        at_end: bool,
+        to: [f64; 2],
+    ) -> bool {
+        use ducad_sketch::Entity;
+        let to = glam::DVec2::new(to[0], to[1]);
+        let Some(mut e) = self.sketch().entities.get(entity).cloned() else {
+            return false;
+        };
+        match &mut e {
+            Entity::Line { start, end, .. } => {
+                if at_end {
+                    *end = to;
+                } else {
+                    *start = to;
+                }
+            }
+            Entity::Spline { points, exact: None, .. } if !points.is_empty() => {
+                let i = if at_end { points.len() - 1 } else { 0 };
+                points[i] = to;
+            }
+            _ => return false,
+        }
+        self.execute_sketch_command(Box::new(ducad_sketch::commands::UpdateEntity::new(
+            "Tutup celah",
+            entity,
+            e,
+        )));
+        true
     }
 
     /// Render kartu error dan tangani tombolnya (dipanggil tiap frame).

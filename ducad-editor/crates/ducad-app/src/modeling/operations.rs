@@ -5,7 +5,7 @@ use ducad_sketch::constraint::{AddConstraint, Constraint, UpdateConstraint};
 use glam::{DVec2, Vec3};
 use slotmap::Key;
 
-use ducad_engine::compute::{self, EdgePick, ProfilePick};
+use ducad_engine::compute::{self, ProfilePick};
 use ducad_engine::{OpError, OpErrorCode, PlaneFrame};
 use ducad_kernel::ExtrudeExtent;
 
@@ -73,6 +73,29 @@ impl DuCADApp {
             let outline_only = self.vector_extrude_state.outline_only;
             self.extrude_vector_selection(distance, per_object, material_from_style, outline_only);
             return;
+        }
+
+        // Jalur oplog (ADR 0010): sketsa menjadi op `sketch` terikat dan
+        // extrude menjadi op `extrude`; kasus yang belum didukung jatuh ke
+        // jalur lama di bawah.
+        let cut_target = self.detect_cut_target(distance);
+        match self.extrude_via_oplog(distance, cut_target) {
+            Ok(true) => {
+                self.model_status = None;
+                return;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                let loose = self.highlight_loose_ends();
+                self.model_status = Some(if loose > 0 {
+                    format!("{} — {}", op_status("Extrude", &e), ducad_i18n::t!("loose-ends-found", count = loose))
+                } else {
+                    op_status("Extrude", &e)
+                });
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                return;
+            }
         }
 
         let plane = crate::document::plane_frame_from(&self.active_plane);
@@ -636,7 +659,8 @@ impl DuCADApp {
         self.set_tool(crate::types::ToolKind::Select);
     }
 
-    /// Fillet SEMUA tepi atau tepi terpilih pada 1 body.
+    /// Fillet SEMUA tepi atau tepi terpilih pada 1 body. Dijalankan sebagai
+    /// op oplog dengan selector semantik dari tepi yang diklik (ADR 0010).
     pub fn fillet_selected_body(&mut self) {
         let Some(&id) = self
             .selected_bodies
@@ -647,16 +671,13 @@ impl DuCADApp {
             self.model_status = Some("Pilih persis 1 body untuk Fillet".to_string());
             return;
         };
-        let Ok(radius) = self.fillet_radius_input.trim().parse::<f64>() else {
+        let Ok(radius) = ducad_core::LengthUnit::Millimeters.parse_input_mm(&self.fillet_radius_input) else {
             self.model_status = Some("Radius fillet tidak valid".to_string());
             return;
         };
-        let Some(geo) = self.model.geometry.get(id) else {
-            return;
-        };
         let rays: Vec<PickRay> = self.selected_edges.iter().map(|e| e.ray).collect();
-        let (result, label, desc) = if self.fillet_variable_enabled {
-            let Ok(radius_end) = self.fillet_radius_end_input.trim().parse::<f64>() else {
+        let radius_end = if self.fillet_variable_enabled {
+            let Ok(r) = ducad_core::LengthUnit::Millimeters.parse_input_mm(&self.fillet_radius_end_input) else {
                 self.model_status = Some("Radius akhir fillet variabel tidak valid".to_string());
                 return;
             };
@@ -665,65 +686,15 @@ impl DuCADApp {
                     Some("Pilih minimal 1 tepi/rusuk untuk Fillet Variabel".to_string());
                 return;
             }
-            // Fillet variabel belum punya padanan compute: kernel dipanggil
-            // langsung seperti sebelumnya.
-            let res = ducad_kernel::fillet_edges_variable(
-                &geo.shape,
-                radius,
-                radius_end,
-                &rays,
-                Self::EDGE_REAPPLY_TOLERANCE_MM,
-            )
-            .map(BodyGeometry::from_shape)
-            .map_err(|e| OpError::new(OpErrorCode::KernelFailed, e.to_string()));
-            (
-                res,
-                "Fillet Variabel",
-                format!(
-                    "Melengkungkan sudut rusuk body (Radius Variabel R_start: {:.1} mm -> R_end: {:.1} mm)",
-                    radius, radius_end
-                ),
-            )
-        } else if rays.is_empty() {
-            let res = compute::fillet(&geo.shape, &EdgePick::All, radius);
-            (
-                res,
-                "Fillet",
-                format!("Melengkungkan semua rusuk body (Radius {:.1} mm)", radius),
-            )
+            Some(r)
         } else {
-            let pick = EdgePick::Rays(&rays, Self::EDGE_REAPPLY_TOLERANCE_MM);
-            let res = compute::fillet(&geo.shape, &pick, radius);
-            (
-                res,
-                "Fillet",
-                format!("Melengkungkan sudut rusuk body (Radius {:.1} mm)", radius),
-            )
+            None
         };
-        match result {
-            Ok(new_geo) => {
-                self.execute_model_command(
-                    Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
-                    &desc,
-                );
-                self.round_history.remove(&id);
-                self.selected_edges.clear();
-                self.picking_mode = PickMode::None;
-                self.model_status = None;
-            }
-            Err(e) => {
-                self.model_status = Some(op_status("Fillet", &e));
-                let fixes = if self.fillet_variable_enabled {
-                    Vec::new()
-                } else {
-                    self.round_fix_candidates(id, true, radius, &rays)
-                };
-                self.show_op_error(&e, fixes);
-            }
-        }
+        let kind = crate::oplog_gui::RoundKind::Fillet { radius, radius_end };
+        self.finish_round(id, kind, &rays, "Fillet");
     }
 
-    /// Chamfer SEMUA tepi atau tepi terpilih pada 1 body.
+    /// Chamfer SEMUA tepi atau tepi terpilih pada 1 body (op oplog).
     pub fn chamfer_selected_body(&mut self) {
         let Some(&id) = self
             .selected_bodies
@@ -734,34 +705,41 @@ impl DuCADApp {
             self.model_status = Some("Pilih persis 1 body untuk Chamfer".to_string());
             return;
         };
-        let Ok(distance) = self.chamfer_distance_input.trim().parse::<f64>() else {
+        let Ok(distance) = ducad_core::LengthUnit::Millimeters.parse_input_mm(&self.chamfer_distance_input) else {
             self.model_status = Some("Jarak chamfer tidak valid".to_string());
             return;
         };
-        let Some(geo) = self.model.geometry.get(id) else {
-            return;
-        };
         let rays: Vec<PickRay> = self.selected_edges.iter().map(|e| e.ray).collect();
-        let result = if rays.is_empty() {
-            compute::chamfer(&geo.shape, &EdgePick::All, distance)
-        } else {
-            let pick = EdgePick::Rays(&rays, Self::EDGE_REAPPLY_TOLERANCE_MM);
-            compute::chamfer(&geo.shape, &pick, distance)
-        };
-        match result {
-            Ok(new_geo) => {
-                self.execute_model_command(
-                    Box::new(ReplaceGeometryCommand::new("Chamfer", id, new_geo)),
-                    &format!("Meniruskan sudut siku rusuk body ({:.1} mm)", distance),
-                );
+        let kind = crate::oplog_gui::RoundKind::Chamfer { distance };
+        self.finish_round(id, kind, &rays, "Chamfer");
+    }
+
+    /// Jalankan fillet/chamfer lewat oplog lalu rapikan state GUI.
+    fn finish_round(
+        &mut self,
+        id: ducad_core::BodyId,
+        kind: crate::oplog_gui::RoundKind,
+        rays: &[PickRay],
+        label: &str,
+    ) {
+        match self.round_via_oplog(id, kind, rays, Self::EDGE_REAPPLY_TOLERANCE_MM) {
+            Ok(robustness) => {
                 self.round_history.remove(&id);
                 self.selected_edges.clear();
                 self.picking_mode = PickMode::None;
-                self.model_status = None;
+                self.model_status = match robustness {
+                    ducad_engine::select::Robustness::Semantic => None,
+                    ducad_engine::select::Robustness::Numeric => Some(format!(
+                        "{label} tersimpan; pilihan tepi memakai koordinat dan akan gagal bila ukuran itu berubah"
+                    )),
+                    ducad_engine::select::Robustness::Index => Some(format!(
+                        "{label} tersimpan; pilihan tepi memakai nomor urut dan rapuh terhadap edit"
+                    )),
+                };
             }
             Err(e) => {
-                self.model_status = Some(op_status("Chamfer", &e));
-                let fixes = self.round_fix_candidates(id, false, distance, &rays);
+                self.model_status = Some(op_status(label, &e));
+                let fixes = crate::oplog_gui::gui_fixes_from_op_error(&e);
                 self.show_op_error(&e, fixes);
             }
         }
@@ -1662,17 +1640,43 @@ impl DuCADApp {
             }
         };
 
-        let geo = match self.model.geometry.get(body_id) {
-            Some(g) => g,
-            None => {
-                self.model_status = Some("Geometri solid tidak ditemukan".to_string());
-                return;
-            }
-        };
+        if !self.model.geometry.contains_key(body_id) {
+            self.model_status = Some("Geometri solid tidak ditemukan".to_string());
+            return;
+        }
 
         let (hole_pos, _, _, _) = self.compute_active_hole_position_and_basis(&hit);
         let pos = (hole_pos.x as f64, hole_pos.y as f64, hole_pos.z as f64);
         let normal = hit.normal;
+
+        // Jalur oplog (ADR 0010): face terpilih → selector semantik, posisi →
+        // `at_world`; ukuran yang tidak bisa dinyatakan op memakai jalur lama.
+        let ray = self.active_face.as_ref().map(|(_, r, _)| *r);
+        let wants_edit_op = self.hole_popup_state.mode == ducad_ui::HoleOperationMode::EditHole;
+        if let Some(ray) = ray {
+            match self.hole_via_oplog(body_id, ray, pos, &spec, wants_edit_op) {
+                Ok(true) => {
+                    let callout = spec.technical_callout();
+                    self.active_face = None;
+                    self.editing_hole_idx = None;
+                    self.hole_popup_state.offset_u = 0.0;
+                    self.hole_popup_state.offset_v = 0.0;
+                    self.hole_popup_state.current_pos_3d = None;
+                    self.model_status = Some(ducad_i18n::t!("hole-applied", callout = &callout));
+                    return;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    self.model_status = Some(format!("Hole Wizard gagal: {}", e.message));
+                    let fixes = crate::oplog_gui::gui_fixes_from_op_error(&e);
+                    self.show_op_error(&e, fixes);
+                    return;
+                }
+            }
+        }
+        let Some(geo) = self.model.geometry.get(body_id) else {
+            return;
+        };
 
         let new_feature = crate::types::HoleFeature {
             spec,

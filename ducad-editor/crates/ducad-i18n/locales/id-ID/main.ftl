@@ -2473,3 +2473,21 @@ plastic-groove-btn = Groove
 plastic-snap = Snap fit (panjang, lebar, kait)
 plastic-rest = Rest (diameter, tinggi)
 plastic-strain = Regangan snap fit { $strain } % (izin { $max } %)
+
+# Status kendala sketsa (Step 2 PLAN_DESIGNER_UX)
+sketch-status-fully = Sketsa terkunci penuh
+sketch-status-under = Sketsa: { $dof } DOF tersisa, { $free } entitas belum terkunci (hijau = terkunci)
+sketch-status-over = Sketsa: { $count } constraint berlebih atau putus (ditandai merah)
+fix-close-gap = Tutup celah
+fix-close-gap-mm = Tutup celah { $value } mm
+
+# Feature Tree oplog (Step 2 PLAN_DESIGNER_UX)
+oplog-section-title = RIWAYAT PARAMETRIK (OPLOG)
+oplog-count = { $count } op
+oplog-delete = Hapus op ini
+oplog-suppress = Aktifkan / nonaktifkan op ini
+oplog-edit-value = Ubah nilai utama
+oplog-apply = Terapkan
+oplog-invalid-number = Bukan angka yang valid
+oplog-depends-on = Bergantung pada: { $list }
+oplog-used-by = Dipakai oleh: { $list }

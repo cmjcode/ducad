@@ -111,7 +111,7 @@ pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
     InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
 };
-pub use feature_tree_drawer::{FeatureTreeDrawer, FeatureTreeEvent, TimelineInfo};
+pub use feature_tree_drawer::{FeatureTreeDrawer, FeatureTreeEvent, OplogRowInfo, TimelineInfo};
 pub use history_drawer::{
     ActivityItemInfo, ActivityKindUi, HistoryDrawer, HistoryDrawerEvent,
 };

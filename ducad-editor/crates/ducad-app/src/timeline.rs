@@ -21,6 +21,12 @@ impl DuCADApp {
     /// Tangani event timeline dari drawer Feature Tree.
     pub fn handle_timeline_event(&mut self, ev: FeatureTreeEvent) {
         match ev {
+            FeatureTreeEvent::OplogSelect(_) => {}
+            FeatureTreeEvent::OplogSetValue { id, key, value } => {
+                self.set_op_value(&id, &key, value);
+            }
+            FeatureTreeEvent::OplogToggleSuppress(id) => self.toggle_op_suppressed(&id),
+            FeatureTreeEvent::OplogDelete(id) => self.delete_op(&id),
             FeatureTreeEvent::MoveFeature { id, to } => {
                 match self.parametric_dag.move_feature(id, to) {
                     Ok(()) => self.regen_after_timeline(&ducad_i18n::t!("timeline-moved", id = id)),

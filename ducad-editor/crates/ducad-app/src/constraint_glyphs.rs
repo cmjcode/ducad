@@ -183,10 +183,14 @@ impl DuCADApp {
                 clicked = Some(spec.index);
             }
             let is_sel = self.glyphs.selected == Some(spec.index);
+            let problem = self.constraint_has_problem(spec.index);
             let (bg, fg) = if is_sel {
                 (ducad_ui::theme::ACCENT_BLUE, egui::Color32::WHITE)
             } else if resp.hovered() {
                 (egui::Color32::from_rgb(255, 214, 102), egui::Color32::BLACK)
+            } else if problem {
+                // Constraint berlebih/putus (status sketsa, Step 2).
+                (egui::Color32::from_rgb(200, 52, 52), egui::Color32::WHITE)
             } else {
                 (egui::Color32::from_rgba_unmultiplied(40, 40, 46, 220), egui::Color32::from_rgb(255, 214, 102))
             };

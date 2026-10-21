@@ -309,6 +309,44 @@ pub struct SetBodyMaterialCommand {
     pending: Option<ducad_core::Material>,
 }
 
+/// Ganti nama satu body (apply/revert menukar nama). Dipakai GUI agar body
+/// yang dirujuk op oplog punya nama unik (ADR 0010).
+pub struct RenameBodyCommand {
+    id: BodyId,
+    pending: Option<String>,
+}
+
+impl RenameBodyCommand {
+    pub fn new(id: BodyId, name: impl Into<String>) -> Self {
+        Self {
+            id,
+            pending: Some(name.into()),
+        }
+    }
+
+    fn swap(&mut self, model: &mut ModelDoc) {
+        if let Some(incoming) = self.pending.take() {
+            if let Some(body) = model.doc.bodies.get_mut(self.id) {
+                let previous = std::mem::replace(&mut body.name, incoming);
+                self.pending = Some(previous);
+                model.doc.dirty = true;
+            }
+        }
+    }
+}
+
+impl Command<ModelDoc> for RenameBodyCommand {
+    fn name(&self) -> &str {
+        "Rename body"
+    }
+    fn apply(&mut self, model: &mut ModelDoc) {
+        self.swap(model);
+    }
+    fn revert(&mut self, model: &mut ModelDoc) {
+        self.swap(model);
+    }
+}
+
 impl SetBodyMaterialCommand {
     pub fn new(label: &'static str, id: BodyId, material: ducad_core::Material) -> Self {
         Self {

@@ -151,12 +151,8 @@ pub(super) fn diagnose(core: &mut SessionCore, op: &Op, err: OpError, batch: &[O
     if gap >= GAP_MAX {
         return err;
     }
-    let name = |id: &EntityId| {
-        sk.entity_names
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| "?".into())
-    };
+    // Nama eksplisit atau nama turunan id (slot GUI terikat, ADR 0010).
+    let name = |id: &EntityId| crate::ops::from_sketch::entity_spec_name(&sk, *id);
     let suffix = |e: End| if e == End::Start { "start" } else { "end" };
     let (na, nb) = (name(ea), name(eb));
     let mut out = OpError::new(

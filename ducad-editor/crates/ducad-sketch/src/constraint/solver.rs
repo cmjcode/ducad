@@ -924,6 +924,170 @@ fn analyze_dof_resolvable(sketch: &Sketch, constraints: &[Constraint]) -> DofRep
     }
 }
 
+/// Status sketsa yang bisa ditindaklanjuti UI (Step 2
+/// `docs/PLAN_DESIGNER_UX.md`): bukan hanya angka DOF, tetapi entitas mana
+/// yang masih bisa bergeser dan constraint mana yang berlebih/putus.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SketchStatus {
+    pub state: ConstraintState,
+    /// Derajat kebebasan tersisa SELURUH sketsa (entitas tanpa constraint
+    /// ikut dihitung, berbeda dengan [`analyze_dof`]).
+    pub dof: usize,
+    /// Entitas yang masih bisa bergeser tanpa melanggar constraint.
+    pub free_entities: Vec<EntityId>,
+    /// Indeks `sketch.constraints` yang redundan atau saling bertentangan.
+    pub redundant: Vec<usize>,
+    /// Indeks `sketch.constraints` yang rujukannya tidak valid lagi.
+    pub unresolved: Vec<usize>,
+}
+
+/// Status kendala sketsa pada konfigurasi geometri saat ini.
+pub fn sketch_status(sketch: &Sketch) -> SketchStatus {
+    let entity_ids: Vec<EntityId> = sketch.entities.keys().collect();
+    let constraints = &sketch.constraints;
+    let (valid_idx, _) = resolvable_indices(sketch, constraints);
+    let unresolved: Vec<usize> = (0..constraints.len())
+        .filter(|i| !valid_idx.contains(i))
+        .collect();
+    if entity_ids.is_empty() {
+        return SketchStatus {
+            state: if unresolved.is_empty() {
+                ConstraintState::Fully
+            } else {
+                ConstraintState::Over
+            },
+            dof: 0,
+            free_entities: Vec::new(),
+            redundant: Vec::new(),
+            unresolved,
+        };
+    }
+    let valid: Vec<&Constraint> = valid_idx.iter().map(|&i| &constraints[i]).collect();
+    let (offsets, x) = build_offsets_and_x0(&entity_ids, sketch);
+    let kinds = build_kinds(&entity_ids, sketch);
+    let n = x.len();
+
+    // Redundansi per constraint (sama dengan `analyze_dof`) + kumpulkan
+    // seluruh baris Jacobian untuk ruang nol.
+    let mut basis: Vec<Vec<f64>> = Vec::new();
+    let mut redundant = Vec::new();
+    let mut rows_all: Vec<Vec<f64>> = Vec::new();
+    for (k, c) in valid.iter().enumerate() {
+        // Turunan hanya pada kolom entitas yang dirujuk constraint ini; kolom
+        // lain nol. Tanpa ini biayanya O(n²) per constraint (sketsa teks
+        // bisa punya ribuan node).
+        let cols: Vec<usize> = involved_entities(std::slice::from_ref(*c))
+            .iter()
+            .filter_map(|id| Some((*offsets.entity.get(id)?, *offsets.len.get(id)?)))
+            .flat_map(|(off, len)| off..off + len)
+            .collect();
+        let r0 = constraint_residuals(c, &x, &offsets, &kinds);
+        let mut rows = vec![vec![0.0; n]; r0.len()];
+        let mut xp = x.clone();
+        for &j in &cols {
+            let h = 1e-7 * x[j].abs().max(1.0);
+            xp[j] = x[j] + h;
+            let r1 = constraint_residuals(c, &xp, &offsets, &kinds);
+            xp[j] = x[j];
+            for (i, row) in rows.iter_mut().enumerate() {
+                row[j] = (r1[i] - r0[i]) / h;
+            }
+        }
+        let before = basis.len();
+        for row in &rows {
+            if let Some(reduced) = reduce_against(row, &basis) {
+                basis.push(reduced);
+            }
+        }
+        if basis.len() == before && !rows.is_empty() {
+            redundant.push(valid_idx[k]);
+        }
+        rows_all.extend(rows);
+    }
+    let rank = basis.len();
+    let dof = n.saturating_sub(rank);
+
+    // Ruang nol lewat eliminasi Gauss-Jordan: kolom bebas → vektor nol.
+    let free_mask = nullspace_support(rows_all, n);
+    let free_entities: Vec<EntityId> = entity_ids
+        .iter()
+        .filter(|id| {
+            let (Some(&off), Some(&len)) = (offsets.entity.get(id), offsets.len.get(id)) else {
+                return false;
+            };
+            free_mask[off..off + len].iter().any(|&m| m)
+        })
+        .copied()
+        .collect();
+
+    let state = if !redundant.is_empty() || !unresolved.is_empty() {
+        ConstraintState::Over
+    } else if dof == 0 {
+        ConstraintState::Fully
+    } else {
+        ConstraintState::Under
+    };
+    SketchStatus {
+        state,
+        dof,
+        free_entities,
+        redundant,
+        unresolved,
+    }
+}
+
+/// `mask[j] = true` bila variabel `j` punya komponen tak nol di salah satu
+/// vektor ruang nol matriks `rows` (m × n) — artinya variabel itu masih bisa
+/// berubah tanpa melanggar persamaan (orde pertama).
+fn nullspace_support(mut rows: Vec<Vec<f64>>, n: usize) -> Vec<bool> {
+    const TOL: f64 = 1e-8;
+    let m = rows.len();
+    let mut pivots: Vec<(usize, usize)> = Vec::new(); // (baris, kolom)
+    let mut r = 0;
+    for c in 0..n {
+        if r >= m {
+            break;
+        }
+        let (best, val) = (r..m)
+            .map(|i| (i, rows[i][c].abs()))
+            .fold((r, 0.0), |acc, x| if x.1 > acc.1 { x } else { acc });
+        let scale = rows[best].iter().fold(0.0_f64, |a, v| a.max(v.abs())).max(1.0);
+        if val <= TOL * scale {
+            continue;
+        }
+        rows.swap(r, best);
+        let p = rows[r][c];
+        for v in rows[r].iter_mut() {
+            *v /= p;
+        }
+        let pivot_row = rows[r].clone();
+        for (i, row) in rows.iter_mut().enumerate() {
+            if i != r {
+                let f = row[c];
+                if f != 0.0 {
+                    for (v, pv) in row.iter_mut().zip(&pivot_row) {
+                        *v -= f * pv;
+                    }
+                }
+            }
+        }
+        pivots.push((r, c));
+        r += 1;
+    }
+    let pivot_cols: std::collections::HashSet<usize> = pivots.iter().map(|&(_, c)| c).collect();
+    let mut mask = vec![false; n];
+    for free in (0..n).filter(|c| !pivot_cols.contains(c)) {
+        // v[free] = 1, v[pivot] = -R[baris pivot][free].
+        mask[free] = true;
+        for &(row, col) in &pivots {
+            if rows[row][free].abs() > TOL {
+                mask[col] = true;
+            }
+        }
+    }
+    mask
+}
+
 /// Kurangi `row` terhadap basis ortogonal-baris yang sudah ada
 /// (Gram-Schmidt termodifikasi). Mengembalikan `None` bila baris itu
 /// kombinasi linear dari basis — alias tidak menambah rank.

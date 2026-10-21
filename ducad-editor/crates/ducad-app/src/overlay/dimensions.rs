@@ -165,14 +165,24 @@ impl DuCADApp {
                     if !resp.has_focus() {
                         resp.request_focus();
                     }
+                    if let Some(err) = &self.dimension_input_error {
+                        ui.colored_label(egui::Color32::from_rgb(255, 99, 88), err);
+                    }
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.editing_dimension_entity = None;
+                        self.dimension_input_error = None;
                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(val) = self.editing_dimension_input.trim().parse::<f64>() {
-                            *commit = Some((id, self.unit.to_internal_mm(val)));
+                        // Satuan eksplisit/ekspresi diterima; input tidak valid
+                        // tidak menutup popup diam-diam (Step 2).
+                        match self.unit.parse_input_mm(&self.editing_dimension_input) {
+                            Ok(mm) => {
+                                *commit = Some((id, mm));
+                                self.editing_dimension_entity = None;
+                                self.dimension_input_error = None;
+                            }
+                            Err(e) => self.dimension_input_error = Some(e),
                         }
-                        self.editing_dimension_entity = None;
-                    } else if resp.lost_focus() {
+                    } else if resp.lost_focus() && self.dimension_input_error.is_none() {
                         self.editing_dimension_entity = None;
                     }
                 });
@@ -436,10 +446,9 @@ impl DuCADApp {
                                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                         self.editing_edge_dim = None;
                                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                        if let Ok(val) =
-                                            self.editing_edge_dim_input.trim().parse::<f64>()
+                                        if let Ok(new_len_mm) =
+                                            self.unit.parse_input_mm(&self.editing_edge_dim_input)
                                         {
-                                            let new_len_mm = self.unit.to_internal_mm(val);
                                             edge_dim_commit = Some((id, edge_idx, new_len_mm));
                                         }
                                         self.editing_edge_dim = None;
@@ -699,8 +708,7 @@ impl DuCADApp {
                                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                             self.editing_constraint_idx = None;
                                         } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                            if let Ok(val) = self.editing_dimension_input.trim().parse::<f64>() {
-                                                let new_val_mm = self.unit.to_internal_mm(val);
+                                            if let Ok(new_val_mm) = self.unit.parse_input_mm(&self.editing_dimension_input) {
                                                 constraint_commit = Some((
                                                     c_idx,
                                                     ducad_sketch::constraint::Constraint::Distance {
@@ -3445,10 +3453,9 @@ impl DuCADApp {
                                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                         self.editing_body_dim_axis = None;
                                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                        if let Ok(val) =
-                                            self.editing_body_dim_input.trim().parse::<f64>()
+                                        if let Ok(new_len_mm) =
+                                            self.unit.parse_input_mm(&self.editing_body_dim_input)
                                         {
-                                            let new_len_mm = self.unit.to_internal_mm(val);
                                             self.scale_selected_body_by_axis(axis, new_len_mm);
                                         }
                                         self.editing_body_dim_axis = None;

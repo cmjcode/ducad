@@ -104,4 +104,47 @@ regenerasi setelah edit dimensi awal, dan tidak lagi dicatat ke DAG.
 | 4. Undo headless mencakup edit (B0-1) | ✅ `ducad-engine/src/session.rs`; tes `sample_project.rs::{param_edit_is_one_undo_step, mixed_edits_undo_and_redo_in_order, undo_after_reopen_covers_ops_and_param_edits}` |
 | 4. Undo GUI membawa oplog | ✅ `ducad-app/src/oplog_undo.rs` (jembatan agent, proposal, panel Sim, `adopt_agent_model`) |
 | 3. Pembuat selector | ✅ engine: `ducad-engine/src/select/suggest.rs` + `tests/select_suggest.rs`; belum dipakai GUI |
-| 1–2. Migrasi fitur GUI | ☐ mulai dari urutan 1 |
+| Urutan 3: fillet/chamfer GUI | ✅ `ducad-app/src/oplog_gui.rs` (`round_via_oplog`), dipakai `fillet_selected_body`/`chamfer_selected_body`; termasuk fillet variabel, nama body kembar dibuat unik dalam langkah undo yang sama, fix terverifikasi dari op tampil di kartu error. Jalur gizmo-drag di `modeling/rounding.rs` belum dialihkan. |
+| Urutan 1–2: sketsa + extrude | ✅ `extrude_via_oplog` + `sync_bound_sketches` (`ducad-app/src/oplog_gui.rs`), penerjemah `ducad-engine/src/ops/from_sketch.rs`, ikatan slot `SessionMeta::live_sketches`. Bidang Top/Front/Right; datum/face dan mode Vektor masih jalur lama. Tes `gui_sketch_extrude_fillet_then_edit_sketch_updates_downstream` menjalankan T1–T2 lewat GUI. |
+| Urutan 4: hole wizard | ✅ `hole_via_oplog`: lubang baru dan edit lubang hasil op; spec yang tidak bisa dinyatakan op (counterbore custom) dan lubang lama tetap jalur lama |
+| Urutan 5–10 | ☐ |
+| Buka berkas memulihkan oplog + ikatan sketsa | ✅ `restore_oplog_from_design` (`oplog_gui.rs`), dipanggil `open_native_path`; hanya bila geometri replay cocok (toleransi `same_geometry`) |
+
+## Rancangan urutan 1–2: slot sketsa GUI yang terikat ke op
+
+Masalah: op `sketch` selalu membuat slot baru di `SketchSet`. Sketsa yang
+digambar pengguna sudah punya slot sendiri (dengan riwayat undo per slot dan
+id entitas yang dipakai seleksi). Menjalankan op `sketch` begitu saja
+menghasilkan sketsa ganda di bidang yang sama.
+
+Rancangan:
+
+1. **Ikatan slot.** `SessionMeta` mendapat peta `live_sketches: id op → SketchId`
+   untuk slot GUI yang menjadi sumber op `sketch`. Saat op `sketch` dengan id
+   terikat dijalankan di sesi live, engine memakai slot itu (tidak membuat slot
+   baru, tidak menimpa isinya); frame/bidang dan pemeriksaan region tetap
+   dihitung dari spec. Replay dari berkas (sesi baru, peta kosong) membangun
+   slot dari spec seperti biasa.
+2. **Penerjemah sketsa GUI → spec.** Entitas GUI (line, circle, arc, ellipse,
+   spline, path, point) dan constraint diterjemahkan ke `EntitySpec`/
+   `ConstraintSpec` dengan nama stabil (`entity_names`, atau nama turunan
+   `EntityId` yang tidak berubah selama entitas hidup). Teks sketsa masuk
+   sebagai path hasil vektorisasi.
+3. **Extrude pertama** dari sketsa yang belum terikat: satu batch
+   `[sketch, extrude]` dengan `profile: {names}` dari entitas terpilih dan
+   `mode: cut` + `target` untuk smart cut. Bidang: `XY/XZ/YZ`, datum offset,
+   atau face body lewat `suggest_faces`; bidang bersudut/3 titik tetap jalur
+   lama sampai urutan 7.
+4. **Edit sketsa terikat** (keluar dari mode sketsa dengan isi berubah):
+   `replace_op` op `sketch` dengan spec baru → replay penuh → body hilir
+   diperbarui. Slot GUI yang terikat tidak ditimpa hasil replay (GUI adalah
+   sumber isinya); peta `sketch_ids` hasil replay dipetakan ulang ke slot
+   live lewat id op.
+5. **Celah yang sudah ada dan ikut tertutup:** `replace_op` agent pada op
+   `sketch` di sesi live saat ini me-replay di sesi salinan dan tidak
+   memperbarui slot GUI; langkah 4 memakai pemetaan yang sama.
+
+Kriteria selesai: T1–T2 proyek contoh lewat GUI menghasilkan oplog yang
+sama strukturnya dengan `sample_bracket.ops.json` (sketsa terikat, extrude,
+fillet, hole), dan mengubah dimensi sketsa di GUI memperbarui fillet dan
+lubang hilir tanpa `oplog_stale`.

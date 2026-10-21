@@ -1,5 +1,6 @@
 //! Skema operasi (`Op`) — kontrak JSON untuk agent/CLI/MCP.
 
+pub mod from_sketch;
 pub mod num;
 pub(crate) mod sketch;
 pub mod spec;

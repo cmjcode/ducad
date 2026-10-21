@@ -38,6 +38,9 @@ const COLOR_PICKED: [f32; 4] = [0.65, 0.35, 0.95, 1.0];
 const COLOR_MEASURE: [f32; 4] = [1.0, 0.95, 0.35, 1.0];
 const COLOR_INACTIVE_PLANE: [f32; 4] = [0.65, 0.72, 0.82, 0.85];
 const COLOR_INACTIVE_CONSTRUCTION: [f32; 4] = [0.85, 0.55, 0.25, 0.75];
+/// Entitas yang sudah terkunci penuh oleh constraint (status sketsa, Step 2
+/// `PLAN_DESIGNER_UX`); entitas yang masih bisa bergeser tetap `COLOR_NORMAL`.
+const COLOR_LOCKED: [f32; 4] = [0.45, 0.88, 0.55, 1.0];
 const ARC_SEGMENTS_FULL: usize = 48;
 
 pub(crate) fn to3(plane: &SketchPlane, p: DVec2) -> [f32; 3] {
@@ -52,6 +55,19 @@ pub fn entity_lines(
     selected: &HashSet<EntityId>,
     plane: &SketchPlane,
 ) -> Vec<LineVertex> {
+    entity_lines_with_status(sketch, hovered, selected, plane, None)
+}
+
+/// Seperti [`entity_lines`]; entitas di `locked` (terkunci penuh oleh
+/// constraint) diberi warna hijau supaya pengguna melihat mana yang masih
+/// bisa bergeser.
+pub fn entity_lines_with_status(
+    sketch: &Sketch,
+    hovered: Option<EntityId>,
+    selected: &HashSet<EntityId>,
+    plane: &SketchPlane,
+    locked: Option<&HashSet<EntityId>>,
+) -> Vec<LineVertex> {
     let mut verts = Vec::new();
     for (id, entity) in sketch.entities.iter() {
         if sketch.is_hidden(id) {
@@ -63,6 +79,8 @@ pub fn entity_lines(
             COLOR_SELECTED
         } else if entity.is_construction() {
             COLOR_CONSTRUCTION
+        } else if locked.is_some_and(|l| l.contains(&id)) {
+            COLOR_LOCKED
         } else {
             COLOR_NORMAL
         };

@@ -38,6 +38,7 @@ pub mod coupling;
 pub use coupling::{AxisLine, Coupling, CouplingKind, ExplodeStep};
 
 pub mod undo;
+mod units_input;
 // `Command`/`UndoStack` dipindah ke modul `undo` (lihat catatan modulnya)
 // dan di-re-export di sini supaya seluruh pemanggil lama tidak berubah.
 pub use undo::{Command, Transaction, UndoStack};
@@ -126,6 +127,25 @@ impl LengthUnit {
     /// Konversi nilai tampilan ke mm internal.
     pub fn to_internal_mm(self, val_in_unit: f64) -> f64 {
         val_in_unit * self.to_mm_factor()
+    }
+
+    /// Parse input panjang dari pengguna ke mm internal (Step 2
+    /// `PLAN_DESIGNER_UX`: satuan eksplisit, tanpa reinterpretasi diam-diam).
+    ///
+    /// - Angka tanpa satuan dibaca dalam satuan aktif `self` (yang terlihat
+    ///   di UI); satuan eksplisit (`mm`, `cm`, `m`, `in`, `inch`, `"`, `ft`)
+    ///   selalu menang.
+    /// - Koma atau titik sebagai pemisah desimal (`12,5`).
+    /// - Aritmetika `+ - * /` dan kurung: `25.4/2`, `1 in + 3 mm`, `2*(10+5)`.
+    ///
+    /// Gagal → pesan singkat yang bisa ditampilkan apa adanya.
+    pub fn parse_input_mm(self, text: &str) -> Result<f64, String> {
+        let v = units_input::parse(text, self.to_mm_factor())?;
+        if v.is_finite() {
+            Ok(v)
+        } else {
+            Err(format!("'{}' bukan angka yang terhingga", text.trim()))
+        }
     }
 
     /// Format angka (dalam mm internal) menjadi string siap tampil dengan suffix satuan (mis. "496.06 mm" atau "49.61 cm").

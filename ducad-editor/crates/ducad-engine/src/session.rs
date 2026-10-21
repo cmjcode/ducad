@@ -72,6 +72,10 @@ pub struct DesignDoc {
     /// Susunan lembar paket desain (W2); `None` = otomatis.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<crate::package::PackageSpec>,
+    /// Op yang dinonaktifkan pengguna dari Feature Tree (Step 2
+    /// `PLAN_DESIGNER_UX`), berlaku untuk semua konfigurasi.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suppressed: Vec<String>,
 }
 
 impl DesignDoc {
@@ -106,10 +110,12 @@ impl DesignDoc {
         params
     }
 
-    /// Op `id` dinonaktifkan oleh konfigurasi aktif.
+    /// Op `id` dinonaktifkan (Feature Tree atau konfigurasi aktif).
     pub fn is_suppressed(&self, id: &str) -> bool {
-        self.active()
-            .is_some_and(|c| c.suppressed_ops.iter().any(|s| s == id))
+        self.suppressed.iter().any(|s| s == id)
+            || self
+                .active()
+                .is_some_and(|c| c.suppressed_ops.iter().any(|s| s == id))
     }
 }
 
@@ -129,6 +135,7 @@ impl Default for DesignDoc {
             brief: None,
             release: None,
             package: None,
+            suppressed: Vec::new(),
         }
     }
 }
@@ -170,6 +177,11 @@ pub struct SessionMeta {
     pub frames: BTreeMap<String, PlaneFrame>,
     /// Id sketch → slot di `SketchSet`.
     pub sketch_ids: BTreeMap<String, SketchId>,
+    /// Id op `sketch` → slot GUI yang menjadi sumbernya (ADR 0010). Op
+    /// `sketch` dengan id terikat memakai slot itu apa adanya: tidak membuat
+    /// slot baru dan tidak menimpa isinya. Kosong di sesi headless/replay
+    /// berkas, sehingga slot dibangun dari spec seperti biasa.
+    pub live_sketches: BTreeMap<String, SketchId>,
     /// Nama body → id op yang meleburnya/menghapusnya.
     pub consumed: BTreeMap<String, String>,
     /// Penghitung datum (`PlaneRef::Datum(n)`), mulai 1.
@@ -960,12 +972,25 @@ impl SessionCore<'_> {
                         (f, PlaneRef::Datum(self.meta.datum_counter))
                     }
                 };
-                let sid = self.sketches.add(id.clone(), plane_ref);
-                new_sketches.push(sid);
                 let entity_count = built.names.len();
-                if let Some(slot) = self.sketches.sketch_mut(sid) {
-                    *slot = built.sketch;
-                }
+                let live = self
+                    .meta
+                    .live_sketches
+                    .get(id)
+                    .copied()
+                    .filter(|sid| self.sketches.get(*sid).is_some());
+                let sid = match live {
+                    // Slot GUI terikat: GUI adalah sumber isinya.
+                    Some(sid) => sid,
+                    None => {
+                        let sid = self.sketches.add(id.clone(), plane_ref);
+                        new_sketches.push(sid);
+                        if let Some(slot) = self.sketches.sketch_mut(sid) {
+                            *slot = built.sketch;
+                        }
+                        sid
+                    }
+                };
                 self.meta.sketch_ids.insert(id.clone(), sid);
                 self.meta.frames.insert(id.clone(), frame);
                 self.meta.auto_named.insert(id.clone(), built.auto_named);
@@ -2448,19 +2473,25 @@ pub(crate) fn profile_entities(sketch: &Sketch, sel: &ProfileSel) -> OpResult<Ha
     let ProfileSel::Names { names } = sel else {
         return Ok(HashSet::new());
     };
+    // Nama eksplisit (`entity_names`) atau nama turunan id untuk entitas
+    // tanpa nama — sama dengan `from_sketch::entity_spec_name`, supaya slot
+    // GUI yang terikat (ADR 0010) dan slot hasil replay diresolusi sama.
+    let all: Vec<(EntityId, String)> = sketch
+        .entities
+        .keys()
+        .map(|id| (id, crate::ops::from_sketch::entity_spec_name(sketch, id)))
+        .collect();
     let mut ids = HashSet::new();
     for n in names {
         let prefix = format!("{n}.");
         let before = ids.len();
         ids.extend(
-            sketch
-                .entity_names
-                .iter()
-                .filter(|(_, name)| *name == n || name.starts_with(&prefix))
+            all.iter()
+                .filter(|(_, name)| name == n || name.starts_with(&prefix))
                 .map(|(id, _)| *id),
         );
         if ids.len() == before {
-            let known: BTreeSet<&str> = sketch.entity_names.values().map(String::as_str).collect();
+            let known: BTreeSet<&str> = all.iter().map(|(_, n)| n.as_str()).collect();
             return Err(OpError::new(
                 OpErrorCode::UnknownRef,
                 format!("entitas profil '{n}' tidak dikenal (yang ada: {known:?})"),
@@ -2515,7 +2546,9 @@ fn hole_positions(
     }
 }
 
-pub(crate) fn hole_spec(
+/// `HoleSpec` kernel dari spec op lubang (juga dipakai GUI untuk memeriksa
+/// apakah lubang wizard bisa dinyatakan sebagai op, ADR 0010).
+pub fn hole_spec(
     spec: &HoleSpecRef,
     params: &Params,
 ) -> OpResult<ducad_core::hole::HoleSpec> {

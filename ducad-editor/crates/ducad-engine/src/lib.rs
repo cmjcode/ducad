@@ -31,6 +31,7 @@ pub mod inspect;
 pub mod migrate;
 pub mod model;
 pub mod oplog;
+pub mod oplog_view;
 pub mod package;
 pub mod ops;
 pub mod plane;
