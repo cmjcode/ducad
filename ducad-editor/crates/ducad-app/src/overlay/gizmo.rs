@@ -205,6 +205,28 @@ impl DuCADApp {
 
     /// Eksekusi commit extrude/cut saat drag gizmo selesai atau nilai presisi di-enter.
     pub fn commit_gizmo_extrusion(&mut self) {
+        // Jalur oplog (ADR 0010): hasil drag = op extrude yang sama dengan
+        // tombol Extrude; pratinjau tidak pernah menyentuh model.
+        if self.gizmo_distance.abs() > 0.1 {
+            let dist = self.gizmo_distance;
+            let target = self.gizmo_is_cutting.then_some(self.gizmo_target_body).flatten();
+            match self.extrude_via_oplog(dist, target) {
+                Ok(true) => {
+                    self.selected.clear();
+                    self.model_status = None;
+                    self.reset_gizmo_extrusion_state();
+                    return;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    self.model_status = Some(crate::modeling::operations::op_status("Extrude", &e));
+                    let fixes = self.fixes_for_op_error(&e);
+                    self.show_op_error(&e, fixes);
+                    self.reset_gizmo_extrusion_state();
+                    return;
+                }
+            }
+        }
         if self.gizmo_distance.abs() > 0.1 {
             let result = crate::model::extrude_selection_with_holes_on_plane(
                 self.sketch(),

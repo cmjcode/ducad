@@ -38,29 +38,59 @@ fn edge_pick_not_empty(edges: &EdgePick) -> OpResult<()> {
     Ok(())
 }
 
+/// Salinan milik sendiri dari [`EdgePick`] untuk thread kernel berbatas
+/// waktu (Step 3, B1-1).
+enum OwnedEdges {
+    All,
+    Indices(Vec<usize>),
+    Rays(Vec<PickRay>, f64),
+}
+
+impl OwnedEdges {
+    fn from(e: &EdgePick) -> Self {
+        match e {
+            EdgePick::All => Self::All,
+            EdgePick::Indices(i) => Self::Indices(i.to_vec()),
+            EdgePick::Rays(r, t) => Self::Rays(r.to_vec(), *t),
+        }
+    }
+}
+
+fn owned_shape(shape: &KernelShape, label: &str) -> OpResult<KernelShape> {
+    ducad_kernel::clone_shape(shape).map_err(|e| OpError::kernel(label, e))
+}
+
 pub fn fillet(shape: &KernelShape, edges: &EdgePick, radius: f64) -> OpResult<BodyGeometry> {
     require_positive("radius fillet", radius)?;
     edge_pick_not_empty(edges)?;
-    let result = match edges {
-        EdgePick::All => ducad_kernel::fillet_all(shape, radius),
-        EdgePick::Indices(idx) => ducad_kernel::fillet_edges_by_index(shape, radius, idx),
-        EdgePick::Rays(rays, tol) => ducad_kernel::fillet_edges(shape, radius, rays, *tol),
-    };
-    finish("Fillet", result.map_err(|e| OpError::kernel("Fillet", e))?)
+    let (shape, edges) = (owned_shape(shape, "Fillet")?, OwnedEdges::from(edges));
+    super::budget::run("Fillet", super::budget::OP_BUDGET, move || {
+        let result = match &edges {
+            OwnedEdges::All => ducad_kernel::fillet_all(&shape, radius),
+            OwnedEdges::Indices(idx) => ducad_kernel::fillet_edges_by_index(&shape, radius, idx),
+            OwnedEdges::Rays(rays, tol) => ducad_kernel::fillet_edges(&shape, radius, rays, *tol),
+        };
+        finish("Fillet", result.map_err(|e| OpError::kernel("Fillet", e))?)
+    })
 }
 
 pub fn chamfer(shape: &KernelShape, edges: &EdgePick, distance: f64) -> OpResult<BodyGeometry> {
     require_positive("jarak chamfer", distance)?;
     edge_pick_not_empty(edges)?;
-    let result = match edges {
-        EdgePick::All => ducad_kernel::chamfer_all(shape, distance),
-        EdgePick::Indices(idx) => ducad_kernel::chamfer_edges_by_index(shape, distance, idx),
-        EdgePick::Rays(rays, tol) => ducad_kernel::chamfer_edges(shape, distance, rays, *tol),
-    };
-    finish(
-        "Chamfer",
-        result.map_err(|e| OpError::kernel("Chamfer", e))?,
-    )
+    let (shape, edges) = (owned_shape(shape, "Chamfer")?, OwnedEdges::from(edges));
+    super::budget::run("Chamfer", super::budget::OP_BUDGET, move || {
+        let result = match &edges {
+            OwnedEdges::All => ducad_kernel::chamfer_all(&shape, distance),
+            OwnedEdges::Indices(idx) => ducad_kernel::chamfer_edges_by_index(&shape, distance, idx),
+            OwnedEdges::Rays(rays, tol) => {
+                ducad_kernel::chamfer_edges(&shape, distance, rays, *tol)
+            }
+        };
+        finish(
+            "Chamfer",
+            result.map_err(|e| OpError::kernel("Chamfer", e))?,
+        )
+    })
 }
 
 /// Shell: buka face `remove`, dinding setebal `thickness`. `depth` =

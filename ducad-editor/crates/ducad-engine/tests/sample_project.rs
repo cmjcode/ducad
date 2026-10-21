@@ -191,12 +191,10 @@ fn failed_edit_rolls_back_and_offers_verified_fix() {
     );
 }
 
-/// Target Step 3: fix bertanda `verified` harus lolos replay seluruh oplog,
-/// bukan hanya op yang gagal. Saat ini fix r=26.9 untuk `inner_fillet`
-/// lulus sendirian tetapi membuat `base_holes` gagal (`hole_outside_face`)
-/// karena face alas menyempit.
+/// Step 3 (B0-2): fix bertanda `verified` lolos replay seluruh oplog, bukan
+/// hanya op yang gagal. Sebelumnya fix r=26.9 untuk `inner_fillet` lulus
+/// sendirian tetapi membuat `base_holes` gagal (`hole_outside_face`).
 #[test]
-#[ignore = "Step 3: verifikasi fix belum me-replay op hilir"]
 fn verified_fixes_survive_full_replay() {
     let mut s = build();
     let mut params = s.design().params.clone();
@@ -206,6 +204,13 @@ fn verified_fixes_survive_full_replay() {
         .unwrap()
         .error
         .expect("harus ada error");
+    let r269 = e
+        .fixes
+        .iter()
+        .find(|f| f.label.contains("26.9"))
+        .expect("fix r=26.9 tetap dilaporkan");
+    assert!(!r269.verified, "r=26.9 merusak base_holes → tidak terverifikasi");
+    assert!(e.fixes.iter().any(|f| f.verified), "minimal satu fix lolos");
     for fix in e.fixes.iter().filter(|f| f.verified) {
         let r = s.edit_oplog(
             None,

@@ -28,9 +28,17 @@ pub fn hole(
     }
     let n = (normal[0], normal[1], normal[2]);
     let at: Vec<(f64, f64, f64)> = positions.iter().map(|p| (p[0], p[1], p[2])).collect();
-    let current = Some(
-        ducad_kernel::apply_holes(shape, spec, &at, n).map_err(|e| OpError::kernel("Hole", e))?,
-    );
+    // Boolean lubang berbatas waktu (Step 3, B1-1).
+    let owned = ducad_kernel::clone_shape(shape).map_err(|e| OpError::kernel("Hole", e))?;
+    let spec_c = *spec;
+    let current = Some(super::budget::run(
+        "Hole",
+        super::budget::OP_BUDGET,
+        move || {
+            ducad_kernel::apply_holes(&owned, &spec_c, &at, n)
+                .map_err(|e| OpError::kernel("Hole", e))
+        },
+    )?);
     match current {
         Some(shape) => finish("Hole", shape),
         None => Err(OpError::invalid("Posisi lubang tidak boleh kosong")),

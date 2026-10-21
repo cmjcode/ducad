@@ -1220,6 +1220,7 @@ error-selector_empty = Selector tidak cocok
 error-constraint_unsolved = Constraint tidak terselesaikan
 error-over_constrained = Constraint berlebih
 error-kernel_failed = Kernel geometri gagal
+error-kernel_timeout = Kernel geometri melewati batas waktu
 error-empty_result = Hasil kosong
 error-oplog_stale = Oplog basi
 error-io = Gagal membaca/menulis berkas
@@ -2491,3 +2492,14 @@ oplog-apply = Terapkan
 oplog-invalid-number = Bukan angka yang valid
 oplog-depends-on = Bergantung pada: { $list }
 oplog-used-by = Dipakai oleh: { $list }
+
+# Langkah pemulihan per kategori error (Step 3 PLAN_DESIGNER_UX)
+error-recovery-invalid_input = Model tidak diubah. Periksa nilai yang dimasukkan lalu coba lagi.
+error-recovery-no_intersection = Model tidak diubah. Kedua body tidak bersinggungan; geser salah satunya atau pilih body lain.
+error-recovery-open_profile = Model tidak diubah. Profil belum tertutup; ujung terbuka disorot merah di sketsa.
+error-recovery-impossible_size = Model tidak diubah. Ukuran ini tidak muat pada geometri; perkecil nilainya atau pakai saran di bawah.
+error-recovery-missing_reference = Model tidak diubah. Face, tepi, atau fitur yang dirujuk sudah berubah; pilih ulang lalu terapkan lagi.
+error-recovery-constraints = Sketsa tidak berubah. Ada constraint yang bertentangan; glyph merah menunjukkan yang bermasalah.
+error-recovery-kernel_failure = Model tidak diubah. Kernel geometri tidak bisa menyelesaikan kasus ini; ubah sedikit ukuran atau urutan fitur.
+error-recovery-simulation = Model tidak diubah. Periksa tumpuan, beban, dan material studi.
+error-recovery-other = Model tidak diubah.

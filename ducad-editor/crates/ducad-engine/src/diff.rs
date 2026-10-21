@@ -438,7 +438,13 @@ fn volume_of_difference(
     warnings: &mut Vec<String>,
     name: &str,
 ) -> (Option<f64>, Option<KernelShape>) {
-    match compute::boolean(a, b, BooleanKind::Subtract) {
+    // Pratinjau: batas waktu pendek; lewat batas → peringatan, bukan beku (B1-1).
+    match compute::solid::boolean_with_budget(
+        a,
+        b,
+        BooleanKind::Subtract,
+        compute::budget::PREVIEW_BUDGET,
+    ) {
         Ok(g) => (Some(g.shape.volume().abs()), Some(g.shape)),
         Err(e) if e.code == OpErrorCode::EmptyResult => (Some(0.0), None),
         Err(e) => {

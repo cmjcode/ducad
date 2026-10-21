@@ -104,6 +104,22 @@ impl DuCADApp {
         self.error_card.open = true;
         self.error_card.title = title;
         self.error_card.cause = e.message.clone();
+        // Langkah pemulihan per kategori (Step 3); hint engine bila ada.
+        let category = serde_json::to_value(e.code.category())
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default();
+        let mut recovery = ducad_i18n::translate(&format!("error-recovery-{category}"), None);
+        if recovery.starts_with("error-recovery-") {
+            recovery.clear();
+        }
+        if let Some(h) = e.hint.as_deref().filter(|h| !h.is_empty()) {
+            if !recovery.is_empty() {
+                recovery.push(' ');
+            }
+            recovery.push_str(h);
+        }
+        self.error_card.recovery = recovery;
         self.error_card.fixes = fixes.iter().map(|(l, _)| l.clone()).collect();
         self.error_fixes = fixes.into_iter().map(|(_, f)| f).collect();
     }
@@ -246,6 +262,10 @@ mod tests {
         assert!(app.error_card.open, "fillet r=15 pada kubus 20 harus gagal");
         assert!(!app.error_card.fixes.is_empty(), "{:?}", app.error_card);
         assert!(!app.error_card.title.is_empty());
+        assert!(
+            !app.error_card.recovery.is_empty(),
+            "kartu error menyebut langkah pemulihan (Step 3)"
+        );
         let before = app.model.geometry[id].shape.volume();
         app.apply_gui_fix(0);
         assert!(!app.error_card.open);

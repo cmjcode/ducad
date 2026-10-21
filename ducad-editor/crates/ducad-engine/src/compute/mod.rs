@@ -10,6 +10,7 @@
 //! ia menerima referensi dan mengembalikan geometri baru.
 
 pub mod advanced;
+pub mod budget;
 pub mod datum;
 pub mod direct;
 pub mod hole;

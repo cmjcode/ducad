@@ -267,6 +267,11 @@ tanpa harus memahami istilah internal engine.
 
 ### Step 3 — Perbaiki interaksi viewport dan pemulihan error
 
+> **Kemajuan 2026-10-21:** butir 3–6 selesai (kernel berbatas waktu, fix
+> diverifikasi dengan replay penuh, kategori error + langkah pemulihan,
+> gizmo extrude lewat oplog). Butir 1–2 (audit picking/gizmo di perangkat)
+> menunggu checklist manual. Rincian: `docs/BASELINE_DESIGNER_UX.md` §8c.
+
 **Tujuan**
 
 Membuat manipulasi langsung terasa presisi dan mencegah kegagalan operasi

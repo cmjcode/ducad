@@ -4,13 +4,16 @@
 use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
 use ducad_i18n::t;
 use egui::{Align2, Color32, RichText, Vec2};
-use egui_icons::icons::ICON_CLOSE;
+use egui_icons::icons::{ICON_CLOSE, ICON_WARNING};
 
 #[derive(Debug, Clone, Default)]
 pub struct ErrorCardState {
     pub open: bool,
     pub title: String,
     pub cause: String,
+    /// Langkah pemulihan menurut kategori error (Step 3), mis. "Model tidak
+    /// diubah. Perkecil ukurannya …". Kosong = tidak ditampilkan.
+    pub recovery: String,
     /// Label tombol per fix ("Pakai radius 1.8 mm").
     pub fixes: Vec<String>,
 }
@@ -37,7 +40,7 @@ impl ErrorCard {
                 glass_frame().show(ui, |ui| {
                     ui.set_max_width(420.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("⚠").color(Color32::from_rgb(255, 159, 10)));
+                        ui.label(RichText::new(ICON_WARNING.codepoint).color(Color32::from_rgb(255, 159, 10)));
                         ui.label(RichText::new(&state.title).strong().color(TEXT_PRIMARY));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.small_button(ICON_CLOSE.codepoint).on_hover_text(t!("error-card-close")).clicked() {
@@ -46,6 +49,9 @@ impl ErrorCard {
                         });
                     });
                     ui.label(RichText::new(&state.cause).color(TEXT_SECONDARY));
+                    if !state.recovery.is_empty() {
+                        ui.label(RichText::new(&state.recovery).size(11.0).color(TEXT_PRIMARY));
+                    }
                     if !state.fixes.is_empty() {
                         ui.add_space(4.0);
                         ui.horizontal_wrapped(|ui| {

@@ -317,6 +317,30 @@ pub fn revolve(
 
 /// Union/Subtract/Intersect dua shape.
 pub fn boolean(a: &KernelShape, b: &KernelShape, kind: BooleanKind) -> OpResult<BodyGeometry> {
+    boolean_with_budget(a, b, kind, super::budget::OP_BUDGET)
+}
+
+/// [`boolean`] dengan batas waktu `budget` (Step 3, B1-1): lewat batas →
+/// `kernel_timeout`, bukan aplikasi beku.
+pub fn boolean_with_budget(
+    a: &KernelShape,
+    b: &KernelShape,
+    kind: BooleanKind,
+    budget: std::time::Duration,
+) -> OpResult<BodyGeometry> {
+    let clone = |s: &KernelShape| {
+        ducad_kernel::clone_shape(s).map_err(|e| OpError::kernel("Boolean", e))
+    };
+    let (a, b) = (clone(a)?, clone(b)?);
+    let label = match kind {
+        BooleanKind::Union => "Union",
+        BooleanKind::Subtract => "Subtract",
+        BooleanKind::Intersect => "Intersect",
+    };
+    super::budget::run(label, budget, move || boolean_now(&a, &b, kind))
+}
+
+fn boolean_now(a: &KernelShape, b: &KernelShape, kind: BooleanKind) -> OpResult<BodyGeometry> {
     let (label, result) = match kind {
         BooleanKind::Union => ("Union", ducad_kernel::union(a, b)),
         BooleanKind::Subtract => ("Subtract", ducad_kernel::subtract(a, b)),

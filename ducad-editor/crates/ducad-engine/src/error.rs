@@ -2,6 +2,63 @@
 //! [`OpResult`]; error `anyhow` dari kernel dibungkus lewat
 //! [`OpError::kernel`]. Bentuk JSON-nya adalah kontrak bagi CLI/MCP.
 
+/// Kategori error untuk UI (Step 3 `PLAN_DESIGNER_UX`): sebab yang dapat
+/// diterjemahkan ke langkah pemulihan, terlepas dari kode detailnya.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCategory {
+    /// Nilai/argumen tidak valid.
+    InvalidInput,
+    /// Body tidak beririsan / hasil kosong.
+    NoIntersection,
+    /// Profil sketsa tidak tertutup atau ambigu.
+    OpenProfile,
+    /// Ukuran tidak mungkin secara geometri (radius/tebal/kedalaman).
+    ImpossibleSize,
+    /// Rujukan ke body/face/tepi/op yang hilang atau berubah.
+    MissingReference,
+    /// Sketsa tidak bisa diselesaikan (constraint).
+    Constraints,
+    /// Kernel gagal atau melewati batas waktu.
+    KernelFailure,
+    /// Simulasi.
+    Simulation,
+    /// Berkas, lisensi, fitur belum ada, atau bug.
+    Other,
+}
+
+impl OpErrorCode {
+    /// Kategori UI kode ini. `match` lengkap: kode baru wajib dikategorikan.
+    pub fn category(self) -> ErrorCategory {
+        use ErrorCategory as C;
+        use OpErrorCode as E;
+        match self {
+            E::InvalidParam | E::DuplicateId | E::SelectorSyntax => C::InvalidInput,
+            E::BooleanNoOverlap | E::EmptyResult | E::DrawingSectionEmpty => C::NoIntersection,
+            E::ProfileNotClosed | E::ProfileAmbiguous | E::ProfileOpenGap => C::OpenProfile,
+            E::FilletRadiusTooLarge
+            | E::ChamferTooLarge
+            | E::ShellTooThick
+            | E::ShellDepthTooDeep
+            | E::HoleOutsideFace
+            | E::HoleDeeperThanBody => C::ImpossibleSize,
+            E::UnknownRef | E::BodyConsumed | E::SelectorEmpty | E::OplogStale | E::ProposalStale => {
+                C::MissingReference
+            }
+            E::ConstraintUnsolved | E::OverConstrained => C::Constraints,
+            E::KernelFailed | E::KernelTimeout => C::KernelFailure,
+            E::SimUnderconstrained
+            | E::SimNoMaterial
+            | E::SimMeshTooCoarse
+            | E::SimDiverged
+            | E::SimCancelled => C::Simulation,
+            E::Io | E::Unsupported | E::DrawingSectionLabelDup | E::LicenseRequired | E::Internal => {
+                C::Other
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpErrorCode {
@@ -27,6 +84,9 @@ pub enum OpErrorCode {
     OverConstrained,
     /// Kernel geometri mengembalikan error / shape tidak valid.
     KernelFailed,
+    /// Operasi kernel melewati batas waktu (Step 3 `PLAN_DESIGNER_UX`):
+    /// model tidak diubah, aplikasi tidak membeku.
+    KernelTimeout,
     /// Operasi sukses tapi volume hasil ≈ 0.
     EmptyResult,
     /// Dokumen diubah di luar oplog (P1.7).

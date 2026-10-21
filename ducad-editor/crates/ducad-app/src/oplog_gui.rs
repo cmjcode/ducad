@@ -76,6 +76,7 @@ impl DuCADApp {
     ) -> Result<BatchReport, OpError> {
         self.sync_agent_meta();
         let mark = self.begin_oplog_step();
+        let attempted_ops = ops.clone();
         let report = {
             let mut core = SessionCore {
                 model: &mut self.model,
@@ -86,10 +87,14 @@ impl DuCADApp {
             core.run(ops, false)
         };
         if !report.committed {
-            let e = report
+            let mut e = report
                 .error
                 .clone()
                 .unwrap_or_else(|| OpError::new(OpErrorCode::Internal, "op tidak ter-commit"));
+            // B0-2: fix ditawarkan hanya bila lolos replay seluruh oplog.
+            let mut attempted = self.agent_meta.design.clone();
+            attempted.oplog.extend(attempted_ops);
+            ducad_engine::reverify_fixes(&attempted, &mut e);
             return Err(e);
         }
         self.end_oplog_step(mark, title);
@@ -281,7 +286,11 @@ impl DuCADApp {
             ducad_engine::edit_design(&self.agent_meta.design, None, &replace, &[], &append)?;
         let session = ducad_engine::Session::replay(ducad_engine::DesignDoc {
             fingerprint: String::new(),
-            ..design
+            ..design.clone()
+        })
+        .map_err(|mut e| {
+            ducad_engine::reverify_fixes(&design, &mut e);
+            e
         })?;
         self.adopt_replayed_session(session, what);
         self.clear_redo_except(crate::types::UndoTarget::Model);
@@ -2375,6 +2384,45 @@ mod tests {
         app.undo_model();
         assert_eq!(only_body(&app), id);
         assert!(close(volume(&app), 1000.0));
+    }
+
+    /// Step 3: pratinjau drag gizmo tidak menyentuh model; cancel tidak
+    /// mengubah apa pun; commit = op extrude dengan tinggi yang dipratinjau.
+    #[test]
+    fn gizmo_preview_cancel_and_commit_match() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_sketch_plane(ducad_render::PlaneKind::Top);
+        app.enter_sketching();
+        let pts = [
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 8.0),
+            DVec2::new(0.0, 8.0),
+        ];
+        let ids: Vec<_> = (0..4)
+            .map(|i| {
+                app.sketch_mut()
+                    .entities
+                    .insert(ducad_sketch::Entity::line(pts[i], pts[(i + 1) % 4]))
+            })
+            .collect();
+        app.selected = ids.iter().copied().collect();
+
+        app.begin_gizmo_drag();
+        app.gizmo_distance = 12.0;
+        app.stage_gizmo_extrusion();
+        assert!(app.model.doc.bodies.is_empty(), "pratinjau tidak mengubah model");
+        app.cancel_gizmo_extrusion();
+        assert!(app.model.doc.bodies.is_empty(), "cancel tidak mengubah model");
+        assert!(app.agent_meta.design.oplog.is_empty());
+
+        app.selected = ids.iter().copied().collect();
+        app.begin_gizmo_drag();
+        app.gizmo_distance = 12.0;
+        app.stage_gizmo_extrusion();
+        app.commit_gizmo_extrusion();
+        assert_eq!(oplog_kinds(&app), ["sketch", "extrude"], "{:?}", app.model_status);
+        assert!(close(total_volume(&app), 10.0 * 8.0 * 12.0), "{}", total_volume(&app));
     }
 
     #[test]

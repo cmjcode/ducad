@@ -1220,6 +1220,7 @@ error-selector_empty = Selector matched nothing
 error-constraint_unsolved = Constraint not solved
 error-over_constrained = Over-constrained
 error-kernel_failed = Geometry kernel failed
+error-kernel_timeout = Geometry kernel timed out
 error-empty_result = Empty result
 error-oplog_stale = Stale oplog
 error-io = File read/write failed
@@ -2491,3 +2492,14 @@ oplog-apply = Apply
 oplog-invalid-number = Not a valid number
 oplog-depends-on = Depends on: { $list }
 oplog-used-by = Used by: { $list }
+
+# Langkah pemulihan per kategori error (Step 3 PLAN_DESIGNER_UX)
+error-recovery-invalid_input = The model was not changed. Check the entered value and try again.
+error-recovery-no_intersection = The model was not changed. The bodies do not touch; move one or pick another body.
+error-recovery-open_profile = The model was not changed. The profile is not closed; open ends are highlighted red in the sketch.
+error-recovery-impossible_size = The model was not changed. This size does not fit the geometry; reduce it or use a suggestion below.
+error-recovery-missing_reference = The model was not changed. The referenced face, edge, or feature changed; pick it again and reapply.
+error-recovery-constraints = The sketch was not changed. Some constraints conflict; red glyphs mark the problem.
+error-recovery-kernel_failure = The model was not changed. The geometry kernel could not solve this case; adjust a size or the feature order slightly.
+error-recovery-simulation = The model was not changed. Check the study fixtures, loads, and material.
+error-recovery-other = The model was not changed.

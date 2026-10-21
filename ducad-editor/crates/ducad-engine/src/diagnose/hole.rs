@@ -15,6 +15,7 @@ pub(crate) fn precheck_hole(
     face: &FaceInfo,
     frame: &PlaneFrame,
     positions: &[[f64; 3]],
+    world_input: bool,
 ) -> Result<(), OpError> {
     if face.boundary.len() < 3 {
         return Ok(());
@@ -42,7 +43,12 @@ pub(crate) fn precheck_hole(
                     l.x, l.y, lo.x, hi.x, lo.y, hi.y
                 ),
             )
-            .with_hint("pindahkan titik ke dalam face; koordinat 'at' relatif terhadap pusat face")
+            .with_hint(if world_input {
+                // B0-4: GUI dan `at_world` memakai koordinat dunia.
+                "pindahkan titik ke dalam face; 'at_world' adalah koordinat dunia yang diproyeksikan tegak lurus ke bidang face (lihat face_bbox_local untuk batasnya)"
+            } else {
+                "pindahkan titik ke dalam face; koordinat 'at' relatif terhadap pusat face"
+            })
             .with_context(json!({
                 "index": i,
                 "point_local": [l.x, l.y],

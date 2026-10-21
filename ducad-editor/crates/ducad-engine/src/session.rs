@@ -1323,7 +1323,7 @@ impl SessionCore<'_> {
                 let positions = hole_positions(&frame, at, at_world, &params)?;
                 let spec = hole_spec(spec, &params)?;
                 // Pre-check memblokir: titik di luar face (tanpa apply_hole).
-                crate::diagnose::precheck_hole(f, &frame, &positions)?;
+                crate::diagnose::precheck_hole(f, &frame, &positions, !at_world.is_empty())?;
                 if !spec.is_through {
                     if let Some(w) =
                         crate::diagnose::hole_depth_warning(geo, &positions, f.normal, spec.depth)
@@ -2601,6 +2601,27 @@ pub fn hole_spec(
     }
 }
 
+/// B0-2 (Step 3): fix bertanda `verified` diuji ulang dengan replay SELURUH
+/// `design` (op hilir ikut), bukan hanya op yang gagal. Fix yang membuat op
+/// lain gagal ditandai `verified = false` — UI/agent hanya menawarkan yang
+/// lolos. `design` = design yang dicoba saat error terjadi.
+pub fn reverify_fixes(design: &DesignDoc, e: &mut OpError) {
+    if e.fixes.iter().all(|f| !f.verified) {
+        return;
+    }
+    for fix in e.fixes.iter_mut().filter(|f| f.verified) {
+        let mut d = DesignDoc {
+            fingerprint: String::new(),
+            ..design.clone()
+        };
+        let Some(slot) = d.oplog.iter_mut().find(|o| o.id() == fix.patch.op_id) else {
+            continue;
+        };
+        *slot = fix.patched_op.clone();
+        fix.verified = Session::rebuild(d).is_ok();
+    }
+}
+
 // ---------------------------------------------------------------------
 // Session.
 // ---------------------------------------------------------------------
@@ -2711,7 +2732,14 @@ impl Session {
     /// Jalankan batch op secara atomik.
     pub fn run(&mut self, ops: Vec<Op>, dry_run: bool) -> BatchReport {
         let before = self.meta.design.oplog.len();
-        let report = self.core().run(ops, dry_run);
+        let attempted_ops = ops.clone();
+        let mut report = self.core().run(ops, dry_run);
+        if let Some(e) = report.error.as_mut() {
+            // Fix diuji dengan seluruh batch (op sesudah yang gagal ikut).
+            let mut attempted = self.meta.design.clone();
+            attempted.oplog.extend(attempted_ops);
+            reverify_fixes(&attempted, e);
+        }
         if report.committed {
             self.redo.clear();
             if self.meta.design.oplog.len() > before {
@@ -3315,6 +3343,7 @@ impl Session {
     /// Replay `design` di sesi baru; sukses → gantikan sesi ini. Tidak
     /// mencatat langkah undo (pemanggil yang memutuskan).
     fn swap_rebuilt(&mut self, design: DesignDoc) -> OpResult<BatchReport> {
+        let attempted = design.clone();
         match Self::rebuild(design) {
             Ok((s, report)) => {
                 self.adopt_rebuilt(s);
@@ -3323,10 +3352,13 @@ impl Session {
                     ..report
                 })
             }
-            Err(e) => Ok(BatchReport {
+            Err(mut e) => Ok(BatchReport {
+                error: Some({
+                    reverify_fixes(&attempted, &mut e);
+                    e
+                }),
                 committed: false,
                 outcomes: Vec::new(),
-                error: Some(e),
                 summary: self.summary(),
                 checks: None,
             }),
@@ -3419,6 +3451,7 @@ impl Session {
             Ok(d) => d,
             Err(e) => return self.failed_report(e),
         };
+        let attempted = design.clone();
         match Self::rebuild(design) {
             Ok((s, report)) => {
                 let before = self.model_state();
@@ -3430,7 +3463,10 @@ impl Session {
                     ..report
                 }
             }
-            Err(e) => self.failed_report(with_remove_hint(e, remove)),
+            Err(mut e) => {
+                reverify_fixes(&attempted, &mut e);
+                self.failed_report(with_remove_hint(e, remove))
+            }
         }
     }
 

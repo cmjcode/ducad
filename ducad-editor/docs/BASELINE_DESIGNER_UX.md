@@ -79,15 +79,15 @@ Belum ada sesi uji designer. Dugaan berikut berasal dari membaca
 | ID | Temuan | Dampak designer | Step |
 |---|---|---|---|
 | B0-1 ✅ | *(Diperbaiki Step 1a, 2026-10-21: riwayat undo sesi mencakup batch op dan edit; GUI membawa oplog di transaksi undo — ADR 0010.)* `Session::undo` hanya mencabut batch op terakhir. `set_params`, `replace_op`, dan `remove_op` tidak tercatat di riwayat undo; undo setelah edit parameter malah mencabut op. | Undo setelah mengubah dimensi tidak mengembalikan dimensi | 1a |
-| B0-2 | Saran perbaikan (`fixes[].verified = true`) hanya diuji pada op yang gagal, tanpa me-replay op hilir. Contoh: fillet r=40 → fix r=26.9 "terverifikasi", tetapi `base_holes` lalu gagal `hole_outside_face`. | Menerima saran resmi bisa merusak fitur lain | 3 |
+| B0-2 ✅ | *(Diperbaiki Step 3: `reverify_fixes` menguji ulang setiap fix dengan replay seluruh oplog; tes `verified_fixes_survive_full_replay` aktif.)* Saran perbaikan (`fixes[].verified = true`) hanya diuji pada op yang gagal, tanpa me-replay op hilir. Contoh: fillet r=40 → fix r=26.9 "terverifikasi", tetapi `base_holes` lalu gagal `hole_outside_face`. | Menerima saran resmi bisa merusak fitur lain | 3 |
 | B0-3 | Filter selector tidak menerima parameter (`+Z[z=$t]` → `selector_syntax`). Selector berbasis koordinat (`[z=5]`) putus saat dimensi berubah. | Penulis oplog/agent mudah membuat model yang rapuh; perlu pola selector relasional (bagian 2) atau filter ber-ekspresi | 1b |
-| B0-4 | Hint `hole_outside_face` selalu menyebut "koordinat 'at' relatif terhadap pusat face", juga saat yang dipakai `at_world`; tidak ada `fixes`. | Pesan menyesatkan saat pulih dari error | 3 |
+| B0-4 ✅ | *(Diperbaiki Step 3: hint menyesuaikan `at`/`at_world`.)* Hint `hole_outside_face` selalu menyebut "koordinat 'at' relatif terhadap pusat face", juga saat yang dipakai `at_world`; tidak ada `fixes`. | Pesan menyesatkan saat pulih dari error | 3 |
 | B0-5 | GUI: `Fillet` diregenerasi sebagai `fillet_all`; `Hole`, `Helix`, `Boolean` tidak diregenerasi. | Edit dimensi awal di GUI merusak/menghilangkan fitur hilir | 1a (migrasi ke oplog) |
 | B0-7 | Op `hole` lambat: ±0,5–0,6 s per op (2 lubang tembus) pada part kecil; regenerasi dan buka berkas proyek contoh ±1,1–1,3 s. Analisis Step 1a: biaya ada di boolean kernel, satu boolean per titik lubang (1 titik 112 ms, 2 titik 215 ms pada bracket tanpa fillet), dan naik ±3× bila body punya face lengkung (2 lubang setelah fillet: 703 ms). Lubang buta dengan kedalaman tepat = tebal (bidang koplanar) ±1 s. | Edit dimensi terasa tersendat; buka berkas lambat | 1b: satu boolean untuk semua titik lubang; replay inkremental dari op pertama yang terdampak; profil boolean kernel untuk face lengkung/koplanar |
 | B0-8 🟡 | *(Untuk fitur yang sudah dimigrasi ke oplog — sketsa, extrude, fillet/chamfer, hole — diperbaiki: oplog dan ikatan sketsa dipulihkan saat berkas dibuka, tes `gui_oplog_survives_save_and_reopen`. DAG fitur lama tetap tidak disimpan.)* GUI: DAG fitur tidak disimpan ke `.ducad` dan direset saat buka/baru; riwayat aktivitas (dan cabangnya) dikosongkan setiap aplikasi start (`app.rs:569`). | Setelah buka ulang, riwayat fitur GUI hilang — T4 gagal di GUI | 1a/1c |
 | B0-9 | Oplog belum punya op assembly/mate/coupling, datum bersudut/3 titik, teks sketsa, atau edit sketsa (trim/extend/offset/mirror). | Penghalang keputusan "oplog = sumber kebenaran"; harus masuk daftar ADR Step 1a | 1a |
 | B0-10 | Platform utama persona adalah desktop macOS, tetapi CI tidak punya lane workspace macOS dan tes Windows `continue-on-error`. | Regresi di platform utama tidak tertangkap CI | 5 (gate rilis) |
-| B1-1 | `diff` geometris (CLI/MCP `diff`, ghost proposal `preview_edit`) macet >60 s pada dua versi bracket dengan fillet sudut dalam + lubang (alas 40 vs 55). Stack: `truck_geometry::intersection_curve::hinted_sub_division`. Union silinder koaksial biasa tidak terdampak. Jalur edit GUI sudah menghindari diff. | Proposal agent dengan ghost preview pada part seperti ini membuat aplikasi/MCP macet | 3 (audit kernel: gagal jadi error, bukan macet); tes `diff.rs::diff_of_filleted_bracket_versions_finishes_in_time` (ignored), fixture `gui_bracket_hole.ops.json` |
+| B1-1 ✅ | *(Diperbaiki Step 3: boolean/fillet/chamfer/hole kernel berbatas waktu (`compute::budget`, 45 s op, 8 s pratinjau); lewat batas → `kernel_timeout`, model utuh. Diff bracket kini selesai ±9 s dengan peringatan. Tes `diff_timeout.rs`, `kernel_budget.rs`.)* `diff` geometris (CLI/MCP `diff`, ghost proposal `preview_edit`) macet >60 s pada dua versi bracket dengan fillet sudut dalam + lubang (alas 40 vs 55). Stack: `truck_geometry::intersection_curve::hinted_sub_division`. Union silinder koaksial biasa tidak terdampak. Jalur edit GUI sudah menghindari diff. | Proposal agent dengan ghost preview pada part seperti ini membuat aplikasi/MCP macet | 3 (audit kernel: gagal jadi error, bukan macet); tes `diff.rs::diff_of_filleted_bracket_versions_finishes_in_time` (ignored), fixture `gui_bracket_hole.ops.json` |
 | B1-2 ✅ | Boolean GUI memakai `HashSet` seleksi body, sehingga peran sasaran/pemotong pada **subtract** acak. Diperbaiki: seleksi body kini berurutan (`IndexSet`), body yang dipilih pertama = sasaran. | Subtract bisa memotong body yang salah | 1a; tes `gui_subtract_respects_selection_order_and_is_an_op` |
 | B1-3 ✅ | Revolve GUI selalu memakai bidang XY (`PlaneFrame::top()`) apa pun bidang sketsanya, sehingga sketsa di bidang Front/Right diputar di sumbu yang salah. Diperbaiki lewat jalur oplog (bidang dari slot sketsa). | Hasil revolve salah posisi/orientasi | 1a; tes `gui_revolve_on_front_plane_uses_real_plane` |
 | B1-4 ✅ | Loft GUI selalu berjalan sepanjang Z (bidang XY) apa pun bidang sketsanya. Diperbaiki lewat jalur oplog (bidang aktif + offset). | Loft dari sketsa Front/Right salah orientasi | 1a; tes `gui_loft_records_ops_on_the_real_plane` |
@@ -178,6 +178,26 @@ Kriteria selesai Step 2:
 | Status constraint dan profil membantu menemukan masalah tanpa membaca log | ✅ (perlu dikonfirmasi sesi uji) |
 | T4 lewat GUI: simpan → buka → edit sketsa tetap memperbarui hilir | ✅ `gui_oplog_survives_save_and_reopen` |
 | Satu perintah = satu undo step, termasuk edit dimensi | ✅ untuk aksi oplog; edit dimensi sketsa = satu langkah sketsa + satu langkah pembaruan model saat keluar dari mode sketsa |
+
+## 8c. Kemajuan Step 3 (2026-10-21)
+
+| Butir Step 3 | Hasil | Bukti |
+|---|---|---|
+| 1. Audit picking (sudut kamera, zoom, tablet) | ☐ butuh checklist manual di perangkat | — |
+| 2. Gizmo konsisten, angka bisa diketik saat drag | 🟡 sudah ada (popup nilai saat staged, `apply_face_gizmo_typed_value`); commit gizmo extrude kini op oplog | `gizmo_preview_cancel_and_commit_match` |
+| 3. Pratinjau terpisah dari model; cancel tidak mengubah model; commit = satu undo | ✅ untuk gizmo extrude | idem |
+| 4. Error dinormalisasi ke kategori UI | ✅ `OpErrorCode::category()` (match lengkap, 9 kategori); kartu error menampilkan langkah pemulihan per kategori + hint engine | `error_card_ui::failed_fillet_offers_verified_fix_that_reapplies` |
+| 5. Fix ditawarkan hanya setelah lolos dry-run | ✅ B0-2: replay seluruh oplog sebelum fix ditawarkan (engine + GUI) | `verified_fixes_survive_full_replay` |
+| 6. Kegagalan kernel jadi error, bukan panic/beku | ✅ panik sudah dipagari (ADR 0009); boolean/fillet/chamfer/hole kini berbatas waktu, maksimal 2 pekerjaan ditinggalkan | `kernel_budget.rs`, `diff_timeout.rs` |
+
+Kriteria selesai Step 3:
+
+| Kriteria | Status |
+|---|---|
+| Drag preview sama dengan hasil commit; cancel tidak mengubah model | ✅ gizmo extrude (tes otomatis); tarik-sisi (face gizmo) masih jalur lama |
+| Pilihan dan gizmo lulus checklist desktop | ☐ checklist manual |
+| Error umum tidak menyebabkan crash atau kehilangan pekerjaan | ✅ panik → `internal`, kernel beku → `kernel_timeout`, semua dengan rollback |
+| Perbaikan otomatis tervalidasi sebelum ditampilkan | ✅ |
 
 ## 9. Berkas yang ditambahkan/diubah oleh Step 0
 

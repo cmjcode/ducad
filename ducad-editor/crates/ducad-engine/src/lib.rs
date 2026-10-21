@@ -43,12 +43,12 @@ pub mod sim;
 pub mod tooling;
 
 pub use ducad_core::{Feature, LicenseTier};
-pub use error::{apply_patch, OpError, OpErrorCode, OpPatch, OpResult, SuggestedFix};
+pub use error::{apply_patch, ErrorCategory, OpError, OpErrorCode, OpPatch, OpResult, SuggestedFix};
 pub use ops::MaterialSel;
 pub use plane::PlaneFrame;
 pub use session::{
     edit_design, preview_configuration, preview_edit, resolve_material, BatchReport, DesignDoc, EditPreview, OpOutcome,
-    Proposal, ReplaceOp, Session, SessionCore, SessionMeta,
+    Proposal, ReplaceOp, Session, SessionCore, SessionMeta, reverify_fixes,
 };
 
 #[test]
