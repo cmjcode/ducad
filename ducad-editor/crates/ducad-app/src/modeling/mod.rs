@@ -11,4 +11,4 @@ pub mod swap_model;
 mod adapter_tests;
 
 pub use builder::region_center_snap;
-pub use swap_model::SwapModelCommand;
+pub use swap_model::{apply_model_preserving_ids, SwapModelCommand};

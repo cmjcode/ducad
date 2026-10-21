@@ -1940,6 +1940,25 @@ impl DuCADApp {
             .or_else(|| self.selected_bodies.iter().next().copied())
             .or_else(|| self.model.doc.bodies.keys().next());
 
+        // Jalur oplog (ADR 0010) bila ada body sasaran.
+        if let Some(target) = target_body_id {
+            match self.emboss_via_oplog(target, depth, is_deboss) {
+                Ok(true) => {
+                    let op_name = if is_deboss { "Deboss" } else { "Emboss" };
+                    self.model_status = Some(format!("{op_name} berhasil diterapkan"));
+                    return;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    let op_name = if is_deboss { "Deboss" } else { "Emboss" };
+                    self.model_status = Some(op_status(op_name, &e));
+                    let fixes = self.fixes_for_op_error(&e);
+                    self.show_op_error(&e, fixes);
+                    return;
+                }
+            }
+        }
+
         let base_shape = target_body_id.and_then(|id| {
             self.model
                 .geometry

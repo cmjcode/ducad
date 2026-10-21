@@ -2203,6 +2203,16 @@
                   "default": false,
                   "type": "boolean"
                 },
+                "exact": {
+                  "description": "Exact curve (e.g. font glyph outline) as segments chained from `points[0]`; `points` stays the flattened polyline used for snapping/regions.",
+                  "items": {
+                    "$ref": "#/definitions/SegSpec"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
                 "name": {
                   "default": null,
                   "type": [
@@ -2430,6 +2440,51 @@
           "type": "string"
         }
       ]
+    },
+    "FrameSpec": {
+      "additionalProperties": false,
+      "description": "Explicit plane frame for [`PlaneSpec::Frame`].",
+      "properties": {
+        "normal": {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "origin": {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "u": {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "v": {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "normal",
+        "origin",
+        "u",
+        "v"
+      ],
+      "type": "object"
     },
     "HelixSection": {
       "description": "Helix section (externally tagged): `{\"circle\":{\"r\":1}}`, `{\"rect\":{\"w\":2,\"h\":1}}`, `{\"triangle\":{\"w\":1.5,\"h\":1.3}}` (V thread).",
@@ -5705,9 +5760,40 @@
             "through_edges"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plane through three non-collinear points (`[x,y,z]` or `\"point:<id>\"`); origin = first point, u toward the second.",
+          "properties": {
+            "three_points": {
+              "items": {
+                "$ref": "#/definitions/PointRef"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "three_points"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Explicit plane frame (e.g. a GUI datum plane at any angle): origin, in-plane axes `u`/`v` and `normal` (unit vectors are normalised; `normal` may differ in sign from `u × v`).",
+          "properties": {
+            "frame": {
+              "$ref": "#/definitions/FrameSpec"
+            }
+          },
+          "required": [
+            "frame"
+          ],
+          "type": "object"
         }
       ],
-      "description": "Sketch plane: a name (`\"XY\"`/`\"XZ\"`/`\"YZ\"`, aliases `\"top\"`/`\"front\"`/`\"right\"`, case-insensitive), an offset named plane, a planar face of a body, or a construction plane: `{\"midplane\":[A,B]}`, `{\"perpendicular_to\":LINE,\"through\":POINT}`, `{\"tangent_to\":{\"body\":\"b\",\"face\":\"...\"},\"angle_deg\":90}`, `{\"along\":{\"body\":\"b\",\"edge\":\"...\"},\"fraction\":0.5}`, `{\"through_edges\":[LINE,LINE]}`. Every variant has its own key set, so the form is never ambiguous."
+      "description": "Sketch plane: a name (`\"XY\"`/`\"XZ\"`/`\"YZ\"`, aliases `\"top\"`/`\"front\"`/`\"right\"`, case-insensitive), an offset named plane, a planar face of a body, or a construction plane: `{\"midplane\":[A,B]}`, `{\"perpendicular_to\":LINE,\"through\":POINT}`, `{\"tangent_to\":{\"body\":\"b\",\"face\":\"...\"},\"angle_deg\":90}`, `{\"along\":{\"body\":\"b\",\"edge\":\"...\"},\"fraction\":0.5}`, `{\"through_edges\":[LINE,LINE]}`, `{\"three_points\":[P,P,P]}`, or an explicit frame `{\"frame\":{\"origin\":[x,y,z],\"u\":[..],\"v\":[..],\"normal\":[..]}}`. Every variant has its own key set, so the form is never ambiguous."
     },
     "PlasticSpec": {
       "description": "Feature of op `plastic` (externally tagged). Points use the `hole` convention: `at` local (u, v) on the face, or `at_world` projected onto it.",

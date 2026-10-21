@@ -187,22 +187,56 @@ impl DuCADApp {
     }
 }
 
-/// Nama bidang op untuk bidang sketsa GUI; `None` = belum didukung jalur
-/// oplog (datum bersudut/3 titik, face) → jalur lama.
-fn plane_spec(plane: ducad_sketch::PlaneRef) -> Option<&'static str> {
-    match plane {
-        ducad_sketch::PlaneRef::Top => Some("XY"),
-        ducad_sketch::PlaneRef::Front => Some("XZ"),
-        ducad_sketch::PlaneRef::Right => Some("YZ"),
-        ducad_sketch::PlaneRef::Datum(_) => None,
+/// Spec bidang op (JSON) untuk bidang sketsa GUI: nama standar bila di
+/// titik asal, selain itu bidang eksplisit `frame` (datum bersudut/3 titik/
+/// offset; ADR 0010 urutan 7).
+pub(crate) fn sketch_plane_json(plane: &ducad_render::SketchPlane) -> serde_json::Value {
+    let named = match plane.kind {
+        ducad_render::PlaneKind::Top => Some("XY"),
+        ducad_render::PlaneKind::Front => Some("XZ"),
+        ducad_render::PlaneKind::Right => Some("YZ"),
+        ducad_render::PlaneKind::Custom(_) => None,
+    };
+    if let (Some(n), true) = (named, plane.origin.length() < 1e-6) {
+        return serde_json::json!(n);
+    }
+    let a = |v: glam::Vec3| [v.x as f64, v.y as f64, v.z as f64];
+    serde_json::json!({ "frame": {
+        "origin": a(plane.origin), "u": a(plane.u_axis), "v": a(plane.v_axis), "normal": a(plane.normal),
+    }})
+}
+
+/// Seperti [`sketch_plane_json`], digeser `offset` di sepanjang normal.
+fn offset_plane_json(plane: &ducad_render::SketchPlane, offset: f64) -> serde_json::Value {
+    let mut moved = *plane;
+    moved.origin += plane.normal * offset as f32;
+    match sketch_plane_json(plane) {
+        serde_json::Value::String(n) => serde_json::json!({ "base": n, "offset": offset }),
+        _ => sketch_plane_json(&moved),
     }
 }
 
 impl DuCADApp {
+    /// Spec bidang op untuk `PlaneRef` slot sketsa GUI; datum dicari di
+    /// `datum_planes` lewat id stabilnya. `None` = datum tidak ditemukan.
+    pub(crate) fn plane_json_for(
+        &self,
+        plane: ducad_sketch::PlaneRef,
+    ) -> Option<serde_json::Value> {
+        Some(match plane {
+            ducad_sketch::PlaneRef::Top => serde_json::json!("XY"),
+            ducad_sketch::PlaneRef::Front => serde_json::json!("XZ"),
+            ducad_sketch::PlaneRef::Right => serde_json::json!("YZ"),
+            ducad_sketch::PlaneRef::Datum(id) => {
+                sketch_plane_json(&self.datum_planes.iter().find(|d| d.id == id)?.plane)
+            }
+        })
+    }
+
     /// Op `sketch` dari isi slot GUI `sid` (spec bernama, ADR 0010).
     pub(crate) fn sketch_op_for_slot(&self, sid: ducad_sketch::SketchId, id: &str) -> Option<Op> {
         let slot = self.sketch_set.get(sid)?;
-        let plane = plane_spec(slot.plane)?;
+        let plane = self.plane_json_for(slot.plane)?;
         let specs = ducad_engine::ops::from_sketch::sketch_to_specs(&slot.sketch);
         serde_json::from_value(serde_json::json!({
             "op": "sketch",
@@ -271,7 +305,8 @@ impl DuCADApp {
         let Some(slot) = self.sketch_set.get(sid) else {
             return Ok(false);
         };
-        if plane_spec(slot.plane).is_none() || self.selected.is_empty() || distance == 0.0 {
+        if self.plane_json_for(slot.plane).is_none() || self.selected.is_empty() || distance == 0.0
+        {
             return Ok(false);
         }
         let names: Vec<String> = self
@@ -378,6 +413,101 @@ impl DuCADApp {
         }
     }
 
+    /// Emboss/deboss profil sketsa aktif ke `body` sebagai op oplog (sketsa
+    /// terikat + op `emboss`). Tanpa seleksi = semua region. `Ok(false)` =
+    /// belum didukung (bidang datum tak dikenal) → jalur lama.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn emboss_via_oplog(
+        &mut self,
+        body: BodyId,
+        depth: f64,
+        deboss: bool,
+    ) -> Result<bool, OpError> {
+        let sid = self.active_sketch_id();
+        let Some(slot) = self.sketch_set.get(sid) else {
+            return Ok(false);
+        };
+        if self.plane_json_for(slot.plane).is_none() || !self.model.doc.bodies.contains_key(body) {
+            return Ok(false);
+        }
+        let names: Vec<String> = self
+            .selected
+            .iter()
+            .filter(|id| slot.sketch.entities.contains_key(**id))
+            .map(|id| ducad_engine::ops::from_sketch::entity_spec_name(&slot.sketch, *id))
+            .collect();
+        self.sync_agent_meta();
+        let rename = self.make_body_name_unique(body);
+        let body_name = self.model.doc.bodies[body].name.clone();
+        let bound = self.bound_sketch_id(sid);
+        let sketch_id = bound.clone().unwrap_or_else(|| self.unique_op_id("sketch"));
+        let result = (|| {
+            let sketch_op = self
+                .sketch_op_for_slot(sid, &sketch_id)
+                .ok_or_else(|| OpError::invalid("sketsa aktif tidak bisa diterjemahkan ke op"))?;
+            let profile = if names.is_empty() {
+                serde_json::json!("all")
+            } else {
+                serde_json::json!({ "names": names })
+            };
+            let label = if deboss { "deboss" } else { "emboss" };
+            let feature: Op = serde_json::from_value(serde_json::json!({
+                "op": "emboss", "id": self.unique_op_id(label), "sketch": sketch_id,
+                "profile": profile, "body": body_name, "depth": depth, "deboss": deboss,
+            }))
+            .map_err(|e| OpError::invalid(format!("op emboss GUI tidak valid: {e}")))?;
+            let title = if deboss { "Deboss" } else { "Emboss" };
+            let details = format!("{title} {depth:.1} mm pada {body_name}");
+            self.run_feature_on_sketch(
+                sid,
+                bound.clone(),
+                sketch_id.clone(),
+                sketch_op,
+                feature,
+                title,
+                &details,
+            )
+        })();
+        if let Some(mut cmd) = rename {
+            if result.is_ok() {
+                self.model_undo.attach_to_top(cmd);
+            } else {
+                ducad_core::Command::revert(cmd.as_mut(), &mut self.model);
+            }
+        }
+        result.map(|()| true)
+    }
+
+    /// Op edit langsung pada satu body (ADR 0010 urutan 9). `make(body_name)`
+    /// membangun JSON op; nama body dibuat unik dalam langkah undo yang sama.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn direct_op_via_oplog(
+        &mut self,
+        body: BodyId,
+        title: &str,
+        make: impl FnOnce(&Self, &str) -> Option<serde_json::Value>,
+    ) -> Result<bool, OpError> {
+        self.sync_agent_meta();
+        let (names, renames) = self
+            .unique_body_names(&[body])
+            .ok_or_else(|| OpError::invalid("body terpilih tidak ada lagi"))?;
+        let Some(op) = make(self, &names[0]) else {
+            for mut cmd in renames.into_iter().rev() {
+                ducad_core::Command::revert(&mut cmd, &mut self.model);
+            }
+            return Ok(false);
+        };
+        let details = format!("{title} pada {}", names[0]);
+        self.run_with_renames(op, renames, title, &details)
+            .map(|()| true)
+    }
+
+    /// Selector semantik untuk face `indices` body `body`.
+    pub(crate) fn face_selector(&self, body: BodyId, indices: &[usize]) -> Option<String> {
+        let shape = &self.model.geometry.get(body)?.shape;
+        ducad_engine::select::suggest_faces(shape, indices).map(|s| s.selector)
+    }
+
     /// Revolve entitas terpilih di sketsa aktif sebagai op oplog; sumbu
     /// dalam koordinat bidang sketsa. `Ok(false)` = belum didukung jalur
     /// oplog (bidang datum) → jalur lama.
@@ -392,7 +522,7 @@ impl DuCADApp {
         let Some(slot) = self.sketch_set.get(sid) else {
             return Ok(false);
         };
-        if plane_spec(slot.plane).is_none() || self.selected.is_empty() {
+        if self.plane_json_for(slot.plane).is_none() || self.selected.is_empty() {
             return Ok(false);
         }
         let names: Vec<String> = self
@@ -891,19 +1021,6 @@ fn profile_entity_specs(profile: &ducad_kernel::Profile, out: &mut Vec<serde_jso
     }
 }
 
-/// Nama bidang op untuk bidang standar GUI di titik asal; `None` = datum.
-fn standard_plane_name(plane: &ducad_render::SketchPlane) -> Option<&'static str> {
-    if plane.origin.length() > 1e-6 {
-        return None;
-    }
-    match plane.kind {
-        ducad_render::PlaneKind::Top => Some("XY"),
-        ducad_render::PlaneKind::Front => Some("XZ"),
-        ducad_render::PlaneKind::Right => Some("YZ"),
-        ducad_render::PlaneKind::Custom(_) => None,
-    }
-}
-
 /// Selector sumbu (`"X"`, `"Y"`, `"Z"`) dan tanda untuk arah sejajar sumbu.
 fn axis_of(dir: (f64, f64, f64)) -> Option<(&'static str, bool)> {
     let v = [dir.0, dir.1, dir.2];
@@ -946,20 +1063,13 @@ impl DuCADApp {
         plane: &ducad_render::SketchPlane,
         height: f64,
     ) -> Result<bool, OpError> {
-        let Some(base) = standard_plane_name(plane) else {
-            return Ok(false);
-        };
         self.sync_agent_meta();
         let a = self.unique_op_id("loft_bottom");
         let b = self.unique_op_id("loft_top");
         let id = self.unique_op_id("loft");
         let ops = vec![
-            self.profile_sketch_op(&a, serde_json::json!(base), bottom)?,
-            self.profile_sketch_op(
-                &b,
-                serde_json::json!({ "base": base, "offset": height }),
-                top,
-            )?,
+            self.profile_sketch_op(&a, sketch_plane_json(plane), bottom)?,
+            self.profile_sketch_op(&b, offset_plane_json(plane, height), top)?,
             serde_json::from_value(
                 serde_json::json!({ "op": "loft", "id": id, "sections": [a, b] }),
             )
@@ -980,9 +1090,7 @@ impl DuCADApp {
         path: &[ducad_kernel::PathSegment],
     ) -> Result<bool, OpError> {
         use ducad_kernel::PathSegment;
-        let Some(plane) = standard_plane_name(profile_plane) else {
-            return Ok(false);
-        };
+        let plane = sketch_plane_json(profile_plane);
         let mut points: Vec<[f64; 3]> = Vec::new();
         let mut push = |p: [f64; 3]| {
             let same = points
@@ -1009,7 +1117,7 @@ impl DuCADApp {
         let section = self.unique_op_id("sweep_section");
         let id = self.unique_op_id("sweep");
         let ops = vec![
-            self.profile_sketch_op(&section, serde_json::json!(plane), profile)?,
+            self.profile_sketch_op(&section, plane, profile)?,
             serde_json::from_value(serde_json::json!({
                 "op": "sweep", "id": id, "sketch": section, "path": { "points": points },
             }))
@@ -2073,6 +2181,200 @@ mod tests {
             total_volume(&app)
         );
         assert!(close(replay_volume(&app), total_volume(&app)));
+    }
+
+    /// Urutan 7: sketsa di datum bersudut / 3 titik di-extrude lewat oplog
+    /// (bidang `frame`), replay-nya identik.
+    #[test]
+    fn gui_extrude_on_angled_and_three_point_datums_is_an_op() {
+        let mut app = DuCADApp::new_for_test();
+        let angled = ducad_render::SketchPlane::from_angle_and_edge(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(50.0, 0.0, 0.0),
+            glam::Vec3::Z,
+            30.0,
+        );
+        let three = ducad_render::SketchPlane::from_3_points(
+            glam::Vec3::new(100.0, 0.0, 0.0),
+            glam::Vec3::new(110.0, 0.0, 5.0),
+            glam::Vec3::new(100.0, 10.0, 0.0),
+        )
+        .unwrap();
+        for (k, plane) in [angled, three].into_iter().enumerate() {
+            let id = app.create_datum_plane(format!("D{k}"), plane);
+            app.set_sketch_plane(ducad_render::PlaneKind::Custom(id));
+            app.enter_sketching();
+            let pts = [
+                DVec2::new(0.0, 0.0),
+                DVec2::new(10.0, 0.0),
+                DVec2::new(10.0, 6.0),
+                DVec2::new(0.0, 6.0),
+            ];
+            let ids: Vec<_> = (0..4)
+                .map(|i| {
+                    app.sketch_mut()
+                        .entities
+                        .insert(ducad_sketch::Entity::line(pts[i], pts[(i + 1) % 4]))
+                })
+                .collect();
+            app.selected = ids.iter().copied().collect();
+            app.extrude_distance_input = "5".into();
+            app.extrude_selected();
+            app.exit_sketching();
+        }
+        assert_eq!(
+            oplog_kinds(&app),
+            ["sketch", "extrude", "sketch", "extrude"],
+            "{:?}",
+            app.model_status
+        );
+        let v = serde_json::to_value(&app.agent_meta.design.oplog[0]).unwrap();
+        assert!(v["plane"].get("frame").is_some(), "{}", v["plane"]);
+        assert!(
+            close(total_volume(&app), 2.0 * 300.0),
+            "{}",
+            total_volume(&app)
+        );
+        assert!(close(replay_volume(&app), total_volume(&app)));
+    }
+
+    #[test]
+    fn gui_emboss_and_deboss_are_ops() {
+        for (deboss, sign) in [(false, 1.0), (true, -1.0)] {
+            let (mut app, id) = app_with_box("Box", [0.0; 3]);
+            let top = ducad_render::SketchPlane::top().offset(20.0);
+            let d = app.create_datum_plane("Atas".into(), top);
+            app.set_sketch_plane(ducad_render::PlaneKind::Custom(d));
+            app.enter_sketching();
+            let pts = [
+                DVec2::new(8.0, 8.0),
+                DVec2::new(12.0, 8.0),
+                DVec2::new(12.0, 12.0),
+                DVec2::new(8.0, 12.0),
+            ];
+            for i in 0..4 {
+                app.sketch_mut()
+                    .entities
+                    .insert(ducad_sketch::Entity::line(pts[i], pts[(i + 1) % 4]));
+            }
+            app.selected.clear();
+            app.selected_bodies.insert(id);
+            app.apply_emboss_deboss(2.0, deboss);
+            assert_eq!(
+                oplog_kinds(&app),
+                ["sketch", "emboss"],
+                "{:?}",
+                app.model_status
+            );
+            assert!(
+                close(total_volume(&app), 8000.0 + sign * 32.0),
+                "{}",
+                total_volume(&app)
+            );
+            assert!(close(replay_volume(&app), total_volume(&app)));
+        }
+    }
+
+    /// Urutan 8: teks sketsa (spline glyph eksak + lubang huruf) masuk op
+    /// `sketch` lewat ikatan slot; extrude-nya di-replay identik.
+    #[test]
+    fn gui_text_extrude_round_trips_through_oplog() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_sketch_plane(ducad_render::PlaneKind::Top);
+        app.enter_sketching();
+        app.apply_text_to_sketch("AO", DVec2::ZERO, &ducad_sketch::TextOptions::default());
+        let ids: Vec<_> = app.sketch().entities.keys().collect();
+        assert!(!ids.is_empty(), "{:?}", app.model_status);
+        app.selected = ids.into_iter().collect();
+        app.extrude_distance_input = "3".into();
+        app.extrude_selected();
+        assert_eq!(
+            oplog_kinds(&app),
+            ["sketch", "extrude"],
+            "{:?}",
+            app.model_status
+        );
+        assert!(total_volume(&app) > 0.0);
+        assert!(close(replay_volume(&app), total_volume(&app)));
+    }
+
+    /// Urutan 9: offset face dan replace face (bidang XZ GUI ber-offset)
+    /// menjadi op dengan replay identik.
+    #[test]
+    fn gui_direct_offset_and_replace_face_are_ops() {
+        let (mut app, _) = app_with_box("Box", [0.0; 3]);
+        app.selected_faces = vec![PickRay {
+            origin: (10.0, 10.0, 50.0),
+            dir: (0.0, 0.0, -1.0),
+        }];
+        app.direct_offset_faces(5.0);
+        assert_eq!(oplog_kinds(&app), ["offset_face"], "{:?}", app.model_status);
+        assert!(close(total_volume(&app), 10000.0), "{}", total_volume(&app));
+        assert!(close(replay_volume(&app), total_volume(&app)));
+
+        // Face +Y (y=20) diganti bidang XZ GUI ber-offset 30 (normal +Y).
+        app.selected_faces = vec![PickRay {
+            origin: (10.0, 50.0, 10.0),
+            dir: (0.0, -1.0, 0.0),
+        }];
+        app.direct_replace_face(crate::direct_tools::PlaneAxis::XZ, 30.0);
+        assert_eq!(
+            oplog_kinds(&app),
+            ["offset_face", "replace_face"],
+            "{:?}",
+            app.model_status
+        );
+        assert!(
+            close(total_volume(&app), 20.0 * 30.0 * 25.0),
+            "{}",
+            total_volume(&app)
+        );
+        assert!(close(replay_volume(&app), total_volume(&app)));
+    }
+
+    /// Assembly merujuk body lewat `BodyId`/UUID: replay karena edit
+    /// parameter tidak boleh memutus referensinya (ADR 0011).
+    #[test]
+    fn assembly_instances_survive_param_replay() {
+        let mut app = DuCADApp::new_for_test();
+        let row = |v: &str| crate::design_tools::ParamRow {
+            name: "w".into(),
+            orig_name: Some("w".into()),
+            value: v.into(),
+        };
+        app.apply_param_rows(&[crate::design_tools::ParamRow {
+            name: "w".into(),
+            orig_name: None,
+            value: "10".into(),
+        }])
+        .unwrap();
+        let out = app
+            .agent_call_local(
+                "run_ops",
+                serde_json::json!({ "ops": [
+                    {"op":"primitive","id":"part","shape":{"box":{"size":["$w",10,10]}}}
+                ]}),
+            )
+            .unwrap();
+        assert!(!out.is_error, "{}", out.payload);
+        app.sync_assembly_instances();
+        let id = only_body(&app);
+        let raw = slotmap::Key::data(&id).as_ffi();
+        let uuid = app.model.doc.bodies[id].uuid.clone();
+        assert!(app
+            .assembly_tree
+            .instances
+            .values()
+            .any(|i| i.body_id_raw == raw));
+
+        app.apply_param_rows(&[row("25")]).unwrap();
+        let id2 = only_body(&app);
+        assert_eq!(id2, id, "BodyId tetap setelah replay");
+        assert_eq!(app.model.doc.bodies[id2].uuid, uuid, "UUID tetap");
+        assert!(close(volume(&app), 2500.0));
+        app.undo_model();
+        assert_eq!(only_body(&app), id);
+        assert!(close(volume(&app), 1000.0));
     }
 
     #[test]

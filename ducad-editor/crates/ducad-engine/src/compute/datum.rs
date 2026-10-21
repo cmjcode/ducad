@@ -12,7 +12,9 @@ use serde_json::json;
 use crate::datum::{self, Axis, EdgeCurve, LIN_TOL};
 use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::ops::num::{eval, eval_arr, Params};
-use crate::ops::spec::{AxisDef, EdgeRef, FaceRef, LineRef, PlaneSpec, PointDef, PointRef, VertexEnd};
+use crate::ops::spec::{
+    AxisDef, EdgeRef, FaceRef, LineRef, PlaneSpec, PointDef, PointRef, VertexEnd,
+};
 use crate::plane::PlaneFrame;
 use crate::select::{parse_datum_ref, DatumRef};
 
@@ -44,10 +46,10 @@ pub(crate) fn axis_by_ref(src: &str, ctx: &DatumCtx) -> OpResult<Axis> {
             .copied()
             .ok_or_else(|| unknown_datum("axis", &id, ctx.axes.keys().collect())),
         Some(Err(e)) => Err(e),
-        _ => Err(OpError::invalid(format!(
-            "\"{src}\" bukan referensi sumbu datum"
-        ))
-        .with_hint("tulis \"axis:<id>\" dengan <id> = id op construct_axis")),
+        _ => Err(
+            OpError::invalid(format!("\"{src}\" bukan referensi sumbu datum"))
+                .with_hint("tulis \"axis:<id>\" dengan <id> = id op construct_axis"),
+        ),
     }
 }
 
@@ -99,7 +101,11 @@ pub(crate) fn one_edge(
 }
 
 /// Tepat satu face `sel` di `body`: `(face, semua edge)`.
-pub(crate) fn one_face(body: &str, sel: &str, ctx: &DatumCtx) -> OpResult<(FaceInfo, Vec<EdgeInfo>)> {
+pub(crate) fn one_face(
+    body: &str,
+    sel: &str,
+    ctx: &DatumCtx,
+) -> OpResult<(FaceInfo, Vec<EdgeInfo>)> {
     let shape = shape(body, ctx)?;
     let idx = crate::select::select_faces(&shape, sel)?;
     if idx.len() != 1 {
@@ -154,13 +160,18 @@ fn cylinder_axis(f: &FaceInfo, body: &str, sel: &str) -> OpResult<Axis> {
     match (f.kind, f.axis) {
         (SurfaceKind::Cylinder | SurfaceKind::Cone, Some((o, d))) => {
             let raw = Axis::new(DVec3::from_array(o), DVec3::from_array(d))?;
-            Axis::new(raw.closest_point(DVec3::from_array(f.centroid)), raw.dir_v())
+            Axis::new(
+                raw.closest_point(DVec3::from_array(f.centroid)),
+                raw.dir_v(),
+            )
         }
         _ => Err(OpError::invalid(format!(
             "face \"{sel}\" pada body '{body}' bukan silinder/kerucut (jenis {:?})",
             f.kind
         ))
-        .with_hint("pilih face silinder, mis. \"all[kind=cylinder]\" atau \"all[kind=cylinder][r=5]\"")),
+        .with_hint(
+            "pilih face silinder, mis. \"all[kind=cylinder]\" atau \"all[kind=cylinder][r=5]\"",
+        )),
     }
 }
 
@@ -254,6 +265,35 @@ pub(crate) fn construct_plane(spec: &PlaneSpec, ctx: &DatumCtx) -> OpResult<Opti
                 .with_hint("contoh: {\"through_edges\":[\"axis:ax1\"],\"through\":[0,0,10]}"))
             }
         },
+        PlaneSpec::ThreePoints { three_points } => {
+            let [a, b, c] = &**three_points;
+            let (a, b, c) = (point(a, ctx)?, point(b, ctx)?, point(c, ctx)?);
+            datum::plane_line_point(a, b, c)?
+        }
+        PlaneSpec::Frame { frame } => {
+            let v3 = |a: &[crate::ops::Num; 3]| -> OpResult<DVec3> {
+                Ok(DVec3::from_array(eval_arr(a, ctx.params)?))
+            };
+            let (u, v, n) = (v3(&frame.u)?, v3(&frame.v)?, v3(&frame.normal)?);
+            let unit = |x: DVec3, name: &str| -> OpResult<DVec3> {
+                let l = x.length();
+                if l.is_finite() && l > 1e-12 {
+                    Ok(x / l)
+                } else {
+                    Err(OpError::invalid(format!("frame.{name} tidak boleh vektor nol")))
+                }
+            };
+            let (u, v, n) = (unit(u, "u")?, unit(v, "v")?, unit(n, "normal")?);
+            if u.dot(v).abs() > 1e-6 || u.dot(n).abs() > 1e-6 || v.dot(n).abs() > 1e-6 {
+                return Err(OpError::invalid("frame: u, v, dan normal harus saling tegak lurus"));
+            }
+            PlaneFrame {
+                origin: v3(&frame.origin)?.to_array(),
+                u_axis: u.to_array(),
+                v_axis: v.to_array(),
+                normal: n.to_array(),
+            }
+        }
     };
     Ok(Some(frame))
 }
@@ -307,9 +347,7 @@ pub(crate) fn construct_point(def: &PointDef, ctx: &DatumCtx) -> OpResult<(DVec3
                     .map(DVec3::from_array)
                     .filter(|p| p.is_finite())
                     .min_by(|a, b| (*a - target).length().total_cmp(&(*b - target).length()))
-                    .ok_or_else(|| {
-                        OpError::invalid(format!("body '{body}' tidak punya vertex"))
-                    })?;
+                    .ok_or_else(|| OpError::invalid(format!("body '{body}' tidak punya vertex")))?;
                 let d = (best - target).length();
                 if d > LIN_TOL {
                     warnings.push(format!(
@@ -319,8 +357,10 @@ pub(crate) fn construct_point(def: &PointDef, ctx: &DatumCtx) -> OpResult<(DVec3
                 best
             }
             _ => {
-                return Err(OpError::invalid("vertex: berikan tepat satu dari `edge` atau `near`")
-                    .with_hint("contoh: {\"vertex\":{\"body\":\"b\",\"near\":[30,20,10]}}"))
+                return Err(
+                    OpError::invalid("vertex: berikan tepat satu dari `edge` atau `near`")
+                        .with_hint("contoh: {\"vertex\":{\"body\":\"b\",\"near\":[30,20,10]}}"),
+                )
             }
         },
         PointDef::Center { body, edge, face } => match (edge, face) {
@@ -338,11 +378,17 @@ pub(crate) fn construct_point(def: &PointDef, ctx: &DatumCtx) -> OpResult<(DVec3
                 face_center(&f, &edges, sel, &mut warnings)?
             }
             _ => {
-                return Err(OpError::invalid("center: berikan tepat satu dari `edge` atau `face`")
-                    .with_hint("edge lingkaran → pusat lingkaran; face bola/torus → pusatnya"))
+                return Err(
+                    OpError::invalid("center: berikan tepat satu dari `edge` atau `face`")
+                        .with_hint("edge lingkaran → pusat lingkaran; face bola/torus → pusatnya"),
+                )
             }
         },
-        PointDef::EdgePlane { body, edge, plane: pl } => {
+        PointDef::EdgePlane {
+            body,
+            edge,
+            plane: pl,
+        } => {
             let c = edge_curve(body, edge, ctx)?;
             c.intersect_plane(&plane(pl, ctx)?)?
         }
@@ -365,21 +411,31 @@ pub(crate) fn construct_point(def: &PointDef, ctx: &DatumCtx) -> OpResult<(DVec3
         } => {
             let f = eval(fraction, ctx.params)?;
             if !(f.is_finite() && (0.0..=1.0).contains(&f)) {
-                return Err(OpError::invalid(format!("fraction harus di 0..1 (diberikan {f})"))
-                    .with_hint("0 = awal edge, 0.5 = tengah, 1 = akhir"));
+                return Err(
+                    OpError::invalid(format!("fraction harus di 0..1 (diberikan {f})"))
+                        .with_hint("0 = awal edge, 0.5 = tengah, 1 = akhir"),
+                );
             }
             edge_curve(body, edge, ctx)?.point_at(f)
         }
     };
     if !p.is_finite() {
-        return Err(OpError::new(OpErrorCode::EmptyResult, "titik datum tidak finite"));
+        return Err(OpError::new(
+            OpErrorCode::EmptyResult,
+            "titik datum tidak finite",
+        ));
     }
     Ok((p, warnings))
 }
 
 /// Pusat face bola (dari titik batas/edge + radius + centroid)
 /// atau torus (centroid face; tepat untuk torus penuh).
-fn face_center(f: &FaceInfo, edges: &[EdgeInfo], sel: &str, warnings: &mut Vec<String>) -> OpResult<DVec3> {
+fn face_center(
+    f: &FaceInfo,
+    edges: &[EdgeInfo],
+    sel: &str,
+    warnings: &mut Vec<String>,
+) -> OpResult<DVec3> {
     let own: Vec<&EdgeInfo> = edges
         .iter()
         .filter(|e| f.edge_indices.contains(&e.index))

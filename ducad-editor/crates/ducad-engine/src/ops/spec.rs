@@ -964,7 +964,9 @@ impl From<MechPropsSpec> for ducad_core::MechanicalProperties {
 /// case-insensitive), an offset named plane, a planar face of a body, or a construction plane:
 /// `{"midplane":[A,B]}`, `{"perpendicular_to":LINE,"through":POINT}`,
 /// `{"tangent_to":{"body":"b","face":"..."},"angle_deg":90}`,
-/// `{"along":{"body":"b","edge":"..."},"fraction":0.5}`, `{"through_edges":[LINE,LINE]}`.
+/// `{"along":{"body":"b","edge":"..."},"fraction":0.5}`, `{"through_edges":[LINE,LINE]}`,
+/// `{"three_points":[P,P,P]}`, or an explicit frame
+/// `{"frame":{"origin":[x,y,z],"u":[..],"v":[..],"normal":[..]}}`.
 /// Every variant has its own key set, so the form is never ambiguous.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
@@ -1010,6 +1012,22 @@ pub enum PlaneSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         through: Option<PointRef>,
     },
+    /// Plane through three non-collinear points (`[x,y,z]` or `"point:<id>"`); origin = first
+    /// point, u toward the second.
+    ThreePoints { three_points: Box<[PointRef; 3]> },
+    /// Explicit plane frame (e.g. a GUI datum plane at any angle): origin, in-plane axes `u`/`v`
+    /// and `normal` (unit vectors are normalised; `normal` may differ in sign from `u × v`).
+    Frame { frame: Box<FrameSpec> },
+}
+
+/// Explicit plane frame for [`PlaneSpec::Frame`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FrameSpec {
+    pub origin: [Num; 3],
+    pub u: [Num; 3],
+    pub v: [Num; 3],
+    pub normal: [Num; 3],
 }
 
 /// A point: `[x,y,z]` (numbers or expressions) or `"point:<id>"` (datum point from op
@@ -1477,6 +1495,10 @@ pub enum EntitySpec {
     },
     Spline {
         points: Vec<[Num; 2]>,
+        /// Exact curve (e.g. font glyph outline) as segments chained from `points[0]`; `points`
+        /// stays the flattened polyline used for snapping/regions.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exact: Option<Vec<SegSpec>>,
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]

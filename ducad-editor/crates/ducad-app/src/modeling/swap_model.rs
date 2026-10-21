@@ -39,10 +39,123 @@ impl Command<ModelDoc> for SwapModelCommand {
     }
 }
 
+/// Terapkan `next` (hasil replay) ke `undo`/`model` sebagai SATU transaksi
+/// undo yang mempertahankan `BodyId` (dan UUID) body yang namanya sama:
+/// geometri diganti di tempat, material disesuaikan, body baru ditambahkan,
+/// body yang hilang dihapus. Assembly dan seleksi merujuk body lewat
+/// `BodyId`, jadi menukar seluruh model ([`SwapModelCommand`]) akan memutus
+/// referensinya setiap kali replay (ADR 0010).
+pub fn apply_model_preserving_ids(
+    undo: &mut ducad_core::UndoStack<ModelDoc>,
+    model: &mut ModelDoc,
+    mut next: ModelDoc,
+    label: &str,
+) {
+    use ducad_engine::model::{
+        AddSolidCommand, DeleteBodyCommand, ReplaceGeometryCommand, SetBodyMaterialCommand,
+        SetBodyMechanicalCommand,
+    };
+    undo.begin(label.to_string());
+    let mut unmatched_old: Vec<ducad_core::BodyId> = model.doc.bodies.keys().collect();
+    let new_ids: Vec<ducad_core::BodyId> = next.doc.bodies.keys().collect();
+    for nid in new_ids {
+        let Some(nbody) = next.doc.bodies.get(nid).cloned() else {
+            continue;
+        };
+        let Some(geo) = next.geometry.remove(nid) else {
+            continue;
+        };
+        let matched = unmatched_old.iter().position(|oid| {
+            model
+                .doc
+                .bodies
+                .get(*oid)
+                .is_some_and(|b| b.name == nbody.name)
+        });
+        match matched {
+            Some(pos) => {
+                let oid = unmatched_old.remove(pos);
+                undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Replay", oid, geo)),
+                    model,
+                );
+                let old = &model.doc.bodies[oid];
+                if old.material != nbody.material {
+                    undo.execute(
+                        Box::new(SetBodyMaterialCommand::new("Replay", oid, nbody.material)),
+                        model,
+                    );
+                }
+                if model.doc.bodies[oid].mechanical != nbody.mechanical {
+                    undo.execute(
+                        Box::new(SetBodyMechanicalCommand::new(
+                            "Replay",
+                            oid,
+                            nbody.mechanical.clone(),
+                        )),
+                        model,
+                    );
+                }
+            }
+            None => {
+                undo.execute(
+                    Box::new(
+                        AddSolidCommand::new(label.to_string(), geo).with_body_name(nbody.name),
+                    ),
+                    model,
+                );
+            }
+        }
+    }
+    for oid in unmatched_old {
+        undo.execute(Box::new(DeleteBodyCommand::new(oid)), model);
+    }
+    undo.commit();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ducad_core::UndoStack;
+
+    fn body(m: &mut ModelDoc, name: &str, size: f64) -> ducad_core::BodyId {
+        let geo = ducad_engine::compute::primitive(
+            &ducad_engine::compute::PrimitiveShape::Box {
+                size: [size, size, size],
+                centered: false,
+            },
+            [0.0; 3],
+        )
+        .unwrap();
+        let id = m.doc.add_body(name);
+        m.geometry.insert(id, geo);
+        id
+    }
+
+    #[test]
+    fn replay_keeps_body_ids_and_uuids_and_is_one_step() {
+        let mut model = ModelDoc::default();
+        let a = body(&mut model, "a", 10.0);
+        let gone = body(&mut model, "gone", 5.0);
+        let uuid_a = model.doc.bodies[a].uuid.clone();
+        let mut next = ModelDoc::default();
+        body(&mut next, "a", 20.0);
+        body(&mut next, "new", 3.0);
+
+        let mut undo: UndoStack<ModelDoc> = UndoStack::default();
+        apply_model_preserving_ids(&mut undo, &mut model, next, "Replay");
+        assert_eq!(undo.undo_count(), 1);
+        assert!(
+            (model.geometry[a].shape.volume() - 8000.0).abs() < 1e-6,
+            "geometri baru, id lama"
+        );
+        assert_eq!(model.doc.bodies[a].uuid, uuid_a, "uuid dipertahankan");
+        assert!(!model.doc.bodies.contains_key(gone));
+        assert!(model.doc.bodies.values().any(|b| b.name == "new"));
+        undo.undo(&mut model);
+        assert!((model.geometry[a].shape.volume() - 1000.0).abs() < 1e-6);
+        assert_eq!(model.doc.bodies.len(), 2);
+    }
 
     #[test]
     fn swap_is_one_undo_step() {

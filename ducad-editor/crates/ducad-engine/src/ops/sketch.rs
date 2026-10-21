@@ -115,7 +115,9 @@ pub(crate) fn resolve_plane_in(
         | PlaneSpec::Perpendicular { .. }
         | PlaneSpec::Tangent { .. }
         | PlaneSpec::AlongPath { .. }
-        | PlaneSpec::TwoEdges { .. } => Err(OpError::invalid("varian bidang konstruksi tidak teresolusi")),
+        | PlaneSpec::TwoEdges { .. }
+        | PlaneSpec::ThreePoints { .. }
+        | PlaneSpec::Frame { .. } => Err(OpError::invalid("varian bidang konstruksi tidak teresolusi")),
     }
 }
 
@@ -336,17 +338,43 @@ fn expand_geom(spec: &EntitySpec, params: &Params) -> OpResult<ExpandedGeom> {
         }
         EntitySpec::Spline {
             points,
+            exact,
             name,
             construction,
         } => {
-            if points.len() < 3 {
-                return Err(OpError::invalid("spline butuh minimal 3 titik"));
+            // Spline berkurva eksak (outline glyph) cukup 2 titik; spline
+            // bebas butuh 3 untuk Catmull-Rom.
+            let min = if exact.is_some() { 2 } else { 3 };
+            if points.len() < min {
+                return Err(OpError::invalid(format!("spline butuh minimal {min} titik")));
             }
             let pts = points
                 .iter()
                 .map(|p| p2(p, params))
                 .collect::<OpResult<Vec<_>>>()?;
-            (single(Entity::spline(pts)), name, *construction)
+            let exact = exact
+                .as_ref()
+                .map(|segs| {
+                    segs.iter()
+                        .map(|seg| {
+                            Ok(match seg {
+                                SegSpec::Line { to } => PathSeg::Line { end: p2(to, params)? },
+                                SegSpec::Cubic { c1, c2, to } => PathSeg::Cubic {
+                                    c1: p2(c1, params)?,
+                                    c2: p2(c2, params)?,
+                                    end: p2(to, params)?,
+                                },
+                            })
+                        })
+                        .collect::<OpResult<Vec<_>>>()
+                })
+                .transpose()?;
+            let entity = Entity::Spline {
+                points: pts,
+                exact,
+                is_construction: false,
+            };
+            (single(entity), name, *construction)
         }
         EntitySpec::Point {
             at,

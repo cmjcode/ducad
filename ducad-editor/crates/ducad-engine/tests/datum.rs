@@ -344,3 +344,39 @@ fn existing_fixtures_parse_identically() {
     assert_eq!(pat["kind"]["circular"]["axis"], json!([0.0, 0.0, 1.0]));
     assert_eq!(pat["kind"]["circular"]["pivot"], json!([0.0, 0.0, 0.0]));
 }
+
+/// Datum GUI (bersudut / 3 titik) bisa dinyatakan di oplog (ADR 0010
+/// urutan 7): bidang eksplisit `frame` dan `three_points`.
+#[test]
+fn explicit_frame_and_three_point_planes_place_sketches() {
+    use ducad_engine::ops::Op;
+    let ops: Vec<Op> = serde_json::from_str(
+        r#"[
+      {"op":"sketch","id":"s1","plane":{"frame":{"origin":[0,0,10],
+         "u":[1,0,0],"v":[0,0.70710678,0.70710678],"normal":[0,-0.70710678,0.70710678]}},
+       "entities":[{"rect":{"center":[0,0],"w":10,"h":10}}]},
+      {"op":"extrude","id":"e1","sketch":"s1","distance":5},
+      {"op":"sketch","id":"s2","plane":{"three_points":[[100,0,0],[110,0,0],[100,10,0]]},
+       "entities":[{"rect":{"corner":[0,0],"w":4,"h":4}}]},
+      {"op":"extrude","id":"e2","sketch":"s2","distance":2}
+    ]"#,
+    )
+    .unwrap();
+    let mut s = ducad_engine::Session::new();
+    let r = s.run(ops, false);
+    assert!(r.committed, "{:?}", r.error);
+    let v1 = s.body("e1").unwrap().1.shape.volume().abs();
+    assert!((v1 - 500.0).abs() < 1e-3, "{v1}");
+    let v2 = s.body("e2").unwrap().1.shape.volume().abs();
+    assert!((v2 - 32.0).abs() < 1e-3, "{v2}");
+    let bb = s.summary().bodies.iter().find(|b| b.name == "e2").unwrap().bbox;
+    assert!(bb[0][0] >= 100.0 - 1e-6 && bb[0][2].abs() < 1e-6, "{bb:?}");
+
+    let bad: Vec<Op> = serde_json::from_str(
+        r#"[{"op":"sketch","id":"s","plane":{"frame":{"origin":[0,0,0],"u":[1,0,0],"v":[1,0,0],"normal":[0,0,1]}},
+             "entities":[{"rect":{"center":[0,0],"w":1,"h":1}}]}]"#,
+    )
+    .unwrap();
+    let r = s.run(bad, false);
+    assert!(!r.committed, "frame tidak ortogonal harus ditolak");
+}

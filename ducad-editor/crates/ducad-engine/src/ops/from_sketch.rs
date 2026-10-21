@@ -27,14 +27,16 @@ pub struct SketchSpecs {
     pub skipped_constraints: usize,
 }
 
-/// Nama spec entitas `id`: nama yang sudah ada di `sketch.entity_names`,
-/// atau nama turunan id yang stabil selama entitas itu hidup.
+/// Nama spec entitas `id`: nama di `sketch.entity_names` bila unik di
+/// sketsa itu, selain itu nama turunan id yang stabil selama entitas itu
+/// hidup. Nama kembar (mis. semua glyph teks berlabel "Teks: AO") tidak bisa
+/// dipakai sebagai nama spec karena `build_sketch` menolak nama ganda.
 pub fn entity_spec_name(sketch: &Sketch, id: EntityId) -> String {
-    sketch
-        .entity_names
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| format!("g{:x}", slotmap::Key::data(&id).as_ffi()))
+    let derived = || format!("g{:x}", slotmap::Key::data(&id).as_ffi());
+    match sketch.entity_names.get(&id) {
+        Some(n) if sketch.entity_names.values().filter(|m| *m == n).count() == 1 => n.clone(),
+        _ => derived(),
+    }
 }
 
 fn p(v: DVec2) -> [Num; 2] {
@@ -103,33 +105,20 @@ fn entity_spec(e: &Entity, name: String) -> Option<EntitySpec> {
             name,
             construction: *is_construction,
         },
-        // Spline dengan kurva eksak (outline glyph) → path, agar dinding
-        // extrude tetap mulus.
+        // Spline (termasuk kurva eksak outline glyph) dipertahankan sebagai
+        // spline: titik untuk rantai/region, `exact` untuk dinding mulus.
         Entity::Spline {
             points,
-            exact: Some(exact),
-            is_construction,
-        } => EntitySpec::Path {
-            subpaths: vec![SubpathSpec {
-                start: p(*points.first()?),
-                segs: segs(exact),
-                closed: false,
-            }],
-            style: None,
-            layer: None,
-            name,
-            construction: *is_construction,
-        },
-        Entity::Spline {
-            points,
-            exact: None,
+            exact,
             is_construction,
         } => {
-            if points.len() < 3 {
+            let min = if exact.is_some() { 2 } else { 3 };
+            if points.len() < min {
                 return None;
             }
             EntitySpec::Spline {
                 points: points.iter().map(|v| p(*v)).collect(),
+                exact: exact.as_ref().map(|e| segs(e)),
                 name,
                 construction: *is_construction,
             }
@@ -463,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_spline_becomes_path_and_construction_flag_survives() {
+    fn exact_spline_keeps_exact_curve_and_construction_flag_survives() {
         let mut s = Sketch::default();
         s.entities.insert(Entity::Spline {
             points: vec![DVec2::ZERO, DVec2::new(5.0, 5.0), DVec2::new(10.0, 0.0)],
@@ -477,7 +466,10 @@ mod tests {
         s.entities
             .insert(Entity::line(DVec2::ZERO, DVec2::new(0.0, 9.0)).with_construction(true));
         let specs = sketch_to_specs(&s);
-        assert!(matches!(specs.entities[0], EntitySpec::Path { .. }));
+        assert!(matches!(
+            specs.entities[0],
+            EntitySpec::Spline { exact: Some(_), .. }
+        ));
         assert!(matches!(
             specs.entities[1],
             EntitySpec::Line {

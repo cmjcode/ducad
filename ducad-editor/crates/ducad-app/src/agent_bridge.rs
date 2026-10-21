@@ -770,9 +770,13 @@ impl DuCADApp {
         what: &str,
         mark: crate::oplog_undo::OplogMark,
     ) {
-        self.model_undo.execute(
-            Box::new(crate::modeling::SwapModelCommand::new(model)),
+        // BodyId/UUID body yang sama dipertahankan agar assembly dan
+        // seleksi tidak putus setiap kali oplog di-replay.
+        crate::modeling::apply_model_preserving_ids(
+            &mut self.model_undo,
             &mut self.model,
+            model,
+            what,
         );
         // Replay di sesi salinan membangun slot sketsa sendiri; op `sketch`
         // yang terikat ke slot GUI (ADR 0010) dipetakan kembali ke slot GUI.

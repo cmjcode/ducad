@@ -223,15 +223,17 @@ impl DuCADApp {
                     best = Some((d, id, fi));
                 }
             }
-            let Some((_, body, index)) = best else { continue };
+            let Some((_, body, index)) = best else {
+                continue;
+            };
             if out.iter().any(|p| p.body == body && p.index == index) {
                 continue;
             }
-            let info = self
-                .model
-                .geometry
-                .get(body)
-                .and_then(|g| ducad_kernel::enumerate_faces(&g.shape).into_iter().nth(index));
+            let info = self.model.geometry.get(body).and_then(|g| {
+                ducad_kernel::enumerate_faces(&g.shape)
+                    .into_iter()
+                    .nth(index)
+            });
             if let Some(info) = info {
                 out.push(FacePick { body, index, info });
             }
@@ -294,9 +296,51 @@ impl DuCADApp {
         Some((first, picks.iter().map(|p| p.index).collect()))
     }
 
+    /// Jalankan edit langsung lewat oplog; `true` bila sudah ditangani
+    /// (sukses atau error ditampilkan), `false` = pakai jalur lama.
+    fn direct_via_oplog(
+        &mut self,
+        id: BodyId,
+        label: &'static str,
+        make: impl FnOnce(&Self, &str) -> Option<serde_json::Value>,
+    ) -> bool {
+        match self.direct_op_via_oplog(id, label, make) {
+            Ok(true) => {
+                let body = self.body_label(id);
+                let msg = ducad_i18n::t!("direct-done", tool = label, body = body.as_str());
+                self.round_history.remove(&id);
+                self.active_face = None;
+                self.selected_faces.clear();
+                self.model_status = Some(msg);
+                true
+            }
+            Ok(false) => false,
+            Err(e) => {
+                self.status_err(label, &e);
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                true
+            }
+        }
+    }
+
     pub fn direct_offset_faces(&mut self, distance: f64) {
-        let Some((id, faces)) = self.faces_on_one_body() else { return };
-        let Some(g) = self.model.geometry.get(id) else { return };
+        let Some((id, faces)) = self.faces_on_one_body() else {
+            return;
+        };
+        // Jalur oplog (ADR 0010 urutan 9).
+        if self.direct_via_oplog(id, "Offset Face", |app, body| {
+            let sel = app.face_selector(id, &faces)?;
+            Some(
+                serde_json::json!({ "op": "offset_face", "id": app.unique_op_id("offset_face"),
+                "body": body, "faces": sel, "distance": distance }),
+            )
+        }) {
+            return;
+        }
+        let Some(g) = self.model.geometry.get(id) else {
+            return;
+        };
         match direct::offset_face(&g.shape, &faces, distance) {
             Ok(geo) => self.replace_geometry("Offset Face", id, geo),
             Err(e) => self.status_err("Offset Face", &e),
@@ -304,8 +348,21 @@ impl DuCADApp {
     }
 
     pub fn direct_delete_faces(&mut self) {
-        let Some((id, faces)) = self.faces_on_one_body() else { return };
-        let Some(g) = self.model.geometry.get(id) else { return };
+        let Some((id, faces)) = self.faces_on_one_body() else {
+            return;
+        };
+        if self.direct_via_oplog(id, "Delete Face", |app, body| {
+            let sel = app.face_selector(id, &faces)?;
+            Some(
+                serde_json::json!({ "op": "delete_face", "id": app.unique_op_id("delete_face"),
+                "body": body, "faces": sel }),
+            )
+        }) {
+            return;
+        }
+        let Some(g) = self.model.geometry.get(id) else {
+            return;
+        };
         match direct::delete_face(&g.shape, &faces) {
             Ok(geo) => self.replace_geometry("Delete Face", id, geo),
             Err(e) => self.status_err("Delete Face", &e),
@@ -330,7 +387,40 @@ impl DuCADApp {
             }
             None => plane_frame(plane.normal() * offset, plane.normal()),
         };
-        let Some(g) = self.model.geometry.get(target.body) else { return };
+        // Jalur oplog: bidang tujuan = face body lain (asosiatif) atau frame
+        // eksplisit yang sama dengan GUI (normal XZ GUI = +Y, berbeda dengan
+        // bidang bernama "XZ" engine yang bernormal -Y).
+        let with = match picks.get(1) {
+            Some(p) => self
+                .face_selector(p.body, &[p.index])
+                .map(|sel| serde_json::json!({ "body": self.body_label(p.body), "face": sel })),
+            None => Some(serde_json::json!({ "frame": {
+                "origin": frame.origin, "u": frame.u_axis, "v": frame.v_axis, "normal": frame.normal,
+            }})),
+        };
+        let second_body = picks.get(1).map(|p| p.body);
+        let unique_second = second_body.is_none_or(|b| {
+            let n = self.body_label(b);
+            self.model
+                .doc
+                .bodies
+                .values()
+                .filter(|x| x.name == n)
+                .count()
+                == 1
+        });
+        if let (Some(with), true) = (with, unique_second) {
+            if self.direct_via_oplog(target.body, "Replace Face", |app, body| {
+                let sel = app.face_selector(target.body, &[target.index])?;
+                Some(serde_json::json!({ "op": "replace_face", "id": app.unique_op_id("replace_face"),
+                    "body": body, "face": sel, "with": with }))
+            }) {
+                return;
+            }
+        }
+        let Some(g) = self.model.geometry.get(target.body) else {
+            return;
+        };
         match direct::replace_face(&g.shape, target.index, &frame) {
             Ok(geo) => self.replace_geometry("Replace Face", target.body, geo),
             Err(e) => self.status_err("Replace Face", &e),
@@ -356,7 +446,9 @@ impl DuCADApp {
             return;
         };
         let id = from.body;
-        let Some(g) = self.model.geometry.get(id) else { return };
+        let Some(g) = self.model.geometry.get(id) else {
+            return;
+        };
         match direct::align(&g.shape, a, b, flip, gap) {
             Ok(geo) => self.replace_geometry("Align", id, geo),
             Err(e) => self.status_err("Align", &e),
@@ -368,7 +460,12 @@ impl DuCADApp {
         let polys: Vec<Vec<DVec3>> = self
             .selected_edges
             .iter()
-            .map(|e| e.polyline.iter().map(|p| DVec3::new(p.0, p.1, p.2)).collect())
+            .map(|e| {
+                e.polyline
+                    .iter()
+                    .map(|p| DVec3::new(p.0, p.1, p.2))
+                    .collect()
+            })
             .collect();
         let pts = chain_edge_polylines(&polys);
         if pts.len() < 2 {
@@ -381,7 +478,9 @@ impl DuCADApp {
     }
 
     pub fn direct_pipe(&mut self, r: f64, wall: Option<f64>) {
-        let Some(path) = self.selected_edge_path() else { return };
+        let Some(path) = self.selected_edge_path() else {
+            return;
+        };
         match direct::pipe(&path, r, wall) {
             Ok(geo) => self.add_body("Pipe".into(), geo),
             Err(e) => self.status_err("Pipe", &e),
@@ -389,9 +488,15 @@ impl DuCADApp {
     }
 
     pub fn direct_pattern_path(&mut self, count: u32, follow: bool) {
-        let Some(path) = self.selected_edge_path() else { return };
-        let Some(id) = self.first_selected_body() else { return };
-        let Some(g) = self.model.geometry.get(id) else { return };
+        let Some(path) = self.selected_edge_path() else {
+            return;
+        };
+        let Some(id) = self.first_selected_body() else {
+            return;
+        };
+        let Some(g) = self.model.geometry.get(id) else {
+            return;
+        };
         match direct::path_pattern(&g.shape, &path, count as usize, follow) {
             Ok(copies) => {
                 let base = self.body_label(id);
@@ -446,7 +551,9 @@ impl DuCADApp {
             plane.normal.z as f64,
         );
         let up = if reverse { -n } else { n };
-        let Some(g) = self.model.geometry.get(id) else { return };
+        let Some(g) = self.model.geometry.get(id) else {
+            return;
+        };
         match direct::web(&g.shape, &lines, up, thickness, depth) {
             Ok(geo) => self.replace_geometry("Web", id, geo),
             Err(e) => self.status_err("Web", &e),
@@ -475,8 +582,12 @@ impl DuCADApp {
     }
 
     pub fn direct_bounding_solid(&mut self, cylinder: bool, margin: f64) {
-        let Some(id) = self.first_selected_body() else { return };
-        let Some(g) = self.model.geometry.get(id) else { return };
+        let Some(id) = self.first_selected_body() else {
+            return;
+        };
+        let Some(g) = self.model.geometry.get(id) else {
+            return;
+        };
         match direct::bounding_solid(&g.shape, cylinder, DVec3::Z, margin) {
             Ok(geo) => {
                 let name = format!("{} (Bounding)", self.body_label(id));
@@ -488,7 +599,9 @@ impl DuCADApp {
 
     /// Jendela alat direct editing (satu jendela; alat dipilih di atas).
     pub fn show_direct_tools(&mut self, ctx: &egui::Context) {
-        let Some(mut tool) = self.direct_tools.open else { return };
+        let Some(mut tool) = self.direct_tools.open else {
+            return;
+        };
         let mut open = true;
         let mut apply = false;
         let face_count = self.selected_face_picks().len();
@@ -528,100 +641,102 @@ impl DuCADApp {
                             .suffix(" mm"),
                     );
                 };
-                egui::Grid::new("direct-grid").num_columns(2).show(ui, |ui| match tool {
-                    DirectTool::OffsetFace => {
-                        ui.label(ducad_i18n::t!("direct-distance"));
-                        ui.add(
-                            egui::DragValue::new(&mut st.distance)
-                                .speed(0.1)
-                                .range(-1.0e6..=1.0e6)
-                                .suffix(" mm"),
-                        );
-                        ui.end_row();
-                    }
-                    DirectTool::DeleteFace => {}
-                    DirectTool::ReplaceFace => {
-                        ui.label(ducad_i18n::t!("direct-plane"));
-                        ui.horizontal(|ui| {
-                            for p in [PlaneAxis::XY, PlaneAxis::XZ, PlaneAxis::YZ] {
-                                ui.selectable_value(&mut st.plane, p, p.name());
-                            }
-                        });
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-plane-offset"));
-                        ui.add(
-                            egui::DragValue::new(&mut st.plane_offset)
-                                .speed(0.1)
-                                .suffix(" mm"),
-                        );
-                        ui.end_row();
-                    }
-                    DirectTool::Align => {
-                        ui.label(ducad_i18n::t!("direct-flip"));
-                        ui.checkbox(&mut st.flip, "");
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-gap"));
-                        ui.add(egui::DragValue::new(&mut st.gap).speed(0.1).suffix(" mm"));
-                        ui.end_row();
-                    }
-                    DirectTool::Pipe => {
-                        ui.label(ducad_i18n::t!("prim-radius"));
-                        mm(ui, &mut st.radius, 0.001);
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-hollow"));
-                        ui.checkbox(&mut st.hollow, "");
-                        ui.end_row();
-                        if st.hollow {
-                            ui.label(ducad_i18n::t!("direct-wall"));
-                            mm(ui, &mut st.wall, 0.001);
+                egui::Grid::new("direct-grid")
+                    .num_columns(2)
+                    .show(ui, |ui| match tool {
+                        DirectTool::OffsetFace => {
+                            ui.label(ducad_i18n::t!("direct-distance"));
+                            ui.add(
+                                egui::DragValue::new(&mut st.distance)
+                                    .speed(0.1)
+                                    .range(-1.0e6..=1.0e6)
+                                    .suffix(" mm"),
+                            );
                             ui.end_row();
                         }
-                    }
-                    DirectTool::PatternPath => {
-                        ui.label(ducad_i18n::t!("direct-count"));
-                        ui.add(egui::DragValue::new(&mut st.count).range(2..=1000));
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-follow-tangent"));
-                        ui.checkbox(&mut st.follow_tangent, "");
-                        ui.end_row();
-                    }
-                    DirectTool::Web => {
-                        ui.label(ducad_i18n::t!("direct-thickness"));
-                        mm(ui, &mut st.thickness, 0.001);
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-depth"));
-                        mm(ui, &mut st.depth, 0.001);
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-reverse"));
-                        ui.checkbox(&mut st.reverse, "");
-                        ui.end_row();
-                    }
-                    DirectTool::Emboss => {
-                        ui.label(ducad_i18n::t!("direct-depth"));
-                        mm(ui, &mut st.depth, 0.001);
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-deboss"));
-                        ui.checkbox(&mut st.deboss, "");
-                        ui.end_row();
-                    }
-                    DirectTool::BoundaryFill => {
-                        ui.label(ducad_i18n::t!("direct-point"));
-                        ui.horizontal(|ui| {
-                            for v in st.point.iter_mut() {
-                                ui.add(egui::DragValue::new(v).speed(0.5));
+                        DirectTool::DeleteFace => {}
+                        DirectTool::ReplaceFace => {
+                            ui.label(ducad_i18n::t!("direct-plane"));
+                            ui.horizontal(|ui| {
+                                for p in [PlaneAxis::XY, PlaneAxis::XZ, PlaneAxis::YZ] {
+                                    ui.selectable_value(&mut st.plane, p, p.name());
+                                }
+                            });
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-plane-offset"));
+                            ui.add(
+                                egui::DragValue::new(&mut st.plane_offset)
+                                    .speed(0.1)
+                                    .suffix(" mm"),
+                            );
+                            ui.end_row();
+                        }
+                        DirectTool::Align => {
+                            ui.label(ducad_i18n::t!("direct-flip"));
+                            ui.checkbox(&mut st.flip, "");
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-gap"));
+                            ui.add(egui::DragValue::new(&mut st.gap).speed(0.1).suffix(" mm"));
+                            ui.end_row();
+                        }
+                        DirectTool::Pipe => {
+                            ui.label(ducad_i18n::t!("prim-radius"));
+                            mm(ui, &mut st.radius, 0.001);
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-hollow"));
+                            ui.checkbox(&mut st.hollow, "");
+                            ui.end_row();
+                            if st.hollow {
+                                ui.label(ducad_i18n::t!("direct-wall"));
+                                mm(ui, &mut st.wall, 0.001);
+                                ui.end_row();
                             }
-                        });
-                        ui.end_row();
-                    }
-                    DirectTool::BoundingSolid => {
-                        ui.label(ducad_i18n::t!("direct-cylinder"));
-                        ui.checkbox(&mut st.cylinder, "");
-                        ui.end_row();
-                        ui.label(ducad_i18n::t!("direct-margin"));
-                        mm(ui, &mut st.margin, 0.0);
-                        ui.end_row();
-                    }
-                });
+                        }
+                        DirectTool::PatternPath => {
+                            ui.label(ducad_i18n::t!("direct-count"));
+                            ui.add(egui::DragValue::new(&mut st.count).range(2..=1000));
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-follow-tangent"));
+                            ui.checkbox(&mut st.follow_tangent, "");
+                            ui.end_row();
+                        }
+                        DirectTool::Web => {
+                            ui.label(ducad_i18n::t!("direct-thickness"));
+                            mm(ui, &mut st.thickness, 0.001);
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-depth"));
+                            mm(ui, &mut st.depth, 0.001);
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-reverse"));
+                            ui.checkbox(&mut st.reverse, "");
+                            ui.end_row();
+                        }
+                        DirectTool::Emboss => {
+                            ui.label(ducad_i18n::t!("direct-depth"));
+                            mm(ui, &mut st.depth, 0.001);
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-deboss"));
+                            ui.checkbox(&mut st.deboss, "");
+                            ui.end_row();
+                        }
+                        DirectTool::BoundaryFill => {
+                            ui.label(ducad_i18n::t!("direct-point"));
+                            ui.horizontal(|ui| {
+                                for v in st.point.iter_mut() {
+                                    ui.add(egui::DragValue::new(v).speed(0.5));
+                                }
+                            });
+                            ui.end_row();
+                        }
+                        DirectTool::BoundingSolid => {
+                            ui.label(ducad_i18n::t!("direct-cylinder"));
+                            ui.checkbox(&mut st.cylinder, "");
+                            ui.end_row();
+                            ui.label(ducad_i18n::t!("direct-margin"));
+                            mm(ui, &mut st.margin, 0.0);
+                            ui.end_row();
+                        }
+                    });
                 ui.add_space(4.0);
                 apply = ui.button(ducad_i18n::t!("direct-apply")).clicked();
             });
@@ -664,7 +779,12 @@ mod tests {
 
     fn app_with_box() -> DuCADApp {
         let mut app = DuCADApp::new_for_test();
-        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0, 10.0, 10.0], [0.0; 3], false);
+        app.create_primitive(
+            ducad_ui::PrimitiveKind::Box,
+            [10.0, 10.0, 10.0],
+            [0.0; 3],
+            false,
+        );
         app
     }
 
@@ -690,7 +810,11 @@ mod tests {
         let out = chain_edge_polylines(&[a, b]);
         assert_eq!(
             out,
-            vec![DVec3::ZERO, DVec3::new(10.0, 0.0, 0.0), DVec3::new(10.0, 10.0, 0.0)]
+            vec![
+                DVec3::ZERO,
+                DVec3::new(10.0, 0.0, 0.0),
+                DVec3::new(10.0, 10.0, 0.0)
+            ]
         );
     }
 
@@ -700,7 +824,12 @@ mod tests {
         let id = first_body(&app);
         app.selected_faces = vec![top_ray()];
         app.direct_offset_faces(5.0);
-        assert!((volume(&app, id) - 1500.0).abs() < 1.0, "{} {:?}", volume(&app, id), app.model_status);
+        assert!(
+            (volume(&app, id) - 1500.0).abs() < 1.0,
+            "{} {:?}",
+            volume(&app, id),
+            app.model_status
+        );
         assert!(app.selected_faces.is_empty());
     }
 
@@ -710,7 +839,12 @@ mod tests {
         let id = first_body(&app);
         app.selected_faces = vec![top_ray()];
         app.direct_replace_face(PlaneAxis::XY, 20.0);
-        assert!((volume(&app, id) - 2000.0).abs() < 2.0, "{} {:?}", volume(&app, id), app.model_status);
+        assert!(
+            (volume(&app, id) - 2000.0).abs() < 2.0,
+            "{} {:?}",
+            volume(&app, id),
+            app.model_status
+        );
     }
 
     #[test]
@@ -735,10 +869,20 @@ mod tests {
             polyline: vec![(0.0, 20.0, 0.0), (0.0, 20.0, 30.0)],
         }];
         app.direct_pipe(2.0, Some(0.5));
-        assert_eq!(app.model.geometry.len(), before + 1, "{:?}", app.model_status);
+        assert_eq!(
+            app.model.geometry.len(),
+            before + 1,
+            "{:?}",
+            app.model_status
+        );
         let id = first_body(&app);
         app.selected_bodies.insert(id);
         app.direct_bounding_solid(false, 1.0);
-        assert_eq!(app.model.geometry.len(), before + 2, "{:?}", app.model_status);
+        assert_eq!(
+            app.model.geometry.len(),
+            before + 2,
+            "{:?}",
+            app.model_status
+        );
     }
 }

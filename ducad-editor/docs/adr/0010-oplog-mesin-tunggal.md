@@ -114,8 +114,11 @@ regenerasi setelah edit dimensi awal, dan tidak lagi dicatat ke DAG.
 | Urutan 6: loft | ✅ dua op `sketch` turunan (bidang aktif + offset setinggi `height`) + op `loft`, di bidang sebenarnya. Sketsa turunan tidak terikat ke slot GUI (edit sketsa tidak mengalir ke loft); profil bawah tertunda dari bidang datum tetap jalur lama |
 | Urutan 6: sweep | ✅ op `sketch` turunan untuk profil + op `sweep` dengan jalur `points`; jalur berbusur dan bidang datum tetap jalur lama (titik polyline akan menghilangkan lengkung) |
 | Urutan 6: draft | ✅ op `draft` untuk arah tarik sejajar sumbu; **perubahan perilaku:** bidang netral = face terbawah searah tarik (`<Z` untuk tarik +Z), bukan bidang melalui titik asal dunia. Sama untuk part yang duduk di z = 0 |
-| Urutan 6: emboss | ☐ |
-| Urutan 7–10 | ☐ |
+| Urutan 6: emboss | ✅ `emboss_via_oplog` (sketsa terikat + op `emboss`/deboss); emboss tanpa body sasaran tetap jalur lama |
+| Urutan 7: datum bersudut / 3 titik | ✅ `PlaneSpec::Frame` dan `PlaneSpec::ThreePoints` di engine; sketsa di datum GUI ditulis sebagai `frame` (`sketch_plane_json`), sehingga extrude/revolve/loft/sweep/emboss di datum ikut oplog |
+| Urutan 8: edit sketsa lanjutan, teks, freehand | ✅ tercakup ikatan slot: hasil akhir edit masuk op `sketch` saat keluar mode sketsa. `EntitySpec::Spline.exact` mempertahankan kurva glyph; nama entitas kembar (label grup teks) diganti nama turunan id. Tes `gui_text_extrude_round_trips_through_oplog` |
+| Urutan 9: direct modeling | ✅ offset face, delete face, replace face lewat `direct_op_via_oplog`; align, pipe, web, path pattern, boundary fill, bounding solid masih jalur lama |
+| Urutan 10: assembly | ✅ keputusan di ADR 0011 (lapisan terpisah, bukan op); identitas body stabil terhadap replay (`apply_model_preserving_ids`) |
 | Buka berkas memulihkan oplog + ikatan sketsa | ✅ `restore_oplog_from_design` (`oplog_gui.rs`), dipanggil `open_native_path`; hanya bila geometri replay cocok (toleransi `same_geometry`) |
 
 ## Rancangan urutan 1–2: slot sketsa GUI yang terikat ke op
