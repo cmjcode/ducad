@@ -227,6 +227,33 @@ Kriteria selesai Step 4:
 | PDF/DXF/STEP lolos validasi otomatis + pemeriksaan visual | 🟡 otomatis ✅; visual ☐ (Bagian P, T6) |
 | Dokumentasi membedakan dapat dibuka/dibuat/round-trip | ✅ `FORMAT_MATRIX.md` |
 
+## 8e. Kemajuan Step 5 (2026-10-21)
+
+| Butir Step 5 | Hasil | Bukti |
+|---|---|---|
+| 1. Proyek awal yang bisa diedit; tutorial mengajarkan revisi, undo, simpan, ekspor | ✅ bab "Mulai cepat: proyek contoh" (pilihan utama kartu sambutan) membuka bracket yang sama dengan tes CI (`ducad_engine::samples`), lalu: ubah param → ubah nilai op di Pohon Fitur → undo → simpan → ekspor STEP; tiap langkah dideteksi dari perubahan desain nyata | `onboarding_ui::sample_chapter_revises_the_tested_bracket`, `onboarding_render::welcome_card_offers_the_sample_project` |
+| 2. Satu tindakan berikutnya; lewati/ulang tutorial tanpa mengubah dokumen kerja | ✅ saran di bawah pil status (kosong → mulai sketsa/proyek contoh; sketsa bebas → dimensi; terkunci → extrude; belum disimpan → simpan), bisa ditutup. Dokumen kerja disisihkan ke `tutorial-stash.ducad` saat bab dimulai dan dibuka kembali (path + status belum disimpan) saat tutorial ditutup atau setelah crash | `next_action::tests`, `onboarding_ui::{tutorial_sets_aside_and_restores_the_working_document, stash_left_by_a_crash_is_restored_on_next_start, empty_document_is_not_stashed}` |
+| 3. Dokumentasi publik selaras dengan matriks status | ✅ README (19 kontradiksi: 16 diperbaiki/diselaraskan, 3 diberi label karena celah kode masih ada: riwayat aktivitas dikosongkan saat start, extrude Up to Face, GGUF), PANDUAN (bagian Mulai Cepat, label UI dicocokkan dengan `.ftl`, fitur terbatas diberi label), STATUS_FASE_A_B (diperbarui ke kernel truck) | `STATUS_KEMAMPUAN.md` §2 |
+| 4. Workflow contoh jadi regression test di CI yang memblokir; GUI lewat checklist | ✅ `scripts/release-gate.sh` + lane CI `designer`; checklist `CEKLIS_UJI_GUI.md` T0 dan P.5 | `docs/GERBANG_RILIS.md` |
+| 5. Metrik kualitas rilis | ✅ tabel per rilis di `GERBANG_RILIS.md` §3; baseline otomatis 94 tes, 0 gagal; metrik sesi pengguna belum diukur | idem |
+
+Bug yang ditemukan dan ditutup di Step 5:
+
+| ID | Masalah | Perbaikan |
+|---|---|---|
+| B5-1 | Tutorial bekerja di dokumen yang sedang terbuka (bab 2/3 bisa menimpa kanvas; langkah tutorial mengubah dokumen kerja) | dokumen kerja disisihkan dan dipulihkan |
+| B5-2 | Ekspor IGES ikut menyertakan body tersembunyi (sama dengan B4-1) dan tidak tercantum di matriks format | hanya body terlihat + ringkasan; `FORMAT_MATRIX.md` diperbaiki |
+| B5-3 | Label menu "STEP… (semua body)" salah sejak B4-1 | "(body terlihat)" |
+| B5-4 | `cargo test --workspace` merah karena tes vault ISO (vault dihapus di cd57db0f) dan tabel layering tanpa `ducad-update`/`ducad-cloud → ducad-core` | tes vault dilewati bila vault tidak ada; tabel layering diperbarui |
+
+Kriteria selesai Step 5:
+
+| Kriteria | Status |
+|---|---|
+| Pengguna baru mencapai dan mengubah hasil tutorial tanpa panduan eksternal | 🟡 alur ada dan teruji otomatis; butuh sesi uji T0 |
+| README, panduan, UI, status implementasi tidak bertentangan | ✅ (celah kode yang tersisa diberi label) |
+| Gate rilis mencakup tes otomatis inti dan checklist GUI | ✅ |
+
 ## 9. Berkas yang ditambahkan/diubah oleh Step 0
 
 - `crates/ducad-engine/tests/fixtures/sample_bracket.ops.json` (baru)

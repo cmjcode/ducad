@@ -19,7 +19,7 @@ dinyatakan berkas dan bukti tes otomatisnya.
 | OBJ | ✅ mesh | ✅ | 🟡 mesh tanpa material | tidak ada (dianggap mm) | stabil |
 | GLB / glTF | ✅ mesh | ✅ GLB | 🟡 meter, Y ke atas | meter (glTF) | stabil (ekspor) |
 | 3MF | ✅ mesh | ✅ (kirim ke slicer) | ✅ mesh | atribut `unit` (impor dikonversi ke mm) | terbatas |
-| IGES (`.igs`/`.iges`) | ✅ | ☐ | ☐ | dari berkas | eksperimental |
+| IGES (`.igs`/`.iges`) | ✅ | ✅ (palet: Ekspor IGES) | ✅ volume | mm (ekspor) | eksperimental (impor dari CAD lain) |
 | DXF sketsa | ✅ | ✅ R12 | 🟡 garis/lingkaran/busur | `$INSUNITS` (impor dikonversi ke mm) | terbatas |
 | DXF drawing | — | ✅ R12 | — | `$INSUNITS 4` (mm), skala 1:1 kertas | stabil (subset di bawah) |
 | PDF drawing | ✅ garis vektor (referensi) | ✅ | — | ukuran kertas (pt) | stabil (subset di bawah) |
@@ -119,7 +119,10 @@ selain A4/A3.
 - **SVG:** path, bentuk dasar, dan busur menjadi `Entity::Path`; px CSS 96 dpi
   → mm; sumbu Y dibalik.
 - **IGES:** pembaca kernel, dengan peringatan per entitas yang dilewati.
-  Belum ada fixture dari CAD lain → eksperimental.
+  Belum ada fixture dari CAD lain → eksperimental. Ekspor (palet "Ekspor
+  IGES…") menulis body terlihat saja, dengan ringkasan yang sama seperti STEP;
+  dibuka ulang dengan volume sama (`ducad-app` `interop::tests::export_3mf_and_iges_then_reimport`,
+  `interop::tests::iges_skips_hidden_bodies`).
 
 ## Pesan di GUI (Step 4 butir 6)
 

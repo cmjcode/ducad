@@ -20,7 +20,7 @@ menu-import-step = STEP…
 menu-import-stl = STL…
 menu-import-dxf = DXF…
 menu-export = Export
-menu-export-step = STEP… (all bodies)
+menu-export-step = STEP… (visible bodies)
 menu-export-stl = STL… (visible bodies)
 menu-export-obj = OBJ… (visible bodies)
 menu-export-glb = GLTF / GLB… (Web & AR)
@@ -1610,7 +1610,7 @@ onboard-stop-here = Stop here
 onboard-bootstrap-done = The starting geometry for this chapter was built from the previous chapter's result.
 onboard-bootstrap-failed = The starting geometry for this chapter could not be built; do the previous chapter first.
 onboard-welcome-title = Welcome to DUCAD
-onboard-welcome-body = This tutorial builds one part from start to production-ready: a Ø240 mm brake disc. Every step adds something to the disc, and only unlocks after you have done it yourself.
+onboard-welcome-body = Fastest: open the sample project and revise a finished bracket. Or build a Ø240 mm disc brake from the first sketch in three chapters. Each step unlocks once you have done it yourself, and your open document is left untouched.
 onboard-chapter-beginner = Chapter 1: Beginner
 onboard-chapter-beginner-desc = Meet the DUCAD screen, then build the disc: circle, extrude, center bore, chamfer.
 onboard-chapter-beginner-start = Start Chapter 1
@@ -2515,3 +2515,43 @@ file-export-note-obj = one mesh per body, no material
 file-export-note-glb = Y-up, PBR materials
 file-import-dxf-units = (file units { $unit }, converted to mm)
 file-export-dxf-skipped = ({ $count } ellipses/splines/paths are not supported by DXF R12 and were left out)
+
+# Sample project chapter: revise the bracket (Step 5 PLAN_DESIGNER_UX)
+onboard-chapter-sample = Quick start: sample project
+onboard-chapter-sample-desc = Open a finished sample bracket and revise it: change a parameter and a feature, undo, save, export STEP. Your open document comes back when the tutorial closes.
+onboard-chapter-sample-start = Open sample project
+onboard-sample-param-title = Change a parameter
+onboard-sample-param-body = This bracket is built from parameters: length len, thickness t, radius r, and so on.
+    1. Open the command palette ({ $modkey }+Shift+P), type "parameters", press Enter.
+    2. Change len from 60 to 80, then click Apply.
+    The extrude, fillet, and all four holes follow.
+onboard-sample-param-try = Change one parameter value.
+onboard-sample-feature-title = Change one feature
+onboard-sample-feature-body = 1. Click the timeline button in the icon row at the bottom right: the Feature Tree opens.
+    2. Under Parametric History, find the inner_fillet op and click its pencil icon.
+    3. Type 4, then Apply.
+    Only the fillet changes; the features after it are recomputed.
+onboard-sample-feature-try = Change the value of one op in Parametric History.
+onboard-sample-undo-title = Undo the change
+onboard-sample-undo-body = Press { $modkey }+Z. One undo reverts one whole change, including every feature that was recomputed with it.
+onboard-sample-undo-try = Press { $modkey }+Z once.
+onboard-sample-save-title = Save the revision
+onboard-sample-save-body = Press { $modkey }+S and name it bracket.ducad. The file keeps the parameters and feature history, so you can revise it again any time.
+onboard-sample-save-try = Save this document.
+onboard-sample-step-title = Export STEP
+onboard-sample-step-body = Main menu (three-line icon) in the top bar, Export submenu, choose "STEP". The save dialog states the units (mm); the status line lists the bodies included.
+onboard-sample-step-try = Export the bracket to STEP.
+onboard-end-sample-title = First revision done
+onboard-end-sample-body = You changed a parameter and a feature, undid a change, saved, and exported. The next chapter builds a part from the first sketch. When the tutorial closes, your previous document opens again.
+onboard-restored-doc = The document from before the tutorial was reopened.
+onboard-stash-failed = The open document could not be set aside, so the tutorial uses this document: { $error }
+
+# Next-action hint (Step 5 PLAN_DESIGNER_UX)
+next-hint-start = Start by drawing a profile: pick the Line or Rectangle tool in the left toolbar. Or open the sample project from the help button at the top right.
+next-hint-draw-profile = Draw a closed profile on this plane.
+next-hint-fix-constraints = Some constraints conflict (marked red): delete one of them.
+next-hint-lock-sketch = { $count } entities are not locked yet: add dimensions or constraints.
+next-hint-finish-sketch = The sketch is fully locked: finish the sketch, then Extrude the profile.
+next-hint-save = This model has never been saved: press { $modkey }+S.
+next-hint-hide = Hide hints for this session
+file-no-visible-bodies = No visible bodies to export to { $format }

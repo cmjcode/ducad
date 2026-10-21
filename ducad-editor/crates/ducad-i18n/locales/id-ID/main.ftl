@@ -20,7 +20,7 @@ menu-import-step = STEP…
 menu-import-stl = STL…
 menu-import-dxf = DXF…
 menu-export = Ekspor
-menu-export-step = STEP… (semua body)
+menu-export-step = STEP… (body terlihat)
 menu-export-stl = STL… (body tampak)
 menu-export-obj = OBJ… (body tampak)
 menu-export-glb = GLTF / GLB… (Web & AR)
@@ -1610,7 +1610,7 @@ onboard-stop-here = Cukup dulu
 onboard-bootstrap-done = Geometri awal bab ini dibuat otomatis dari hasil bab sebelumnya.
 onboard-bootstrap-failed = Geometri awal bab ini gagal dibuat; kerjakan bab sebelumnya dulu.
 onboard-welcome-title = Selamat datang di DUCAD
-onboard-welcome-body = Tutorial ini mengerjakan satu part dari awal sampai siap produksi: rem cakram Ø240 mm. Setiap langkah menambah sesuatu pada cakram, dan baru bisa dilanjutkan setelah Anda mengerjakannya sendiri.
+onboard-welcome-body = Paling cepat: buka proyek contoh dan revisi bracket yang sudah jadi. Atau bangun rem cakram Ø240 mm dari sketsa pertama dalam tiga bab. Setiap langkah baru bisa dilanjutkan setelah Anda mengerjakannya sendiri, dan dokumen Anda yang sedang terbuka tidak diubah.
 onboard-chapter-beginner = Bab 1: Pemula
 onboard-chapter-beginner-desc = Kenali layar DUCAD, lalu buat piringan: lingkaran, extrude, lubang poros, chamfer.
 onboard-chapter-beginner-start = Mulai Bab 1
@@ -2515,3 +2515,43 @@ file-export-note-obj = mesh per body, tanpa material
 file-export-note-glb = sumbu Y ke atas, material PBR
 file-import-dxf-units = (satuan berkas { $unit }, dikonversi ke mm)
 file-export-dxf-skipped = ({ $count } elips/spline/path tidak didukung DXF R12 dan tidak ikut)
+
+# Bab proyek contoh: revisi bracket (Step 5 PLAN_DESIGNER_UX)
+onboard-chapter-sample = Mulai cepat: proyek contoh
+onboard-chapter-sample-desc = Buka bracket contoh yang sudah jadi, lalu revisi: ubah parameter dan fitur, undo, simpan, ekspor STEP. Dokumen Anda yang sedang terbuka dikembalikan setelah tutorial ditutup.
+onboard-chapter-sample-start = Buka proyek contoh
+onboard-sample-param-title = Ubah parameter
+onboard-sample-param-body = Bracket ini dibangun dari parameter: panjang len, tebal t, radius r, dan seterusnya.
+    1. Buka palet perintah ({ $modkey }+Shift+P), ketik "parameter", Enter.
+    2. Ubah len dari 60 menjadi 80, lalu klik Terapkan.
+    Extrude, fillet, dan keempat lubang ikut menyesuaikan.
+onboard-sample-param-try = Ubah satu nilai parameter.
+onboard-sample-feature-title = Ubah satu fitur
+onboard-sample-feature-body = 1. Klik tombol garis waktu di baris ikon kanan bawah: Pohon Fitur terbuka.
+    2. Di Riwayat Parametrik, cari op inner_fillet dan klik ikon pensilnya.
+    3. Ketik 4, lalu Terapkan.
+    Hanya fillet yang berubah; fitur setelahnya dihitung ulang.
+onboard-sample-feature-try = Ubah nilai satu op di Riwayat Parametrik.
+onboard-sample-undo-title = Batalkan perubahan
+onboard-sample-undo-body = Tekan { $modkey }+Z. Satu kali undo membatalkan satu perubahan utuh, termasuk semua fitur yang ikut dihitung ulang.
+onboard-sample-undo-try = Tekan { $modkey }+Z sekali.
+onboard-sample-save-title = Simpan revisi
+onboard-sample-save-body = Tekan { $modkey }+S dan beri nama bracket.ducad. Berkas ini menyimpan parameter dan riwayat fitur, jadi bisa direvisi lagi kapan saja.
+onboard-sample-save-try = Simpan dokumen ini.
+onboard-sample-step-title = Ekspor STEP
+onboard-sample-step-body = Menu utama (ikon tiga garis) di bilah atas, submenu Ekspor, pilih "STEP". Dialog simpan menyebut satuannya (mm); baris status menyebut body yang ikut.
+onboard-sample-step-try = Ekspor bracket ke STEP.
+onboard-end-sample-title = Revisi pertama selesai
+onboard-end-sample-body = Anda sudah mengubah parameter dan fitur, membatalkan perubahan, menyimpan, dan mengekspor. Bab berikutnya membangun part dari sketsa pertama. Saat tutorial ditutup, dokumen Anda sebelumnya dibuka kembali.
+onboard-restored-doc = Dokumen sebelum tutorial dibuka kembali.
+onboard-stash-failed = Dokumen yang terbuka tidak bisa diamankan, jadi tutorial memakai dokumen ini: { $error }
+
+# Saran tindakan berikutnya (Step 5 PLAN_DESIGNER_UX)
+next-hint-start = Mulai dengan menggambar profil: pilih alat Garis atau Persegi di toolbar kiri. Atau buka proyek contoh lewat tombol bantuan di kanan atas.
+next-hint-draw-profile = Gambar profil tertutup di bidang ini.
+next-hint-fix-constraints = Ada constraint yang bertentangan (ditandai merah): hapus salah satunya.
+next-hint-lock-sketch = { $count } entitas belum terkunci: tambahkan dimensi atau constraint.
+next-hint-finish-sketch = Sketsa terkunci penuh: selesaikan sketsa, lalu Extrude profilnya.
+next-hint-save = Model ini belum pernah disimpan: tekan { $modkey }+S.
+next-hint-hide = Sembunyikan saran untuk sesi ini
+file-no-visible-bodies = Tak ada body terlihat untuk diekspor ke { $format }

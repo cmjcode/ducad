@@ -1238,6 +1238,43 @@ impl CanvasHud {
     /// menu. Hanya teks (tanpa frame) supaya tidak menumpuk dengan menu bawah.
     /// `anchor` = pojok kiri-atas baris. Dirender di `Order::Middle` sehingga
     /// panel mengambang (Simulasi, Industri, …) menutupinya, bukan sebaliknya.
+    /// Satu tindakan berikutnya yang relevan (Step 5 `PLAN_DESIGNER_UX`),
+    /// tepat di bawah pil status. Mengembalikan `true` bila pengguna
+    /// menutupnya.
+    pub fn show_next_action(ui: &mut Ui, anchor: Pos2, text: &str) -> bool {
+        let mut closed = false;
+        egui::Area::new(egui::Id::new("ducad-hud-next-action"))
+            .fixed_pos(anchor)
+            .pivot(Align2::LEFT_TOP)
+            .order(egui::Order::Middle)
+            .show(ui.ctx(), |ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(ICON_LIGHTBULB_ON.codepoint)
+                            .size(13.0)
+                            .color(ACCENT_ORANGE),
+                    );
+                    ui.label(RichText::new(text).size(11.5).color(TEXT_SECONDARY));
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new(ICON_CLOSE.codepoint)
+                                    .size(11.0)
+                                    .color(TEXT_MUTED),
+                            )
+                            .frame(false),
+                        )
+                        .on_hover_text(t!("next-hint-hide"))
+                        .clicked()
+                    {
+                        closed = true;
+                    }
+                });
+            });
+        closed
+    }
+
     pub fn show_status_pill(
         ui: &mut Ui,
         anchor: Pos2,

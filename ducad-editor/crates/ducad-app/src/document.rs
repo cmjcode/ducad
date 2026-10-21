@@ -482,6 +482,9 @@ impl DuCADApp {
 
     #[inline]
     pub fn undo(&mut self) {
+        if self.can_undo() {
+            self.onboarding.note_undo();
+        }
         match self.next_undo_target() {
             Some(crate::types::UndoTarget::Sketch) => self.undo_active_sketch(),
             Some(crate::types::UndoTarget::Model) => self.undo_model(),

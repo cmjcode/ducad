@@ -6,6 +6,12 @@
 //! (`$HOME/.ducad/onboarding.json`), dan apakah geometri benar-benar berubah
 //! seperti yang diminta langkah yang sedang tampil (body bertambah, volume
 //! berkurang, lingkaran bertambah, dan seterusnya).
+//!
+//! Tutorial tidak mengubah dokumen kerja (Step 5 `PLAN_DESIGNER_UX`): saat
+//! bab pertama dimulai di atas dokumen yang berisi, dokumen itu ditulis ke
+//! `<data_dir>/tutorial-stash.ducad` lalu tutorial memakai dokumen kosong.
+//! Saat tutorial ditutup (atau aplikasi dibuka lagi setelah crash), dokumen
+//! itu dibuka kembali dengan path aslinya.
 
 use std::path::{Path, PathBuf};
 
@@ -73,6 +79,29 @@ pub(crate) struct Probe {
     pub section: bool,
     pub sim_results: bool,
     pub chat_open: bool,
+    /// Jumlah op di oplog desain.
+    pub ops: usize,
+    /// Sidik `design.params`.
+    pub params_sig: u64,
+    /// Sidik `design.oplog`.
+    pub oplog_sig: u64,
+}
+
+/// Dokumen kerja yang disisihkan selama tutorial.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct StashInfo {
+    /// Path berkas dokumen sebelum tutorial (`None` = belum pernah disimpan).
+    pub original_path: Option<PathBuf>,
+    /// Dokumen punya perubahan yang belum disimpan.
+    pub dirty: bool,
+}
+
+fn sig<T: Serialize>(v: &T) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(v).unwrap_or_default().hash(&mut h);
+    h.finish()
 }
 
 /// State tutorial milik aplikasi.
@@ -88,6 +117,11 @@ pub struct OnboardingCtl {
     model_commands: Vec<String>,
     saved: bool,
     exported: Vec<&'static str>,
+    undone: bool,
+    /// Tutorial sudah memakai dokumennya sendiri (kosong atau hasil bab).
+    owns_doc: bool,
+    /// Dokumen kerja sedang disisihkan di [`Self::stash_file`].
+    stashed: Option<StashInfo>,
 }
 
 impl OnboardingCtl {
@@ -102,6 +136,19 @@ impl OnboardingCtl {
         let prefs = OnboardingPrefs::load(&path);
         let mut ctl = Self::disabled();
         ctl.path = Some(path);
+        // Sisa sesi yang crash di tengah tutorial: dipulihkan di frame pertama.
+        if let (Some(file), Some(info)) = (ctl.stash_file(), ctl.stash_info_file()) {
+            if file.exists() {
+                let info = std::fs::read_to_string(info)
+                    .ok()
+                    .and_then(|t| serde_json::from_str(&t).ok())
+                    .unwrap_or(StashInfo {
+                        original_path: None,
+                        dirty: true,
+                    });
+                ctl.stashed = Some(info);
+            }
+        }
         if !prefs.completed && !skip {
             ctl.state.restart();
         }
@@ -119,6 +166,25 @@ impl OnboardingCtl {
             model_commands: Vec::new(),
             saved: false,
             exported: Vec::new(),
+            undone: false,
+            owns_doc: false,
+            stashed: None,
+        }
+    }
+
+    /// `<dir onboarding.json>/tutorial-stash.ducad`; `None` tanpa persistensi.
+    pub(crate) fn stash_file(&self) -> Option<PathBuf> {
+        Some(self.path.as_ref()?.with_file_name("tutorial-stash.ducad"))
+    }
+
+    fn stash_info_file(&self) -> Option<PathBuf> {
+        Some(self.path.as_ref()?.with_file_name("tutorial-stash.json"))
+    }
+
+    /// Dipanggil `DuCADApp::undo` saat ada yang di-undo.
+    pub fn note_undo(&mut self) {
+        if self.state.open {
+            self.undone = true;
         }
     }
 
@@ -149,6 +215,7 @@ impl OnboardingCtl {
         self.model_commands.clear();
         self.saved = false;
         self.exported.clear();
+        self.undone = false;
     }
 
     fn ran(&self, names: &[&str]) -> bool {
@@ -187,6 +254,13 @@ impl OnboardingCtl {
             OnboardingGoal::ExportPdf => self.exported.contains(&"pdf"),
             OnboardingGoal::ExportStep => self.exported.contains(&"step"),
             OnboardingGoal::OpenChat => now.chat_open,
+            OnboardingGoal::ParamEdit => now.params_sig != base.params_sig && now.ops == base.ops,
+            OnboardingGoal::FeatureEdit => {
+                now.oplog_sig != base.oplog_sig
+                    && now.ops == base.ops
+                    && now.params_sig == base.params_sig
+            }
+            OnboardingGoal::Undo => self.undone,
         }
     }
 
@@ -289,13 +363,110 @@ impl DuCADApp {
             section: self.section_enabled,
             sim_results: self.sim.has_results(),
             chat_open: self.chat.panel.open,
+            ops: self.agent_meta.design.oplog.len(),
+            params_sig: sig(&self.agent_meta.design.params),
+            oplog_sig: sig(&self.agent_meta.design.oplog),
         }
+    }
+
+    /// Dokumen berisi sesuatu yang layak dijaga.
+    fn document_has_content(&self) -> bool {
+        !self.model.doc.bodies.is_empty()
+            || !self.agent_meta.design.oplog.is_empty()
+            || self.current_file_path.is_some()
+            || self
+                .sketch_set
+                .iter()
+                .any(|(_, sk)| !sk.sketch.entities.is_empty())
+    }
+
+    /// Sisihkan dokumen kerja sebelum tutorial memakai kanvas. Gagal
+    /// menyisihkan = tutorial tetap jalan di dokumen ini, dengan pemberitahuan.
+    pub(crate) fn onboarding_take_document(&mut self) {
+        if self.onboarding.owns_doc {
+            return;
+        }
+        self.onboarding.owns_doc = true;
+        if self.onboarding.stashed.is_some() || !self.document_has_content() {
+            return;
+        }
+        let (Some(file), Some(info_file)) =
+            (self.onboarding.stash_file(), self.onboarding.stash_info_file())
+        else {
+            return;
+        };
+        let info = StashInfo {
+            original_path: self.current_file_path.clone(),
+            dirty: self.model.doc.dirty,
+        };
+        let written = file
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .map_err(anyhow::Error::from)
+            .and_then(|_| self.write_native_file(&file))
+            .and_then(|_| {
+                std::fs::write(&info_file, serde_json::to_string_pretty(&info)?)?;
+                Ok(())
+            });
+        match written {
+            Ok(()) => {
+                self.onboarding.stashed = Some(info);
+                self.new_document();
+            }
+            Err(e) => {
+                let err = e.to_string();
+                self.file_status =
+                    Some(ducad_i18n::t!("onboard-stash-failed", error = err.as_str()));
+            }
+        }
+    }
+
+    /// Buka kembali dokumen yang disisihkan. Berkas sisihan baru dihapus
+    /// setelah berhasil dibuka.
+    pub(crate) fn onboarding_restore_document(&mut self) {
+        self.onboarding.owns_doc = false;
+        let Some(info) = self.onboarding.stashed.take() else {
+            return;
+        };
+        let (Some(file), Some(info_file)) =
+            (self.onboarding.stash_file(), self.onboarding.stash_info_file())
+        else {
+            return;
+        };
+        self.open_native_path(file.clone());
+        if self.current_file_path.as_deref() != Some(file.as_path()) {
+            // Gagal dibuka: status sudah berisi error; sisihan disimpan untuk
+            // dicoba lagi saat aplikasi dibuka berikutnya.
+            self.onboarding.stashed = Some(info);
+            return;
+        }
+        self.current_file_path = info.original_path;
+        self.model.doc.dirty = info.dirty;
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(&info_file);
+        self.file_status = Some(ducad_i18n::t!("onboard-restored-doc"));
     }
 
     /// Buka tutorial dari awal (tombol bantuan, palet perintah, burger menu).
     pub fn start_onboarding(&mut self) {
         self.onboarding.state.restart();
         self.onboarding.reset_step_tracking();
+    }
+
+    /// Bab proyek contoh: dokumen berisi bracket contoh, tanpa riwayat undo,
+    /// supaya undo pertama pengguna membatalkan revisinya sendiri.
+    pub(crate) fn load_sample_project(&mut self) -> Result<(), String> {
+        let session = ducad_engine::samples::bracket_design()
+            .and_then(ducad_engine::Session::replay)
+            .map_err(|e| e.message.clone())?;
+        self.new_document();
+        self.adopt_replayed_session(session, "sample");
+        self.model_undo = ducad_core::UndoStack::default();
+        self.model.doc.dirty = false;
+        self.onboarding.volume_dirty = true;
+        self.is_sketching = false;
+        self.left_toolbar.is_sketching = false;
+        Ok(())
     }
 
     /// Bab 2 dan 3 melanjutkan hasil bab sebelumnya. Bila kanvas kosong saat
@@ -305,11 +476,31 @@ impl DuCADApp {
     pub(crate) fn onboarding_bootstrap_chapter(&mut self) {
         let step = self.onboarding.state.step;
         let chapter = self.onboarding.state.current().chapter;
-        if step != chapter.first_step() || !self.model.doc.bodies.is_empty() {
+        if step == 0 {
+            return;
+        }
+        self.onboarding_take_document();
+        if step != chapter.first_step() {
+            return;
+        }
+        if chapter == OnboardingChapter::Sample {
+            if ducad_engine::samples::is_bracket(&self.agent_meta.design) {
+                return;
+            }
+            self.model_status = Some(match self.load_sample_project() {
+                Ok(()) => ducad_i18n::t!("onboard-bootstrap-done"),
+                Err(e) => {
+                    log::warn!("proyek contoh gagal dibuka: {e}");
+                    ducad_i18n::t!("onboard-bootstrap-failed")
+                }
+            });
+            return;
+        }
+        if !self.model.doc.bodies.is_empty() {
             return;
         }
         let ops = match chapter {
-            OnboardingChapter::Beginner => return,
+            OnboardingChapter::Sample | OnboardingChapter::Beginner => return,
             OnboardingChapter::Intermediate => CHAPTER2_START_OPS,
             OnboardingChapter::Advanced => CHAPTER3_START_OPS,
         };
@@ -366,6 +557,9 @@ impl DuCADApp {
     /// Dipanggil sekali per frame setelah seluruh chrome dirender.
     pub fn onboarding_frame(&mut self, ctx: &egui::Context, bounds: egui::Rect) {
         if !self.onboarding.state.open {
+            if self.onboarding.stashed.is_some() {
+                self.onboarding_restore_document();
+            }
             return;
         }
         // Deteksi tetap jalan saat lembar gambar 2D terbuka (mengekspor PDF
@@ -383,6 +577,7 @@ impl DuCADApp {
             Some(OnboardingEvent::Dismissed | OnboardingEvent::Finished) => {
                 self.onboarding.reset_step_tracking();
                 self.onboarding.persist_completed();
+                self.onboarding_restore_document();
             }
             Some(OnboardingEvent::SetLanguage(lang)) => {
                 self.language = lang;
@@ -471,7 +666,7 @@ mod tests {
 
     #[test]
     fn chapter_one_is_overview_then_build_steps() {
-        let goals: Vec<_> = ONBOARDING_STEPS[1..]
+        let goals: Vec<_> = ONBOARDING_STEPS[OnboardingChapter::Beginner.first_step()..]
             .iter()
             .take_while(|s| s.kind != OnboardingStepKind::ChapterEnd)
             .map(|s| (s.kind, s.goal))
@@ -480,6 +675,7 @@ mod tests {
             goals[0],
             (OnboardingStepKind::Overview, OnboardingGoal::None)
         );
+        assert_eq!(goals[1..].len(), 7);
         assert_eq!(
             goals[1..].iter().map(|g| g.1).collect::<Vec<_>>(),
             [
@@ -677,6 +873,165 @@ mod tests {
             .go_to(OnboardingChapter::Beginner.first_step());
         app.onboarding_bootstrap_chapter();
         assert!(app.model.doc.bodies.is_empty());
+    }
+
+
+    fn total_volume(app: &DuCADApp) -> f64 {
+        app.model.geometry.values().map(|g| g.shape.volume().abs()).sum()
+    }
+
+    /// Step 5: bab proyek contoh membuka bracket yang diuji CI, lalu
+    /// mengajarkan revisi — ubah param, ubah fitur, undo — dengan deteksi
+    /// berdasarkan perubahan desain yang nyata.
+    #[test]
+    fn sample_chapter_revises_the_tested_bracket() {
+        let mut app = DuCADApp::new_for_test();
+        app.start_onboarding();
+        app.onboarding
+            .state
+            .go_to(OnboardingChapter::Sample.first_step());
+        app.onboarding_bootstrap_chapter();
+        assert!(ducad_engine::samples::is_bracket(&app.agent_meta.design));
+        assert_eq!(app.model.doc.bodies.len(), 1);
+        assert!(!app.can_undo(), "membuka contoh bukan langkah undo");
+        let v0 = total_volume(&app);
+
+        // 1. Parameter: len 60 -> 80.
+        assert_eq!(app.onboarding.state.current().goal, OnboardingGoal::ParamEdit);
+        app.onboarding_track();
+        let mut rows: Vec<crate::design_tools::ParamRow> = app
+            .agent_meta
+            .design
+            .params
+            .iter()
+            .map(|(k, v)| crate::design_tools::ParamRow {
+                name: k.clone(),
+                orig_name: Some(k.clone()),
+                value: if k == "len" { "80".into() } else { format!("{v}") },
+            })
+            .collect();
+        rows.sort_by(|a, b| a.name.cmp(&b.name));
+        app.apply_param_rows(&rows).expect("param diterapkan");
+        app.onboarding.volume_dirty = true;
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "param berubah");
+        let v1 = total_volume(&app);
+        assert!(v1 > v0 * 1.2, "bracket lebih panjang: {v0} -> {v1}");
+
+        // 2. Fitur: radius fillet lewat Feature Tree. Mengubah param lagi
+        //    bukan edit fitur.
+        app.onboarding.state.go_to(app.onboarding.state.step + 1);
+        app.onboarding.reset_step_tracking();
+        assert_eq!(app.onboarding.state.current().goal, OnboardingGoal::FeatureEdit);
+        app.onboarding_track();
+        app.set_op_value("inner_fillet", "radius", 4.0);
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "op fillet berubah");
+
+        // 3. Undo: membatalkan edit fitur saja.
+        app.onboarding.state.go_to(app.onboarding.state.step + 1);
+        app.onboarding.reset_step_tracking();
+        assert_eq!(app.onboarding.state.current().goal, OnboardingGoal::Undo);
+        app.onboarding_track();
+        assert!(!app.onboarding.state.done);
+        app.undo();
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "undo dijalankan");
+        let fillet = app
+            .agent_meta
+            .design
+            .oplog
+            .iter()
+            .find(|o| o.id() == "inner_fillet")
+            .map(|o| serde_json::to_value(o).unwrap()["radius"].clone());
+        assert_eq!(fillet, Some(serde_json::json!("$r")), "fillet kembali ke $r");
+        assert_eq!(app.agent_meta.design.params["len"], 80.0, "param tetap");
+    }
+
+    /// Step 5: tutorial tidak mengubah dokumen kerja. Dokumen yang terbuka
+    /// disisihkan saat bab dimulai dan dibuka kembali saat tutorial ditutup.
+    #[test]
+    fn tutorial_sets_aside_and_restores_the_working_document() {
+        let path = temp_path("stash");
+        let mut app = DuCADApp::new_for_test();
+        app.onboarding = OnboardingCtl::load_from(path.clone(), true);
+        add_box(&mut app, "kerja", [10.0, 20.0, 30.0]);
+        let original = path.with_file_name("bracket-saya.ducad");
+        app.current_file_path = Some(original.clone());
+        app.model.doc.dirty = true;
+
+        app.start_onboarding();
+        app.onboarding
+            .state
+            .go_to(OnboardingChapter::Sample.first_step());
+        app.onboarding_bootstrap_chapter();
+        let stash = app.onboarding.stash_file().expect("ada path sisihan");
+        assert!(stash.exists(), "dokumen kerja ditulis ke sisihan");
+        assert!(ducad_engine::samples::is_bracket(&app.agent_meta.design));
+        assert_eq!(app.current_file_path, None, "tutorial di dokumen sendiri");
+
+        // Pindah langkah di dalam tutorial tidak menyisihkan ulang.
+        app.onboarding.state.go_to(app.onboarding.state.step + 1);
+        app.onboarding_bootstrap_chapter();
+        assert!(ducad_engine::samples::is_bracket(&app.agent_meta.design));
+
+        app.onboarding.state.open = false;
+        app.onboarding_restore_document();
+        assert_eq!(app.current_file_path, Some(original));
+        assert!(app.model.doc.dirty, "status belum disimpan ikut kembali");
+        let names: Vec<_> = app.model.doc.bodies.values().map(|b| b.name.clone()).collect();
+        assert_eq!(names, ["kerja"]);
+        assert!((total_volume(&app) - 6000.0).abs() < 1e-6);
+        assert!(!stash.exists(), "sisihan dihapus setelah dibuka");
+        let _ = std::fs::remove_dir_all(path.parent().expect("punya induk"));
+    }
+
+    /// Crash di tengah tutorial: sisihan dipulihkan saat aplikasi dibuka lagi.
+    #[test]
+    fn stash_left_by_a_crash_is_restored_on_next_start() {
+        let path = temp_path("crash");
+        let mut app = DuCADApp::new_for_test();
+        app.onboarding = OnboardingCtl::load_from(path.clone(), true);
+        add_box(&mut app, "kerja", [10.0, 10.0, 10.0]);
+        app.start_onboarding();
+        app.onboarding
+            .state
+            .go_to(OnboardingChapter::Beginner.first_step());
+        app.onboarding_bootstrap_chapter();
+        assert!(app.model.doc.bodies.is_empty(), "tutorial mulai kosong");
+        drop(app); // "crash"
+
+        let mut app = DuCADApp::new_for_test();
+        app.onboarding = OnboardingCtl::load_from(path.clone(), true);
+        assert!(app.onboarding.stashed.is_some());
+        let ctx = egui::Context::default();
+        let bounds = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(bounds),
+                ..Default::default()
+            },
+            |ui| app.onboarding_frame(ui.ctx(), bounds),
+        );
+        out.textures_delta.clear();
+        assert_eq!(app.model.doc.bodies.len(), 1, "dokumen kerja kembali");
+        assert!(app.onboarding.stashed.is_none());
+        let _ = std::fs::remove_dir_all(path.parent().expect("punya induk"));
+    }
+
+    /// Dokumen kosong tidak perlu disisihkan; tutorial jalan seperti biasa.
+    #[test]
+    fn empty_document_is_not_stashed() {
+        let path = temp_path("empty");
+        let mut app = DuCADApp::new_for_test();
+        app.onboarding = OnboardingCtl::load_from(path.clone(), true);
+        app.start_onboarding();
+        app.onboarding
+            .state
+            .go_to(OnboardingChapter::Beginner.first_step());
+        app.onboarding_bootstrap_chapter();
+        assert!(!app.onboarding.stash_file().expect("path").exists());
+        let _ = std::fs::remove_dir_all(path.parent().expect("punya induk"));
     }
 
     #[test]

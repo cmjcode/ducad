@@ -1,6 +1,8 @@
-//! Tutorial selamat datang interaktif (gaya Shapr3D): satu proyek berkelanjutan,
-//! sebuah rem cakram, dikerjakan dari sketsa pertama sampai siap produksi dalam
-//! tiga bab. Tiap langkah memakai hasil langkah sebelumnya dan baru bisa
+//! Tutorial selamat datang interaktif (gaya Shapr3D). Bab "Proyek contoh"
+//! membuka bracket contoh (`ducad_engine::samples`) dan mengajarkan revisi:
+//! ubah parameter, ubah fitur, undo, simpan, ekspor. Tiga bab berikutnya
+//! membangun satu proyek berkelanjutan, sebuah rem cakram, dari sketsa
+//! pertama sampai siap produksi. Tiap langkah memakai hasil langkah sebelumnya dan baru bisa
 //! dilanjutkan setelah pengguna benar-benar mengerjakannya; deteksinya
 //! dilakukan pemanggil (`ducad-app`) berdasarkan perubahan geometri, lalu
 //! menyetel [`OnboardingState::done`].
@@ -12,9 +14,9 @@ use egui::{
 use egui_icons::icons::{
     ICON_ARROW_BACK, ICON_ARROW_FORWARD, ICON_AUTO_AWESOME, ICON_BALANCE, ICON_CELEBRATION,
     ICON_CHECK_CIRCLE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DESCRIPTION, ICON_FOUNTAIN_PEN_TIP,
-    ICON_HUB, ICON_LOOKS_3, ICON_LOOKS_ONE, ICON_LOOKS_TWO, ICON_RADIO_BUTTON_UNCHECKED, ICON_SAVE,
-    ICON_SCHOOL, ICON_SCIENCE, ICON_SEARCH, ICON_TOUCH_APP, ICON_UPLOAD, ICON_VIEW_IN_AR,
-    ICON_WAVING_HAND,
+    ICON_HUB, ICON_LOOKS_3, ICON_LOOKS_ONE, ICON_LOOKS_TWO, ICON_RADIO_BUTTON_UNCHECKED,
+    ICON_ROCKET_LAUNCH, ICON_SAVE, ICON_SCHOOL, ICON_SCIENCE, ICON_SEARCH, ICON_TOUCH_APP,
+    ICON_EDIT, ICON_TUNE, ICON_UNDO, ICON_UPLOAD, ICON_VIEW_IN_AR, ICON_WAVING_HAND,
 };
 
 use crate::left_toolbar::ToolbarTool;
@@ -65,6 +67,12 @@ pub enum OnboardingGoal {
     ExportPdf,
     ExportStep,
     OpenChat,
+    /// Nilai parameter desain berubah tanpa menambah op (revisi).
+    ParamEdit,
+    /// Nilai sebuah op berubah tanpa menambah op dan tanpa mengubah param.
+    FeatureEdit,
+    /// Undo dijalankan.
+    Undo,
 }
 
 /// Elemen UI yang disorot selama sebuah langkah.
@@ -83,16 +91,19 @@ pub enum OnboardingTarget {
     ContextBar,
 }
 
-/// Tiga bab tutorial. Ketiganya mengerjakan rem cakram yang sama.
+/// Bab tutorial. `Sample` merevisi bracket contoh; tiga bab lainnya
+/// mengerjakan rem cakram yang sama.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OnboardingChapter {
+    Sample,
     Beginner,
     Intermediate,
     Advanced,
 }
 
 impl OnboardingChapter {
-    pub const ALL: [OnboardingChapter; 3] = [
+    pub const ALL: [OnboardingChapter; 4] = [
+        OnboardingChapter::Sample,
         OnboardingChapter::Beginner,
         OnboardingChapter::Intermediate,
         OnboardingChapter::Advanced,
@@ -101,6 +112,7 @@ impl OnboardingChapter {
     /// Bagian kunci i18n: `onboard-chapter-<key>`, `-desc`, `-start`.
     pub const fn key(self) -> &'static str {
         match self {
+            OnboardingChapter::Sample => "sample",
             OnboardingChapter::Beginner => "beginner",
             OnboardingChapter::Intermediate => "intermediate",
             OnboardingChapter::Advanced => "advanced",
@@ -113,6 +125,7 @@ impl OnboardingChapter {
 
     fn icon(self) -> &'static str {
         match self {
+            OnboardingChapter::Sample => ICON_ROCKET_LAUNCH.codepoint,
             OnboardingChapter::Beginner => ICON_LOOKS_ONE.codepoint,
             OnboardingChapter::Intermediate => ICON_LOOKS_TWO.codepoint,
             OnboardingChapter::Advanced => ICON_LOOKS_3.codepoint,
@@ -217,6 +230,7 @@ const fn page(key: &'static str, target: Option<OnboardingTarget>, demo: Demo) -
     OverviewPage { key, target, demo }
 }
 
+const SAMPLE: OnboardingChapter = OnboardingChapter::Sample;
 const BEGINNER: OnboardingChapter = OnboardingChapter::Beginner;
 const INTERMEDIATE: OnboardingChapter = OnboardingChapter::Intermediate;
 const ADVANCED: OnboardingChapter = OnboardingChapter::Advanced;
@@ -262,6 +276,37 @@ pub const STEPS: &[OnboardingStep] = &[
         demo: Demo::None,
         pages: &[],
     },
+    // ---- Proyek contoh: revisi bracket (workflow sasaran designer) ----
+    lesson(
+        SAMPLE,
+        "sample-param",
+        OnboardingGoal::ParamEdit,
+        PALETTE,
+        Demo::Icon(ICON_TUNE.codepoint),
+    ),
+    lesson(
+        SAMPLE,
+        "sample-feature",
+        OnboardingGoal::FeatureEdit,
+        None,
+        Demo::Icon(ICON_EDIT.codepoint),
+    ),
+    lesson(
+        SAMPLE,
+        "sample-undo",
+        OnboardingGoal::Undo,
+        Some(OnboardingTarget::TopBar),
+        Demo::Icon(ICON_UNDO.codepoint),
+    ),
+    lesson(SAMPLE, "sample-save", OnboardingGoal::Save, None, Demo::Save),
+    lesson(
+        SAMPLE,
+        "sample-step",
+        OnboardingGoal::ExportStep,
+        SHARE,
+        Demo::Icon(ICON_UPLOAD.codepoint),
+    ),
+    chapter_end(SAMPLE, "end-sample"),
     // ---- Bab 1: Pemula — piringan dasar ----
     OnboardingStep {
         key: "overview",
@@ -644,7 +689,7 @@ impl Onboarding {
                                 |ui| {
                                     let label =
                                         t!(&format!("onboard-chapter-{}-start", chapter.key()));
-                                    let button = if chapter == OnboardingChapter::Beginner {
+                                    let button = if chapter == OnboardingChapter::Sample {
                                         primary_button(&label)
                                     } else {
                                         secondary_button(&label)
@@ -1647,14 +1692,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn steps_form_three_chapters_each_closed_by_an_end_card() {
+    fn steps_form_chapters_each_closed_by_an_end_card() {
         assert_eq!(STEPS[0].kind, OnboardingStepKind::Welcome);
+        let beginner = OnboardingChapter::Beginner.first_step();
         assert_eq!(
-            STEPS[1].kind,
+            STEPS[beginner].kind,
             OnboardingStepKind::Overview,
-            "langkah 0 = tur layar"
+            "Bab 1 dibuka tur layar"
         );
-        assert!(!STEPS[1].pages.is_empty());
+        assert!(!STEPS[beginner].pages.is_empty());
+        assert_eq!(
+            OnboardingChapter::ALL[0],
+            OnboardingChapter::Sample,
+            "proyek contoh jadi pilihan utama"
+        );
         let mut order = Vec::new();
         for chapter in OnboardingChapter::ALL {
             let steps: Vec<_> = STEPS[1..].iter().filter(|s| s.chapter == chapter).collect();
@@ -1690,7 +1741,7 @@ mod tests {
         assert_eq!(position, 1);
         assert_eq!(chapter_progress(first + total - 1), (total, total));
         // Tur layar belum dihitung sebagai pelajaran.
-        assert_eq!(chapter_progress(1).0, 0);
+        assert_eq!(chapter_progress(OnboardingChapter::Beginner.first_step()).0, 0);
     }
 
     #[test]

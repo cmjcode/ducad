@@ -16,7 +16,9 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("ducad-core", &[]),
     ("ducad-sim", &[]),
     ("ducad-i18n", &[]),
-    ("ducad-cloud", &[]),
+    // Tier lisensi (`ducad_core::LicenseTier`) dipakai untuk membuka fitur.
+    ("ducad-cloud", &["ducad-core"]),
+    ("ducad-update", &[]),
     ("ducad-chat", &[]),
     ("ducad-glass", &[]),
     ("ducad-sketch", &["ducad-core"]),
@@ -83,6 +85,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "ducad-ui",
             "ducad-i18n",
             "ducad-cloud",
+            "ducad-update",
         ],
     ),
     ("ducad-android", &["ducad-app"]),

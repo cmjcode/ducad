@@ -155,6 +155,8 @@ pub struct DuCADApp {
     pub oplog_slot: crate::oplog_undo::OplogSlot,
     /// Cache status kendala sketsa aktif (Step 2, `sketch_status_ui`).
     pub sketch_status_cache: crate::sketch_status_ui::StatusCache,
+    /// Saran tindakan berikutnya ditutup pengguna untuk sesi ini (Step 5).
+    pub next_action_hidden: bool,
     /// Pesan input dimensi yang ditolak (popup tetap terbuka).
     pub dimension_input_error: Option<String>,
     /// Jembatan agent live; mati secara default (P5.1).
@@ -655,6 +657,7 @@ impl DuCADApp {
             agent_meta: ducad_engine::SessionMeta::default(),
             oplog_slot: Default::default(),
             sketch_status_cache: Default::default(),
+            next_action_hidden: false,
             dimension_input_error: None,
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
@@ -1028,6 +1031,7 @@ impl DuCADApp {
             agent_meta: ducad_engine::SessionMeta::default(),
             oplog_slot: Default::default(),
             sketch_status_cache: Default::default(),
+            next_action_hidden: false,
             dimension_input_error: None,
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
@@ -4978,6 +4982,13 @@ impl eframe::App for DuCADApp {
                         self.set_tool(ToolKind::Measure);
                     }
                     CanvasHudEvent::TurnOffSectionView => {}
+                }
+            }
+            // Satu tindakan berikutnya, di bawah pil status (Step 5).
+            if let Some(next) = self.next_action() {
+                let hint_anchor = status_anchor + egui::vec2(0.0, 28.0);
+                if CanvasHud::show_next_action(ui, hint_anchor, &next.text()) {
+                    self.next_action_hidden = true;
                 }
             }
         }

@@ -42,15 +42,19 @@ impl DuCADApp {
     pub fn export_3mf_to(&mut self, path: &Path) -> bool {
         let bodies = self.visible_mesh_exports();
         if bodies.is_empty() {
-            self.file_status = Some(ducad_i18n::t!("file-no-meshes-stl"));
+            self.file_status = Some(ducad_i18n::t!("file-no-visible-bodies", format = "3MF"));
             return false;
         }
+        let note = self.export_note(bodies.len(), "mm", None);
         let refs: Vec<(&str, &ducad_kernel::KernelMesh, Option<[f32; 3]>)> =
             bodies.iter().map(|(n, m, c)| (n.as_str(), m, *c)).collect();
         match ducad_io::mesh_formats::write_3mf(&refs, path) {
             Ok(()) => {
                 let name = file_name(path, "model.3mf");
-                self.file_status = Some(ducad_i18n::t!("file-exported-3mf", name = name.as_str()));
+                self.file_status = Some(format!(
+                    "{} {note}",
+                    ducad_i18n::t!("file-exported-3mf", name = name.as_str())
+                ));
                 true
             }
             Err(e) => {
@@ -69,13 +73,15 @@ impl DuCADApp {
         }
     }
 
-    /// Tulis IGES semua body B-rep ke `path`.
+    /// Tulis IGES body B-rep yang terlihat ke `path` (sama dengan STEP,
+    /// Step 4: body tersembunyi tidak ikut diam-diam).
     pub fn export_iges_to(&mut self, path: &Path) -> bool {
         let named: Vec<(String, ducad_kernel::KernelShape)> = self
             .model
             .doc
             .bodies
             .iter()
+            .filter(|(_, b)| b.visible)
             .filter_map(|(id, b)| {
                 let g = self.model.geometry.get(id)?;
                 ducad_kernel::clone_shape(&g.shape)
@@ -83,12 +89,20 @@ impl DuCADApp {
                     .map(|s| (b.name.clone(), s))
             })
             .collect();
+        if named.is_empty() {
+            self.file_status = Some(ducad_i18n::t!("file-no-visible-bodies", format = "IGES"));
+            return false;
+        }
+        let note = self.export_note(named.len(), "mm", None);
         let refs: Vec<(&str, &ducad_kernel::KernelShape)> =
             named.iter().map(|(n, s)| (n.as_str(), s)).collect();
         match ducad_kernel::iges::write_iges(&refs, path) {
             Ok(()) => {
                 let name = file_name(path, "model.igs");
-                self.file_status = Some(ducad_i18n::t!("file-exported-iges", name = name.as_str()));
+                self.file_status = Some(format!(
+                    "{} {note}",
+                    ducad_i18n::t!("file-exported-iges", name = name.as_str())
+                ));
                 true
             }
             Err(e) => {
@@ -190,6 +204,32 @@ mod tests {
         let (shapes, _) = ducad_kernel::iges::read_iges(&fi).unwrap();
         assert!((shapes[0].1.volume().abs() - 1000.0).abs() < 1.0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Step 4/5: IGES hanya body terlihat, sama dengan STEP.
+    #[test]
+    fn iges_skips_hidden_bodies() {
+        let mut app = DuCADApp::new_for_test();
+        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0, 10.0, 10.0], [0.0; 3], false);
+        app.create_primitive(ducad_ui::PrimitiveKind::Box, [5.0, 5.0, 5.0], [30.0, 0.0, 0.0], false);
+        app.model.doc.bodies.values_mut().next().unwrap().visible = false;
+        let dir = std::env::temp_dir().join(format!("ducad-iges-hidden-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fi = dir.join("a.igs");
+        assert!(app.export_iges_to(&fi), "{:?}", app.file_status);
+        let (shapes, _) = ducad_kernel::iges::read_iges(&fi).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(shapes.len(), 1, "body tersembunyi tidak ikut");
+        let status = app.file_status.clone().unwrap_or_default();
+        assert!(
+            status.contains(&ducad_i18n::t!("file-export-note-hidden", count = "1")),
+            "{status}"
+        );
+
+        for b in app.model.doc.bodies.values_mut() {
+            b.visible = false;
+        }
+        assert!(!app.export_iges_to(&dir.join("b.igs")), "tanpa body terlihat");
     }
 
     #[test]

@@ -1100,6 +1100,7 @@ perbaiki dulu sebelum sesi uji: masalahnya ada di engine, bukan di GUI.
 
 | Tugas | Instruksi untuk penguji |
 |---|---|
+| T0 | (Step 5, sebelum T1, di DUCAD yang belum pernah dibuka: hapus `onboarding.json` di folder data aplikasi.) Pelajari DUCAD dengan cara apa pun yang ditawarkan aplikasi, lalu buat bracket contoh 20 mm lebih panjang dan simpan. |
 | T1 | Buat bracket di atas dari sketsa berdimensi. Ukurannya harus bisa diubah nanti. |
 | T2 | Klien minta bracket lebih kuat: ubah tebal menjadi 8 dan tinggi dinding menjadi 50. Pastikan fillet dan semua lubang tetap benar. |
 | T3 | Coba fillet sudut dalam R40. Kalau tidak bisa, kembalikan model ke keadaan yang benar dan pakai radius terbesar yang masuk akal. |
@@ -1111,6 +1112,7 @@ perbaiki dulu sebelum sesi uji: masalahnya ada di engine, bukan di GUI.
 
 | Penguji | Tugas | Hasil (✅ mandiri / 🟡 dengan bantuan / ❌ gagal) | Durasi (mm:ss) | Undo / batal | Salah mode / salah pilih | Kehilangan state/data | Kutipan kebingungan | Isu |
 |---|---|---|---|---|---|---|---|---|
+| | T0 | | | | | | | |
 | | T1 | | | | | | | |
 | | T2 | | | | | | | |
 | | T3 | | | | | | | |
@@ -1120,6 +1122,10 @@ perbaiki dulu sebelum sesi uji: masalahnya ada di engine, bukan di GUI.
 
 Yang dicari pengamat per tugas:
 
+- **T0:** apakah penguji memilih "Mulai cepat: proyek contoh" dan
+  menyelesaikan bab itu tanpa bantuan? Apakah teks tiap langkah cocok dengan
+  yang terlihat di layar? Apakah saran tindakan berikutnya (ikon lampu di bawah
+  pil status) membantu atau mengganggu?
 - **T1:** apakah penguji menemukan cara memberi dimensi dan tahu kapan sketsa
   sudah terkunci penuh? Apakah ia paham bidang sketsa yang aktif?
 - **T2:** apakah perubahan dimensi awal memperbarui fillet dan lubang, atau ada
@@ -1134,9 +1140,22 @@ Yang dicari pengamat per tugas:
 
 ### P.4 Ringkasan sesi
 
-| Tanggal | Versi/commit | Platform | Jumlah penguji | Tugas mandiri (dari 6 × penguji) | Median waktu T1 | Crash/kehilangan data | Isu utama |
+| Tanggal | Versi/commit | Platform | Jumlah penguji | Tugas mandiri (dari 7 × penguji) | Median waktu T0 / T1 | Crash/kehilangan data | Isu utama |
 |---|---|---|---|---|---|---|---|
 | | | | | | | | |
+
+### P.5 Pemeriksaan GUI tutorial dan saran (Step 5, pengembang)
+
+Bagian yang tidak bisa diuji otomatis (render, dialog berkas, jendela asli):
+
+| # | Yang diuji | Status |
+|---|---|---|
+| P5.1 | Buka berkas `.ducad` berisi model, mulai tutorial dari tombol bantuan, pilih "Buka proyek contoh": bracket contoh tampil, berkas asli tidak berubah di disk | ☐ |
+| P5.2 | Tutup tutorial (tombol tutup atau "Selesai"): dokumen tadi terbuka lagi dengan judul/path aslinya; status "Dokumen sebelum tutorial dibuka kembali." | ☐ |
+| P5.3 | Paksa keluar aplikasi di tengah tutorial, buka lagi: dokumen sebelum tutorial dipulihkan | ☐ |
+| P5.4 | Setiap langkah bab proyek contoh baru bisa dilanjutkan setelah aksinya dikerjakan (param, fitur di Pohon Fitur, undo, simpan, ekspor STEP) | ☐ |
+| P5.5 | Dokumen baru: saran "Mulai dengan menggambar profil…" tampil di bawah pil status; tombol tutupnya menyembunyikan saran sampai aplikasi dibuka lagi; ikon lampu dan tutup terender (bukan kotak) | ☐ |
+| P5.6 | Label dialog simpan ekspor menyebut satuan (STEP mm, GLB meter Y ke atas); baris status setelah ekspor menyebut jumlah body dan body tersembunyi | ☐ |
 
 ---
 

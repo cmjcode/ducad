@@ -14,7 +14,7 @@
 ## 🌟 Key Features
 
 ### 1. 📐 Parametric 2D Sketching & Precision Geometry
-* **Complete Entities**: Line, Rectangle, Circle, Center-Radius Arc, 3-Point Arc, Ellipse, Regular Polygon ($N$-sided Inscribed/Circumscribed), and Slot (Center-to-Center & Overall).
+* **Complete Entities**: Line, Rectangle, Circle, Center-Radius Arc, 3-Point Arc, Ellipse (axis-aligned only), Regular Polygon ($N$-sided Inscribed/Circumscribed), and Slot (Center-to-Center & Overall).
 * **Construction Line**: Toggle reference mode (`X`) with dashed orange line rendering without interfering with closed solid profile (*closed region*) detection.
 * **2D Sketch Text**: TrueType/OpenType font typography vectorized into sketch curves for text extrusion.
 * **Smart Snapping System**: Tiered priority (*Endpoint* > *Midpoint* > *Center* > *Intersection* > *Grid*) with interactive visual glyphs.
@@ -23,7 +23,7 @@
 * **Freehand (Apple Pencil / mouse)**: a single stroke is recognized as a line, circle, arc, ellipse, rectangle, polyline or spline, then constraints are inferred and committed as **one undo step** — no manual gap patching before extruding.
 
 ### 2. 🧊 3D B-Rep Solid Modeling (SolidCraft / truck)
-* **Extrude & Revolve Operations**: Extrude (Blind, Symmetric, Up to Face), Revolve with custom 3D axis, multi-profile Loft, and Sweep along a guide curve.
+* **Extrude & Revolve Operations**: Extrude (Blind in either direction; Symmetric through the oplog only — "Up to Face" is not available yet), Revolve around an axis lying in the sketch plane (sketch on a datum plane to place it anywhere in 3D; datum axes through the oplog), multi-profile Loft, and Sweep along a guide curve.
 * **Spiral Geometry (*Helix / Spring / Coil*)**: Parametric 3D curve generator for creating springs, bolt threads, and auger blades.
 * **Solid Boolean Operations**: Boolean Union, Cut, and Intersect.
 * **Edge & Wall Features**: Constant Fillet, **Variable Radius Fillet** ($R_{\text{start}} \ne R_{\text{end}}$), edge Chamfer, Thin-Wall Shelling, and Draft angle.
@@ -32,7 +32,7 @@
   * *Simple Hole*: Straight cylindrical hole (through or to a specific depth).
   * *Counterbore Hole*: Stepped hole for socket head cap screws.
   * *Countersink Hole*: 90° tapered hole for flat head screws.
-  * *Tapped Hole*: Standard metric threaded hole (M2, M2.5, M3, M4, M5, M6, M8, M10, M12).
+  * *Tapped Hole*: Tap-drill hole sized for a standard metric thread (M2, M2.5, M3, M4, M5, M6, M8, M10, M12). The thread itself is not modeled by the hole; add a `thread` op (cosmetic or physically cut) for that.
 
 ### 3. 🌐 Datum Workplanes (Free 3D Reference Planes)
 * Create sketch and modeling planes at any point in 3D space:
@@ -40,6 +40,7 @@
   * **Angled Plane**: Rotated by angle $\theta^\circ$ relative to a reference linear edge/line.
   * **3-Point Plane**: Defined by 3 arbitrary vertex points in 3D space.
 * Transparent plane visualization in the viewport and plane list management (*Planes Drawer*).
+* *Limit*: a datum plane created in the GUI is stored as a fixed frame — sketches on it replay through the oplog, but the plane does not follow its reference face or edge when that geometry changes.
 
 ### 4. 📑 2D Engineering Drawings (Engineering Drawing Sheet & ISO Blueprint)
 * **Multi-View Projections**: Top View, Front View, Right View, and Isometric View (3D).
@@ -56,26 +57,47 @@
 * **Clash & Interference Detection**: Automatic physical collision testing between solid bodies using Boolean intersection operations to detect part interference before fabrication.
 
 ### 6. 🕒 Parametric History Timeline (Feature Tree)
-* Recording of design steps in a dependency graph structure (*Directed Acyclic Graph* - DAG).
-* Modifying past feature parameters with automatic regeneration of all derived solid geometry.
-* **Activity history with snapshots**: jump back to any recorded step, or fork it
-  with "Buat cabang dari sini" (*branch from here*) and keep both lines of work —
-  the branch filter in the drawer switches between them. Automatic merging
-  between branches is out of scope.
+* Modeling actions in the GUI (sketch, extrude, revolve, loft, sweep, fillet/chamfer,
+  hole, boolean, pattern, shell, draft, emboss, offset/delete/replace face) are
+  recorded as ops in the same oplog the headless engine uses, and saved in the
+  `.ducad` file. The Feature Tree's **Parametric History** lists each op with its
+  dependencies (*depends on* / *used by*).
+* Edit a past feature's value, a sketch dimension, or a document parameter (sketch
+  dimensions can be bound to `$param` expressions), suppress an op, or delete one
+  (refused while other features still use it): the oplog replays and every
+  downstream feature is regenerated. Each Feature Tree or parameter edit is one
+  undo step (a sketch-dimension edit adds one sketch step plus one model-update
+  step when you leave sketch mode). A roll-back marker is not available yet.
+* *Limit*: tools not yet migrated to ops — helix, variable-thickness shell,
+  custom counterbore, and some direct-modeling tools (align, pipe, web, path
+  pattern, boundary fill, bounding solid) — still apply their result directly and
+  are not regenerated on edits.
+* **Activity history with snapshots**: jump back to any step recorded in the
+  current session, or fork it with "Buat cabang dari sini" (*branch from here*)
+  and keep both lines of work — the branch filter in the drawer switches between
+  them. The activity history is cleared each time the application starts, so it
+  does not survive a restart. Automatic merging between branches is out of scope.
 
 ### 7. 🔄 Broad File Format Interoperability
+
+The authoritative list of what each format can open, create and round-trip —
+units, what is lost, and the test behind each row — is the
+[format matrix](ducad-editor/docs/FORMAT_MATRIX.md). DuCAD works in **mm**.
+
 * **Import**:
-  * `STEP` (`.step`, `.stp`) — Import international standard B-Rep CAD models.
-  * `DXF` (`.dxf`) — Import AutoCAD R12/2000+ 2D vector sketches.
-  * `STL` (`.stl`) — Import binary or ASCII meshes (large files are tessellated on a background thread so the UI never freezes).
-  * Native `.ducad` — JSON document holding B-Rep geometry, sketches and, since format v2, the parametric `design` (params + oplog + checks) with stable body UUIDs.
+  * `STEP` (`.step`, `.stp`) — B-Rep models. Round-trips its own exports; not yet tested against files from other CAD systems.
+  * `DXF` (`.dxf`) — 2D sketches: LINE, CIRCLE, ARC, axis-aligned ELLIPSE, LWPOLYLINE/POLYLINE. Other entities (SPLINE, TEXT, INSERT, HATCH, DIMENSION, …) are skipped and counted; `$INSUNITS` is read and inch/cm/m files are scaled to mm.
+  * `STL` (`.stl`), `OBJ`, `3MF`, glTF/`GLB` — meshes (not B-Rep); large STL files are tessellated on a background thread.
+  * `SVG` paths and `PDF` vector lines — as reference sketch geometry. `IGES` (`.igs`, `.iges`) — *experimental*.
+  * Native `.ducad` (format v4) — JSON document holding B-Rep geometry, sketches, and the parametric `design` (params + oplog + checks, suppressed ops, materials, drawing sheets) with stable body UUIDs. GD&T annotations placed by hand in the GUI drawing editor are not saved yet.
 * **Export**:
-  * `STEP` (`.step`, `.stp`) — Export full B-Rep solids for CNC/CAM manufacturing.
-  * `GLTF / GLB` (`.glb`) — Binary 3D format for Web & Augmented Reality (AR Quick Look on iOS/Android) with PBR materials.
+  * `STEP` AP242 (`.step`, `.stp`, mm) — every *visible* B-Rep body in one file, for CNC/CAM manufacturing. Body names, materials and feature history are not carried.
+  * `GLTF / GLB` (`.glb`) — Binary 3D format with PBR materials for Web and AR viewers (metres, Y up, per glTF convention; AR Quick Look has not been verified).
   * `SVG` (`.svg`) — 2D vector format for laser cutters, CNC routers, and graphics software (sketches, drawing sheets, and Vector Snapshot of the current viewport).
   * `PDF` (`.pdf`) — Vector technical drawing sheet with section hatch patterns.
-  * `STL` (`.stl` Binary) and `OBJ` — Mesh formats for 3D printing / slicers.
-  * `DXF` (`.dxf`) — 2D sketches and full drawing sheets for CAM and CAD exchange.
+  * `STL` (`.stl` Binary, all visible bodies merged into one mesh), `OBJ` and `3MF` — Mesh formats for 3D printing / slicers.
+  * `DXF` (`.dxf`, R12, `$INSUNITS` = mm) — 2D sketches and full drawing sheets for CAM and CAD exchange. Sketch ellipses, splines and paths are not exported (R12); the status line reports how many were left out.
+* The save dialog names the format's units, and the status line after an export lists the bodies included, hidden bodies left out, and the format's limits.
 
 ### 8. 🎨 Modern UI/UX Workflow & Rendering Studio
 * **DuCAD Ergonomic Workflow Standard**:
@@ -84,21 +106,26 @@
   * *Header Canvas HUD*: Quick and concise parameter input that doesn't disrupt the visual flow.
   * *Bottom-Right Pop-up Dialog*: In-depth configuration for complex features (Hole Wizard, Helix, Draft, Text, Booleans).
 * **Command Palette (`Ctrl/Cmd+K`)**: Instant access to all tools and commands via quick text search.
-* **Radial Menu (`Space`)**: Circular menu under the mouse cursor for quick access to essential tools.
 * **3D ViewCube**: Interactive cube camera orientation control (Top, Front, Right, Isometric, Orbit).
 * **Apple iPad & Touch Design Support**:
   * *Apple Pencil Only (`PencilOnly`)*: Pure drafting mode with hardware Palm Rejection. Apple Pencil executes drawing, snapping, and entity selection with pressure sensitivity; finger gestures exclusively orbit, pan, and zoom without accidental marks.
-  * *Finger Touch Design (`FingerDesign`)*: Direct touch sketching with expanded 14px hit tolerances and 44pt touch targets adhering to Apple Human Interface Guidelines (HIG).
+  * *Finger Touch Design (`FingerDesign`)*: Direct touch sketching with an expanded 24 px snap tolerance (12 px for Apple Pencil) and 44pt touch targets adhering to Apple Human Interface Guidelines (HIG).
   * *Hybrid Mode (`PencilAndFinger`)*: Seamlessly draw and design using both Apple Pencil and finger touch.
   * *Collision-Free iPad Layout*: Dynamic coordinate spacing eliminates overlap between TopBar and the 3D ViewCube; compact screen detection bundles secondary tools into an overflow menu ("⋯").
-* **Studio Lighting & Material (SSAO & PBR)**: Lighting environment settings (Warm Studio, Cool Tech, High Contrast, Sunset Gold, Cyberpunk Neon) with Screen Space Ambient Occlusion.
+* **Studio Lighting & Material (PBR)**: Lighting presets (Clean Studio, Warm Showcase, Cool Tech, Dramatic Dark) with key/fill/rim lights, a per-pixel cavity and grazing-angle ambient-occlusion approximation (not a screen-space SSAO pass), and a floor contact shadow.
 * **New UI surfaces from the agent layer**: a **Checks panel** with a top-bar
   pass/fail summary, an **error card** carrying verified fix buttons, a
   **proposal card** with green/red ghost preview, the **Ask AI…** dialog, and an
   **Agent Bridge** status chip.
+* **Guided start**: the in-app tutorial opens with *Quick start: sample project* —
+  a finished L-bracket on which you change a parameter and a feature, undo, save,
+  and export STEP. The tutorial sets your open document aside and reopens it when
+  it closes. A short next-action hint on the canvas suggests the next step
+  (draw a profile, fix conflicting constraints, finish the sketch, save).
 * **Multi-Language Support (i18n)**: Fluent-based localization, currently
   shipping **English (`en-US`)** and **Indonesian (`id-ID`)**; adding a locale
-  means dropping in one `.ftl` file and a `Language` variant.
+  means dropping in one `.ftl` file and a `Language` variant. Coverage is not
+  complete yet: some UI strings are still hard-coded in Indonesian.
 
 ### 9. 🤖 Headless Engine, Agent Tooling & On-Device AI
 
@@ -113,9 +140,17 @@ same modeling code the application does.
   `>Z`, `|Z`, `#Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`, combined with
   `or` / `and` / `except`.
 * **`ducad-cli`**: `run`, `replay`, `inspect`, `check`, `oplog`, `diff`, `select`,
-  `render`, `sim`, `config`, `export`, `build`, `assist`, `chat`, `schema`.
+  `render`, `sim`, `config`, `export`, `build`, `release` (review / approve /
+  reopen a design package), `assist`, `chat`, `golden` (kernel regression
+  corpus), `migrate-file` (upgrade a `.ducad` file to format v4), `schema`.
 * **`ducad-mcp`**: a 37-tool **Model Context Protocol** server (JSON-RPC 2.0 over
-  stdio) so an AI agent can model, inspect, render and verify a part.
+  stdio) so an AI agent can model, inspect, render and verify a part; `--attach`
+  adds 6 live-only tools (selection, screenshot, view, …).
+  *License note*: the standalone server reads the license tier from the app's
+  signed-in session (`~/.ducad/session.json`; not signed in = Free). On the Free
+  tier, `export` to STEP/IGES/3MF/DXF, PDF/DXF `drawing`, `build_package` and
+  `submit_for_review` are refused with `license_required`; STL/OBJ/GLB/SVG stay
+  free.
 * **Design unit tests (`Check`)**: requirements written as data — `volume`,
   `bbox_size`, `hole_count`, `min_wall`, `mass`, `clearance`, `no_interference` —
   evaluated after every batch and shown in a GUI panel with a top-bar summary.
@@ -130,9 +165,11 @@ same modeling code the application does.
 * **Hardware CI/CD**: `ducad-cli build` produces STEP/STL/PDF/PNG/BOM plus
   `report.json`/`report.md` **deterministically**; failing checks stop the build
   with exit code 3. A GitHub Actions template ships in `docs/ci/`.
-* **On-device AI assistant (`ducad-assist`)**: offline backends (Apple Foundation
-  Models, local GGUF) behind Cargo features that are **off by default**. Every
-  loop ends in a *proposal* — the model never commits a change by itself.
+* **On-device AI assistant (`ducad-assist`)** *(experimental)*: offline backends
+  (Apple Foundation Models, local GGUF) behind Cargo features that are **off by
+  default** and not built in CI. The app's **Ask AI…** dialog uses the Apple
+  Foundation Models backend only; the GGUF backend is not wired into the app yet.
+  Every loop ends in a *proposal* — the model never commits a change by itself.
 * **Live agent bridge**: `ducad-mcp --attach` forwards tools to the running
   application over a Unix socket, so the user watches the model being built. One
   agent batch = one GUI undo step. Risky changes go through `propose_ops`, which
@@ -144,7 +181,7 @@ same modeling code the application does.
 * **Pencil freehand → constrained sketch**: deterministic shape recognition
   (line, circle, arc, ellipse, rectangle, polyline, spline) followed by greedy
   constraint inference, committed as a single undo step.
-* **Eval harness**: ten reference tasks with analytically computed expectations
+* **Eval harness**: eleven reference tasks with analytically computed expectations
   in `evals/`, plus a stdlib-only Python runner to measure agent pass rates.
 
 ### 10. 🔬 Simulation & Industrial Features
@@ -188,12 +225,14 @@ DUCAD/
 │   │   ├── ducad-cli/       # `ducad-cli` binary: run/replay/inspect/check/oplog/diff/render/export/build/assist
 │   │   ├── ducad-mcp/       # `ducad-mcp` binary: 37-tool MCP server over stdio (+ `--attach` live mode)
 │   │   ├── ducad-assist/    # On-device AI assistant: backend contract, prompts, proposal-only loop
-│   │   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, SSAO, grid, sketch overlay
+│   │   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, ambient occlusion, grid, sketch overlay
 │   │   ├── ducad-ui/        # egui components: toolbar, context bar, HUD, drawers, checks/error/proposal cards
 │   │   ├── ducad-i18n/      # Localization system (English and Indonesian)
+│   │   ├── ducad-sim/       # FEA: voxel/tet meshing, static, frequency, buckling, thermal studies
 │   │   ├── ducad-cloud/     # Account and cloud sync
+│   │   ├── ducad-update/    # In-app updater (reads the `latest` GitHub release)
 │   │   └── ducad-app/       # Main application (binary `ducad`), eframe loop, agent bridge, state integration
-│   ├── evals/               # Agent eval harness: ten reference tasks + stdlib Python runner
+│   ├── evals/               # Agent eval harness: eleven reference tasks + stdlib Python runner
 │   ├── docs/                # Guides, comparative analysis, architecture decision records (ADR), CI templates
 │   └── Cargo.toml           # Workspace root manifest
 ├── scripts/                 # Agent memory vault bootstrap and helper scripts
@@ -216,12 +255,15 @@ the `engine_has_no_gui_dependency` test.
   is pure Rust and vendored under `ducad-editor/vendors/solidcraft`.
 * **Operating System**:
   * **macOS** (Apple Silicon) and **iPadOS** — the primary targets; both are
-    packaged from `ducad-editor/apple/` and exercised by hand.
-  * **Linux** (X11 / Wayland) — built and tested on every CI run
-    (`ubuntu-latest`) alongside macOS.
-  * **Windows 10/11** — `cargo clippy` + `cargo test --workspace` run on
-    `windows-latest` in CI; packaging (`build-windows` in the `Makefile`) is not
-    exercised by CI yet.
+    packaged from `ducad-editor/apple/` and exercised by hand. CI has no macOS
+    workspace lane (only the `ducad-update` crate is tested on `macos-14`), and
+    the macOS DMG is built, signed and notarized locally, not in CI.
+  * **Linux** (X11 / Wayland) — the blocking CI platform: clippy and
+    `cargo test --workspace` on every run (`ubuntu-latest`).
+  * **Windows 10/11** — `cargo test --workspace` and all-target clippy run on
+    `windows-latest` in CI but do **not** block yet (only lib/bin clippy does);
+    the release workflow builds the `.msi` installer and tests install/uninstall.
+    The live agent bridge (`--attach`) is Unix-only.
 
 ### Running DuCAD
 
@@ -263,8 +305,8 @@ Optional Cargo features of the application (all **off by default**):
 
 | Feature | What it enables |
 |---|---|
-| `apple-fm` | Apple Foundation Models backend for the on-device assistant |
-| `local-gguf` | Local GGUF model backend (candle) for the on-device assistant |
+| `apple-fm` | Apple Foundation Models backend for the on-device assistant (used by **Ask AI…**) |
+| `local-gguf` | Compiles the local GGUF model backend (candle) into `ducad-assist`; the app does not use it yet |
 | `memory` | Links the headless MNEMONIC library so the memory vault works on iPadOS |
 
 ```bash
@@ -290,17 +332,14 @@ docker run --rm -v "$(pwd)":/workspace -w /workspace/ducad-editor \
 ```
 
 > `cargo fmt` is advisory on purpose: the codebase predates the gate, so only new
-> files are formatted. `cargo clippy -D warnings` and `cargo test` **do** block.
+> files are formatted. `cargo clippy -D warnings` and `cargo test` **do** block
+> (on Linux; see the Windows note above).
 > Manual GUI verification is tracked separately in the
-> [GUI test checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md).
+> [GUI test checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md), and what a release
+> must pass is in the [release gate](ducad-editor/docs/GERBANG_RILIS.md).
 
-### Running Backend & Cloud Sync API Tests
-
-Execute the automated cURL test suite for DuCAD Cloud and touch configuration endpoints:
-
-```bash
-./test_api.sh
-```
+Cloud sync is *experimental*: its tests (`cargo test -p ducad-cloud`) run against
+mocked responses, not a live server. There is no separate API test script.
 
 ---
 
@@ -329,7 +368,6 @@ Execute the automated cURL test suite for DuCAD Cloud and touch configuration en
 | | `X` | Toggle Construction Line |
 | **Modeling** | `P` | Pattern / Array Tool (sketch and 3D) |
 | **Application** | `Ctrl/Cmd + K` or `Ctrl/Cmd + Shift + P` | Open Command Palette (Command Search) |
-| | `Space` | Open Radial Menu at Cursor |
 | | `Ctrl/Cmd + Z` | Undo Action (one agent batch = one step) |
 | | `Ctrl/Cmd + Shift + Z` / `Ctrl + Y` | Redo Action |
 | | `Ctrl/Cmd + S` | Save Document (`.ducad`) |
@@ -350,8 +388,11 @@ The Command Palette is also where the newer, less frequently used switches live:
 * [Complete User Manual](ducad-editor/docs/PANDUAN.md) — In-depth guide on how to use every tool and feature, from modeling to engineering drawings.
 * [Comparative CAD Analysis](ducad-editor/docs/ANALISIS_KOMPARATIF_CAD.md) — Comparative study of DuCAD's technical features against AutoCAD, SolidWorks, Onshape, and Shapr3D.
 * [Roadmap](ducad-editor/docs/PLAN.md) and [Phase Status](ducad-editor/docs/STATUS_FASE_A_B.md) — What is planned versus what has actually landed and been verified.
-* [Packaging Guide](ducad-editor/docs/PACKAGING.md) — Desktop bundling, and what is deliberately out of scope (signing, notarization, installers).
-* [Architecture Decision Records](ducad-editor/docs/adr/) — Why the CI gates are shaped the way they are (0001) and what the on-device AI spike actually measured (0002).
+* [Packaging Guide](ducad-editor/docs/PACKAGING.md) — Desktop bundling, and the Windows MSI installer, and what is deliberately out of scope (code signing, notarization).
+* [Capability Status Matrix](ducad-editor/docs/STATUS_KEMAMPUAN.md) — Every feature claim mapped to *stable / limited / experimental / not available*, with the test that backs it. When this README and the matrix disagree, the matrix wins.
+* [File Format Matrix](ducad-editor/docs/FORMAT_MATRIX.md) — What each format can open, create and round-trip, its units, and what is lost.
+* [Release Gate](ducad-editor/docs/GERBANG_RILIS.md) — What a release must pass, including the designer-workflow checks.
+* [Architecture Decision Records](ducad-editor/docs/adr/) — Why the CI gates are shaped the way they are (0001), what the on-device AI spike actually measured (0002), the oplog as the single modeling engine for GUI and agents (0010), and assemblies as a separate layer (0011).
 * [GUI Test Checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md) — Manual QA checklist: every GUI feature that needs to be exercised by hand, with steps and expected results.
 * [Hardware CI Guide](ducad-editor/docs/ci/README.md) — Repository layout for `*.ops.json` parts, `.gitattributes` textconv, and posting `report.md` to a PR.
 
@@ -365,9 +406,9 @@ so P5 sits last: the live bridge builds on everything before it.
 | Phase | What landed |
 |---|---|
 | P0–P1 | `ducad-engine` extracted from the app; `Op`/oplog with JSON Schema, params expressions, semantic selectors, `.ducad` v2 with a `design` field and stable body UUIDs |
-| P2–P3 | `ducad-cli` and the 20-tool `ducad-mcp` server |
+| P2–P3 | `ducad-cli` and the `ducad-mcp` server (20 tools at the time; 37 today) |
 | P4 | MNEMONIC memory vault, `AGENTS.md` conventions, the `ducad-modeling` agent skill |
-| P6 | Eval harness: ten tasks with analytic expectations + Python runner |
+| P6 | Eval harness: ten tasks with analytic expectations + Python runner (eleven today) |
 | P7 | `Check`/`CheckResult`, mesh-based minimum wall thickness, hole counting, GUI checks panel |
 | P8 | Git-friendly oplog, oplog + geometric diff, colored diff SVG, **proposal/ghost preview**, branching from history |
 | P9 | Diagnosed error codes with *verified* fix suggestions, plus the GUI error card |
@@ -416,9 +457,16 @@ out a drawing sheet, export.
   ] }
 ```
 
-Both paths run the *same* modeling code: the GUI's operations are thin adapters
-over `ducad_engine::compute`. Change a dimension by editing `params` and
-replaying — never by stacking new operations on top.
+Both paths write the *same* oplog: a modeling action in the GUI is recorded as an
+`Op` and run through the engine session, so a part modeled in the GUI replays
+headlessly and vice versa
+([ADR 0010](ducad-editor/docs/adr/0010-oplog-mesin-tunggal.md)). The exceptions are
+the GUI tools listed as not yet migrated in the Parametric History section above,
+and assemblies (instances, mates, couplings, explode steps), which are a separate
+document layer rather than ops
+([ADR 0011](ducad-editor/docs/adr/0011-assembly-lapisan-terpisah.md)). Change a
+dimension by editing `params` and replaying — never by stacking new operations on
+top.
 
 ---
 
@@ -446,7 +494,8 @@ The **Industrial Features** panel:
 | Assembly | Add gear / screw / rack-and-pinion couplings between two instances, define sequential explode steps, drag the explode factor. |
 
 Everything a panel does is stored as the same ops shown below, so a part built
-in the GUI replays headlessly and vice versa.
+in the GUI replays headlessly and vice versa — except the Assembly tab, whose
+couplings and explode steps live in the assembly layer, not in the oplog.
 
 Every snippet below is taken from a tested fixture in
 `ducad-editor/crates/ducad-engine/tests/fixtures/`: `mass_bracket`,
@@ -558,9 +607,13 @@ The base design is the reserved configuration `Default`. Via MCP:
 ducad-cli build tray.ops.json --out dist --formats step,flat   # flat = DXF flat pattern
 ```
 
-Also `hem`, `jog`, `unfold`, `fold`. Checks: `min_bend_radius {min_ratio_to_t}`,
-`min_flange_length {min}`. Limits: the base must be a straight-edged polygon, a
-flange cannot be added to another flange, and bend reliefs are not cut.
+Also `hem`, `jog`, `unfold`, `fold`, `perforate` (a grid of round holes) and
+`convert_to_sheet` (turn a flat plate solid into a sheet-metal body). An
+`edge_flange` can start from the tip edge of another flange, and takes an
+optional bend `relief` (`rect` or `obround`) that is cut in both the folded part
+and the flat pattern. The base sketch may contain holes and arcs. Checks:
+`min_bend_radius {min_ratio_to_t}`, `min_flange_length {min}`. Limits: flanges
+bend only from straight edges, and curved outlines are faceted into polygons.
 
 ### Tolerances and GD&T
 

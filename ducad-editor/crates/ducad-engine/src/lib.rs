@@ -37,6 +37,7 @@ pub mod ops;
 pub mod plane;
 pub mod profile;
 pub mod render;
+pub mod samples;
 pub mod select;
 pub mod session;
 pub mod sim;

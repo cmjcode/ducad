@@ -60,7 +60,10 @@ impl DuCADApp {
         Some(path)
     }
 
-    pub fn save_native_to(&mut self, path: PathBuf) {
+    /// Tulis dokumen ke `path` tanpa mengubah berkas aktif, status, atau
+    /// penanda tutorial (dipakai juga untuk menyisihkan dokumen kerja saat
+    /// tutorial dimulai).
+    pub(crate) fn write_native_file(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
         // Lembar gambar ikut tersimpan sebagai `design.drawings` (P21.6).
         self.capture_drawing_spec();
         if let Some(spec) = self.drawing_spec.clone() {
@@ -72,14 +75,18 @@ impl DuCADApp {
         let ordered = self.plane_ordered_sketches();
         // Datum (bidang + sketsanya, sumbu, titik) ikut tersimpan (Paritas 1.5).
         let datums = self.native_datums();
-        match ducad_io::native::save_full(
-            &path,
+        ducad_io::native::save_full(
+            path,
             &ordered,
             &body_exports,
             self.design.as_ref(),
             Some(&self.ink),
             Some(&datums),
-        ) {
+        )
+    }
+
+    pub fn save_native_to(&mut self, path: PathBuf) {
+        match self.write_native_file(&path) {
             Ok(_) => {
                 let name = path
                     .file_name()

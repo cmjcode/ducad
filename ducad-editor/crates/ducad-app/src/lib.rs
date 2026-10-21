@@ -53,6 +53,7 @@ pub mod motion_tools;
 pub mod named_views;
 pub mod model;
 pub mod modeling;
+pub mod next_action;
 pub mod onboarding_ui;
 pub mod oplog_gui;
 pub mod oplog_undo;

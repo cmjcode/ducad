@@ -281,7 +281,12 @@ mod tests {
             "/../../../scripts/memory-vault/Standards/ISO-Metric-Fasteners.md"
         );
         let table = iso_fastener_table_markdown();
-        let doc = std::fs::read_to_string(path).unwrap_or_default();
+        // Vault memori agent opsional (dihapus dari repo di cd57db0f); tanpa
+        // berkasnya tidak ada yang bisa basi.
+        let Ok(doc) = std::fs::read_to_string(path) else {
+            assert!(table.contains("| M5 | 0.80 | 4.20 | 5.5 | 10.0 | 5.4 | 11.2 |"));
+            return;
+        };
         if std::env::var_os("DUCAD_UPDATE_VAULT").is_some() {
             let begin = "<!-- tabel:mulai -->\n";
             let end = "<!-- tabel:akhir -->";

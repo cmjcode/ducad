@@ -91,10 +91,27 @@ fn welcome_card_is_visible_and_starts_the_first_lesson() {
 
     let event = click(&ctx, &mut st, &t!("onboard-chapter-beginner-start"));
     assert_eq!(event, Some(OnboardingEvent::StepChanged));
-    assert_eq!(st.step, 1);
+    assert_eq!(st.step, ducad_ui::OnboardingChapter::Beginner.first_step());
     let lesson = settle(&ctx, &mut st);
     assert!(has(&lesson, &t!("onboard-ov-topbar-title")));
     assert!(has(&lesson, &t!("onboard-ov-topbar-body")));
+}
+
+/// Step 5: proyek contoh tampil di kartu sambutan dan membuka pelajaran
+/// revisi pertamanya.
+#[test]
+fn welcome_card_offers_the_sample_project() {
+    let ctx = egui::Context::default();
+    let mut st = OnboardingState::default();
+    st.restart();
+    let shown = settle(&ctx, &mut st);
+    assert!(has(&shown, &t!("onboard-chapter-sample")));
+
+    let event = click(&ctx, &mut st, &t!("onboard-chapter-sample-start"));
+    assert_eq!(event, Some(OnboardingEvent::StepChanged));
+    assert_eq!(st.step, ducad_ui::OnboardingChapter::Sample.first_step());
+    let lesson = settle(&ctx, &mut st);
+    assert!(has(&lesson, &t!("onboard-sample-param-title")));
 }
 
 #[test]
@@ -174,20 +191,21 @@ fn every_step_renders_and_the_last_one_finishes() {
 #[test]
 fn overview_pages_advance_before_the_step_changes() {
     let ctx = egui::Context::default();
+    let overview = ducad_ui::OnboardingChapter::Beginner.first_step();
     let mut st = OnboardingState {
         open: true,
-        step: 1,
+        step: overview,
         ..Default::default()
     };
-    let pages = ONBOARDING_STEPS[1].pages.len();
+    let pages = ONBOARDING_STEPS[overview].pages.len();
     assert!(pages > 1);
     for i in 1..pages {
         assert_eq!(click(&ctx, &mut st, &t!("onboard-next")), None);
-        assert_eq!((st.step, st.page), (1, i));
+        assert_eq!((st.step, st.page), (overview, i));
     }
     assert_eq!(
         click(&ctx, &mut st, &t!("onboard-next")),
         Some(OnboardingEvent::StepChanged)
     );
-    assert_eq!((st.step, st.page), (2, 0));
+    assert_eq!((st.step, st.page), (overview + 1, 0));
 }

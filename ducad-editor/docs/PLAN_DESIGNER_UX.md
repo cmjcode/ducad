@@ -361,6 +361,15 @@ workflow produksi yang dinyatakan didukung.
 
 ### Step 5 — Onboarding, konsistensi produk, dan gerbang rilis
 
+> **Kemajuan 2026-10-21:** butir 1–5 selesai di sisi kode dan dokumen: bab
+> tutorial "Mulai cepat: proyek contoh" (bracket `ducad_engine::samples`,
+> revisi param/fitur, undo, simpan, ekspor), tutorial menyisihkan dan
+> memulihkan dokumen kerja, saran tindakan berikutnya di kanvas, README/
+> PANDUAN/STATUS diselaraskan, gerbang `scripts/release-gate.sh` + lane CI
+> `designer` yang memblokir, metrik rilis di `docs/GERBANG_RILIS.md`.
+> Terbuka: sesi uji pengguna (T0–T6) dan checklist GUI P.5. Lihat
+> `BASELINE_DESIGNER_UX.md` §8e.
+
 **Tujuan**
 
 Membantu pengguna baru mencapai hasil pertama dengan cepat dan menjaga agar
