@@ -75,7 +75,7 @@ Keadaan DUCAD sebelum ADR ini:
    start = bekas crash dan dipulihkan dengan pesan
    `file-restored-autosave-desktop`.
 6. **Penjaga layering tabel** (`ducad-core/tests/layering.rs`): tabel
-   dependensi DUCAD yang diizinkan per crate (= peta `CLAUDE.md`), crate UI
+   dependensi DUCAD yang diizinkan per crate (= peta `CLAUDE.md`, kini `CONTRIBUTING.md`), crate UI
    hanya di `glass/render/ui/app/android`, `opencascade` hanya di `kernel`.
    Menambah panah = ubah tabel + peta.
 7. **Batas jangkauan sebelum kernel.** Exception C++ OCCT yang tidak

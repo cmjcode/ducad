@@ -142,7 +142,7 @@ terhadap kernel truck).
   membaca `scripts/memory-vault/Standards/ISO-Metric-Fasteners.md` di repo
   luar, yang dihapus di commit `cd57db0f`.
 - `ducad-core/tests/layering.rs` (2 tes): crate `ducad-update` belum ada di
-  tabel layering dan peta CLAUDE.md.
+  tabel layering dan peta CLAUDE.md (kini `CONTRIBUTING.md`; diperbaiki Step 5, B5-4).
 
 ## 8a. Kemajuan Step 1 (2026-10-21)
 
@@ -244,15 +244,16 @@ Bug yang ditemukan dan ditutup di Step 5:
 | B5-1 | Tutorial bekerja di dokumen yang sedang terbuka (bab 2/3 bisa menimpa kanvas; langkah tutorial mengubah dokumen kerja) | dokumen kerja disisihkan dan dipulihkan |
 | B5-2 | Ekspor IGES ikut menyertakan body tersembunyi (sama dengan B4-1) dan tidak tercantum di matriks format | hanya body terlihat + ringkasan; `FORMAT_MATRIX.md` diperbaiki |
 | B5-3 | Label menu "STEP… (semua body)" salah sejak B4-1 | "(body terlihat)" |
+| B5-5 | README menautkan `CLAUDE.md` yang dihapus di cd57db0f; pesan tes layering menyuruh memperbarui berkas yang tidak ada | aturan keras + peta crate (diperbarui ke kernel truck, ADR 0010) di `CONTRIBUTING.md` root; semua rujukan dialihkan |
 | B5-4 | `cargo test --workspace` merah karena tes vault ISO (vault dihapus di cd57db0f) dan tabel layering tanpa `ducad-update`/`ducad-cloud → ducad-core` | tes vault dilewati bila vault tidak ada; tabel layering diperbarui |
 
 Kriteria selesai Step 5:
 
 | Kriteria | Status |
 |---|---|
-| Pengguna baru mencapai dan mengubah hasil tutorial tanpa panduan eksternal | 🟡 alur ada dan teruji otomatis; butuh sesi uji T0 |
+| Pengguna baru mencapai dan mengubah hasil tutorial tanpa panduan eksternal | 🟡 alur ada dan teruji otomatis; butuh sesi uji T0 dengan penguji manusia |
 | README, panduan, UI, status implementasi tidak bertentangan | ✅ (celah kode yang tersisa diberi label) |
-| Gate rilis mencakup tes otomatis inti dan checklist GUI | ✅ |
+| Gate rilis mencakup tes otomatis inti dan checklist GUI | ✅ gate 100 tes; checklist P.5 punya bukti otomatis per baris, tinggal konfirmasi di jendela asli |
 
 ## 9. Berkas yang ditambahkan/diubah oleh Step 0
 

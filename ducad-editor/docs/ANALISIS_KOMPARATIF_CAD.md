@@ -309,7 +309,7 @@ Perbandingan ini dipakai sebagai dasar ADR 0009.
 4. `ducad-app/src/logging.rs`: `~/.ducad/logs/ducad.log` + rotasi + panic hook.
 5. Autosave pemulihan di desktop (`App::save` selalu menulis; `on_exit`
    menghapus; start berikutnya memulihkan bila berkas tersisa).
-6. `ducad-core/tests/layering.rs`: tabel dependensi = peta crate `CLAUDE.md`.
+6. `ducad-core/tests/layering.rs`: tabel dependensi = peta crate `CONTRIBUTING.md` (dulu `CLAUDE.md`).
 7. Batas jangkauan sebelum kernel (1e-6..1e6 mm untuk panjang, ±1e9 untuk
    angka apa pun) setelah tes hostil menemukan dua exception C++ OCCT yang
    meng-abort proses.

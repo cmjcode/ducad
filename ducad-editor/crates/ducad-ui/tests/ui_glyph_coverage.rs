@@ -182,3 +182,32 @@ fn constraint_row_icons_have_glyphs() {
         .collect();
     assert!(missing.is_empty(), "ikon constraint tanpa glyph (akan tampil kotak): {missing:?}");
 }
+
+/// Ikon baru Step 5 (`PLAN_DESIGNER_UX`): bab proyek contoh di tutorial dan
+/// saran tindakan berikutnya di kanvas (P.5.5 checklist GUI).
+#[test]
+fn step5_tutorial_and_hint_icons_have_glyphs() {
+    use egui_icons::icons::*;
+
+    let ctx = egui::Context::default();
+    ducad_ui::theme::apply(&ctx, ducad_ui::theme::ThemeMode::Dark);
+    let mut warmup = ctx.run_ui(Default::default(), |_| {});
+    warmup.textures_delta.clear();
+
+    let font = egui::FontId::proportional(12.0);
+    let replacement = glyph_uv(&ctx, '\u{10FFFD}', &font);
+    let icons = [
+        ("ICON_LIGHTBULB_ON", ICON_LIGHTBULB_ON.codepoint),
+        ("ICON_CLOSE", ICON_CLOSE.codepoint),
+        ("ICON_ROCKET_LAUNCH", ICON_ROCKET_LAUNCH.codepoint),
+        ("ICON_TUNE", ICON_TUNE.codepoint),
+        ("ICON_EDIT", ICON_EDIT.codepoint),
+        ("ICON_UNDO", ICON_UNDO.codepoint),
+    ];
+    let missing: Vec<&str> = icons
+        .iter()
+        .filter(|(_, cp)| cp.chars().next().is_none_or(|c| glyph_uv(&ctx, c, &font) == replacement))
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(missing.is_empty(), "ikon tanpa glyph (akan tampil kotak): {missing:?}");
+}

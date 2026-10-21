@@ -662,7 +662,7 @@ Apache-2.0; see [ATTRIBUTION.md](ducad-editor/docs/ATTRIBUTION.md) and
 
 ## 🤝 Contributing
 
-* Read [CLAUDE.md](CLAUDE.md) first — it holds the hard rules: only
+* Read [CONTRIBUTING.md](CONTRIBUTING.md) first — it holds the hard rules: only
   `ducad-kernel` may touch the geometry kernel crates, `ducad-engine` stays free of GUI dependencies, and comments plus
   user-facing strings are written in Indonesian while identifiers stay English.
 * Do not touch `rust-toolchain.toml` or the `[patch.crates-io]` block (truck

@@ -47,7 +47,7 @@ angka manual dari ringkasan sesi `CEKLIS_UJI_GUI.md` P.4.
 
 | Rilis | Tanggal | Tugas mandiri (P.4) | Crash / error fatal (tes + sesi) | Regresi simpan/buka | Kegagalan ekspor | Catatan |
 |---|---|---|---|---|---|---|
-| (baseline Step 5) | 2026-10-21 | belum diukur (sesi uji belum dijalankan) | 0 gagal / 4 tes | 0 gagal / 19 tes | 0 gagal / 22 tes | Gate otomatis 94 tes lulus; checklist manual P.5 belum dijalankan |
+| (baseline Step 5) | 2026-10-21 | belum diukur (butuh penguji manusia) | 0 gagal / 4 tes | 0 gagal / 19 tes | 0 gagal / 25 tes | Gate otomatis 100 tes lulus; `cargo test --workspace` 1.901 lulus, 0 gagal; logika P.5 teruji otomatis, konfirmasi di jendela asli belum |
 
 Target (PLAN §6): ≥ 4 dari 5 penguji menyelesaikan proyek contoh; 0
 kehilangan pekerjaan; 0 regresi pada fixture; semua format `stabil` lulus

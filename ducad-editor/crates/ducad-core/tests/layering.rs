@@ -1,9 +1,9 @@
 //! Penjaga pelapisan crate workspace (padanan `cargo xtask layers` di
-//! CADCraft). Peta crate di `CLAUDE.md` adalah kontrak: setiap crate hanya
+//! CADCraft). Peta crate di `CONTRIBUTING.md` (root repo) adalah kontrak: setiap crate hanya
 //! boleh bergantung pada crate DUCAD yang tercantum di tabel ini, crate UI
 //! (egui/eframe/wgpu/winit/rfd) hanya boleh muncul di lapisan GUI, dan
 //! `solidcraft-*`/`truck-*` hanya di `ducad-kernel` (OpenCASCADE dilarang sejak 0.6.0). Menambah panah baru = ubah tabel
-//! ini DAN peta di `CLAUDE.md`.
+//! ini DAN peta di `CONTRIBUTING.md`.
 //!
 //! Dijalankan dari `ducad-core` karena crate ini paling bawah dan paling
 //! cepat dikompilasi; ia hanya membaca `Cargo.toml` crate lain sebagai teks.
@@ -186,7 +186,7 @@ fn every_crate_is_in_the_layer_table() {
     for (name, _) in manifests() {
         assert!(
             ALLOWED.iter().any(|(n, _)| *n == name),
-            "crate `{name}` belum ada di tabel layering (tests/layering.rs) dan peta CLAUDE.md"
+            "crate `{name}` belum ada di tabel layering (tests/layering.rs) dan peta CONTRIBUTING.md"
         );
     }
 }
@@ -206,7 +206,7 @@ fn ducad_dependencies_only_point_downward() {
             assert!(
                 allowed.contains(&dep.as_str()),
                 "`{name}` bergantung pada `{dep}`, yang tidak diizinkan tabel layering \
-                 (tambahkan panahnya di tests/layering.rs dan CLAUDE.md bila memang disengaja)"
+                 (tambahkan panahnya di tests/layering.rs dan CONTRIBUTING.md bila memang disengaja)"
             );
         }
     }

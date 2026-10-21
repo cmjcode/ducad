@@ -1146,16 +1146,20 @@ Yang dicari pengamat per tugas:
 
 ### P.5 Pemeriksaan GUI tutorial dan saran (Step 5, pengembang)
 
-Bagian yang tidak bisa diuji otomatis (render, dialog berkas, jendela asli):
+Logika setiap baris sudah diuji otomatis (kolom "Bukti otomatis", bagian dari
+`scripts/release-gate.sh`). Yang tersisa untuk manusia hanya yang butuh
+jendela asli: dialog berkas native, render di layar sungguhan, dan paksa
+keluar proses. Persiapan T0: hapus `~/.ducad/onboarding.json` (iPad: folder
+Application Support/DUCAD) agar tutorial tampil seperti pertama kali.
 
-| # | Yang diuji | Status |
-|---|---|---|
-| P5.1 | Buka berkas `.ducad` berisi model, mulai tutorial dari tombol bantuan, pilih "Buka proyek contoh": bracket contoh tampil, berkas asli tidak berubah di disk | ☐ |
-| P5.2 | Tutup tutorial (tombol tutup atau "Selesai"): dokumen tadi terbuka lagi dengan judul/path aslinya; status "Dokumen sebelum tutorial dibuka kembali." | ☐ |
-| P5.3 | Paksa keluar aplikasi di tengah tutorial, buka lagi: dokumen sebelum tutorial dipulihkan | ☐ |
-| P5.4 | Setiap langkah bab proyek contoh baru bisa dilanjutkan setelah aksinya dikerjakan (param, fitur di Pohon Fitur, undo, simpan, ekspor STEP) | ☐ |
-| P5.5 | Dokumen baru: saran "Mulai dengan menggambar profil…" tampil di bawah pil status; tombol tutupnya menyembunyikan saran sampai aplikasi dibuka lagi; ikon lampu dan tutup terender (bukan kotak) | ☐ |
-| P5.6 | Label dialog simpan ekspor menyebut satuan (STEP mm, GLB meter Y ke atas); baris status setelah ekspor menyebut jumlah body dan body tersembunyi | ☐ |
+| # | Yang diuji manual | Bukti otomatis | Status |
+|---|---|---|---|
+| P5.1 | Buka berkas `.ducad` berisi model, mulai tutorial dari tombol bantuan, pilih "Buka proyek contoh": bracket contoh tampil, berkas asli tidak berubah di disk | `onboarding_ui::tutorial_sets_aside_and_restores_the_working_document`, `onboarding_render::welcome_card_offers_the_sample_project` | ☐ |
+| P5.2 | Tutup tutorial (tombol tutup atau "Selesai"): dokumen tadi terbuka lagi dengan judul/path aslinya; status "Dokumen sebelum tutorial dibuka kembali." | idem | ☐ |
+| P5.3 | Paksa keluar aplikasi (Activity Monitor / `kill -9`) di tengah tutorial, buka lagi: dokumen sebelum tutorial dipulihkan | `onboarding_ui::stash_left_by_a_crash_is_restored_on_next_start` | ☐ |
+| P5.4 | Setiap langkah bab proyek contoh baru bisa dilanjutkan setelah aksinya dikerjakan (param, fitur di Pohon Fitur, undo, simpan, ekspor STEP); teks langkah cocok dengan tombol di layar | `onboarding_ui::sample_chapter_revises_the_tested_bracket` | ☐ |
+| P5.5 | Dokumen baru: saran "Mulai dengan menggambar profil…" tampil di bawah pil status; tombol tutupnya menyembunyikan saran sampai aplikasi dibuka lagi; ikon lampu dan tutup terender (bukan kotak) | `next_action::tests`, `next_action_render`, `ui_glyph_coverage::step5_tutorial_and_hint_icons_have_glyphs` | ☐ |
+| P5.6 | Label dialog simpan ekspor native menyebut satuan (STEP mm, GLB meter Y ke atas); baris status setelah ekspor menyebut jumlah body dan body tersembunyi | `document::tests::step_export_uses_visible_bodies_and_note_mentions_hidden`, `interop::tests::iges_skips_hidden_bodies` | ☐ |
 
 ---
 
