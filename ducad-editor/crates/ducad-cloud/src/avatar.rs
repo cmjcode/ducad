@@ -190,7 +190,7 @@ fn put_avatar(
         .map_err(|e| UploadError::Other(format!("Profil dari server tidak valid: {e}")))
 }
 
-fn refresh_session(
+pub(crate) fn refresh_session(
     agent: &ureq::Agent,
     base: &str,
     refresh_token: &str,
@@ -229,7 +229,7 @@ pub fn clear_avatar_cache() {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -295,7 +295,7 @@ mod tests {
 
     /// Server tiruan: menjawab koneksi berurutan dengan respons terskrip dan
     /// mengembalikan baris permintaan + header Authorization yang diterima.
-    fn scripted_server(responses: Vec<(u16, String)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    pub(crate) fn scripted_server(responses: Vec<(u16, String)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
         use std::io::Write;
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -343,7 +343,7 @@ mod tests {
         (url, handle)
     }
 
-    fn test_account() -> DucadAccount {
+    pub(crate) fn test_account() -> DucadAccount {
         DucadAccount {
             user_id: "u-1".into(),
             email: "a@b.c".into(),

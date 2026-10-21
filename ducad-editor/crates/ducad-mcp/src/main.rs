@@ -42,7 +42,9 @@ fn main() -> anyhow::Result<()> {
         let socket = socket.unwrap_or_else(ducad_mcp::attach::default_socket);
         ducad_mcp::server::Server::attached(root, socket)?
     } else {
-        ducad_mcp::server::Server::new(root)?
+        let mut server = ducad_mcp::server::Server::new(root)?;
+        server.tier = ducad_mcp::server::cached_license_tier();
+        server
     };
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();

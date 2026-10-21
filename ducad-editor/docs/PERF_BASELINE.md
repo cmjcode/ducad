@@ -89,3 +89,20 @@ tercapai); 10 mode frekuensi 247 s (target < 30 s, **meleset** — aljabar blok
 padat LOBPCG mendominasi). 14 rb elemen: 18 s. Ulangi dengan
 `cargo test --release -p ducad-sim --test benchmarks -- --ignored --nocapture`.
 iPad belum diukur.
+
+## 7. Alur dokumen proyek contoh (Step 0 `PLAN_DESIGNER_UX`, 2026-10-21)
+
+Apple M2, release, commit `53ecb880`. Bracket L contoh
+(`crates/ducad-engine/tests/fixtures/sample_bracket.ops.json`, 5 op). Perintah:
+`cargo test --release -p ducad-engine --test sample_project -- --ignored baseline_timings --nocapture`.
+
+| Langkah | Waktu | Target awal | Status |
+| :--- | :--- | :--- | :--- |
+| Bangun 5 op dari kosong | **1,06 s** | — | dicatat |
+| Regenerasi setelah edit satu param | **1,20–1,27 s** | ≤ 200 ms | **GAGAL** (terbuka) |
+| Buka `.ducad` (replay) | **1,13 s** | — | dicatat |
+| Simpan `.ducad` / ekspor STEP | 7–10 ms / 5 ms | — | dicatat |
+| Drawing otomatis + PDF | 70 ms | — | dicatat |
+
+Dua op `hole` memakan ±90 % waktu (±0,5–0,6 s per op). Rincian dan temuan
+lain: `docs/BASELINE_DESIGNER_UX.md` §6 (B0-7).

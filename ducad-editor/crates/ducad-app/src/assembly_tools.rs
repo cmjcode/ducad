@@ -710,7 +710,7 @@ impl DuCADApp {
         let name = format!("{} ({})", meta.name, count + 1);
         let msg = ducad_i18n::t!("asm-occurrence-copied", name = name.as_str());
         let cmd = crate::model::AddSolidCommand::new(name.clone(), BodyGeometry::from_shape(shape))
-            .with_material(meta.material.clone());
+            .with_material(meta.material);
         self.execute_model_command(Box::new(cmd), &msg);
         let new_body = self
             .model
@@ -733,140 +733,6 @@ impl DuCADApp {
         }
         self.model_status = Some(msg);
         Some(new_body)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn two_boxes() -> (DuCADApp, BodyId, BodyId) {
-        let mut app = DuCADApp::new_for_test();
-        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0; 3], [0.0; 3], false);
-        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0; 3], [30.0, 0.0, 0.0], false);
-        let ids: Vec<BodyId> = app.model.doc.bodies.iter().map(|(id, _)| id).collect();
-        app.sync_assembly_instances();
-        (app, ids[0], ids[1])
-    }
-
-    fn hit(origin: (f64, f64, f64), normal: (f64, f64, f64)) -> ducad_kernel::FaceHit {
-        ducad_kernel::FaceHit {
-            hit_point: origin,
-            centroid: origin,
-            normal,
-            surface_kind: ducad_kernel::SurfaceKind::Plane,
-            pull_dir: normal,
-            boundary_points: Vec::new(),
-            face_index: Some(0),
-            surface_radius: None,
-            radial_axis: None,
-        }
-    }
-
-    fn ray() -> ducad_kernel::PickRay {
-        ducad_kernel::PickRay {
-            origin: (0.0, 0.0, 0.0),
-            dir: (0.0, 0.0, -1.0),
-        }
-    }
-
-    fn min_x(app: &DuCADApp, b: BodyId) -> f64 {
-        app.model.geometry.get(b).unwrap().shape.bounding_box().unwrap().0[0]
-    }
-
-    #[test]
-    fn as_built_revolute_keeps_position_then_drives() {
-        let (mut app, a, b) = two_boxes();
-        app.staged_mate_targets = vec![
-            (a, ray(), hit((5.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
-            (b, ray(), hit((35.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
-        ];
-        let before = min_x(&app, b);
-        assert!(app.create_joint(JointKind::Revolute, true), "{:?}", app.model_status);
-        app.solve_and_apply_assembly();
-        assert!((min_x(&app, b) - before).abs() < 1e-6, "as-built tidak memindah");
-        let mid = *app.assembly_tree.mates.keys().next().unwrap();
-        app.set_joint_value(mid, 0, 180.0);
-        // Diputar 180° mengelilingi sumbu Z lewat (5,5): x 30..40 → -30..-20.
-        assert!((min_x(&app, b) + 30.0).abs() < 1e-3, "{}", min_x(&app, b));
-    }
-
-    #[test]
-    fn cam_follower_moves_until_contact() {
-        let (mut app, a, b) = two_boxes();
-        // Follower B (x 30..40) bergerak sepanjang X menuju cam A (x 0..10).
-        app.staged_mate_targets = vec![
-            (a, ray(), hit((10.0, 5.0, 5.0), (1.0, 0.0, 0.0))),
-            (b, ray(), hit((30.0, 5.0, 5.0), (-1.0, 0.0, 0.0))),
-        ];
-        assert!(app.create_joint(JointKind::Cam, false), "{:?}", app.model_status);
-        app.solve_and_apply_assembly();
-        let x = min_x(&app, b);
-        assert!((x - 10.0).abs() < 0.05, "follower menempel cam: {x}");
-    }
-
-    #[test]
-    fn persistence_round_trip_by_uuid() {
-        let (mut app, a, b) = two_boxes();
-        app.staged_mate_targets = vec![
-            (a, ray(), hit((5.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
-            (b, ray(), hit((35.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
-        ];
-        assert!(app.create_joint(JointKind::Slider, true));
-        for (_, body) in app.model.doc.bodies.iter_mut() {
-            if body.uuid.is_empty() {
-                body.uuid = format!("u-{}", body.name);
-            }
-        }
-        let json = app.assembly_to_json();
-        assert!(json.is_some());
-        let n_inst = app.assembly_tree.instances.len();
-        app.assembly_tree = Default::default();
-        app.assembly_from_json(json);
-        assert_eq!(app.assembly_tree.instances.len(), n_inst);
-        assert_eq!(app.assembly_tree.mates.len(), 1);
-        app.assembly_from_json(Some(serde_json::json!({"tree": "rusak"})));
-        assert!(app.assembly_tree.instances.is_empty());
-    }
-
-    #[test]
-    fn capture_revert_rename_contact_copy_active() {
-        let (mut app, a, b) = two_boxes();
-        app.capture_positions();
-        let ib = app.instance_of_body(b).unwrap();
-        let mut poses = app.instance_poses();
-        poses.get_mut(&ib).unwrap().0 = (0.0, 50.0, 0.0);
-        app.restore_instance_poses(&poses);
-        let y = app.model.geometry.get(b).unwrap().shape.bounding_box().unwrap().0[1];
-        assert!((y - 50.0).abs() < 1e-6, "{y}");
-        app.revert_positions();
-        let y = app.model.geometry.get(b).unwrap().shape.bounding_box().unwrap().0[1];
-        assert!(y.abs() < 1e-6, "{y}");
-        assert!(app.rename_component(ib, "Tutup"));
-        assert_eq!(app.model.doc.bodies.get(b).unwrap().name, "Tutup");
-        // Contact set: B didorong menembus A → ditolak.
-        app.selected_bodies = [a, b].into_iter().collect();
-        app.add_contact_set_from_selection();
-        assert_eq!(app.assembly_tree.contact_sets.len(), 1);
-        let before = app.instance_poses();
-        let mut p = before.clone();
-        p.get_mut(&ib).unwrap().0 = (-25.0, 0.0, 0.0);
-        app.restore_instance_poses(&p);
-        assert!(app.enforce_contact_sets(&before));
-        assert!((min_x(&app, b) - 30.0).abs() < 1e-6, "dikembalikan: {}", min_x(&app, b));
-        // Salin occurrence.
-        app.selected_bodies = [b].into_iter().collect();
-        let n = app.model.doc.bodies.len();
-        assert!(app.copy_occurrence([0.0, 20.0, 0.0]).is_some(), "{:?}", app.model_status);
-        assert_eq!(app.model.doc.bodies.len(), n + 1);
-        // Komponen aktif membatasi seleksi.
-        app.activate_component(Some(ib));
-        app.selected_bodies = [a, b].into_iter().collect();
-        app.enforce_active_component();
-        assert_eq!(app.selected_bodies.len(), 1);
-        app.activate_component(None);
-        app.selected_bodies = [a].into_iter().collect();
-        assert!(app.create_component_from_selection("Rangka").is_some());
     }
 }
 
@@ -1139,5 +1005,139 @@ impl DuCADApp {
         if !open {
             self.assembly_tools.open = false;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn two_boxes() -> (DuCADApp, BodyId, BodyId) {
+        let mut app = DuCADApp::new_for_test();
+        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0; 3], [0.0; 3], false);
+        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0; 3], [30.0, 0.0, 0.0], false);
+        let ids: Vec<BodyId> = app.model.doc.bodies.iter().map(|(id, _)| id).collect();
+        app.sync_assembly_instances();
+        (app, ids[0], ids[1])
+    }
+
+    fn hit(origin: (f64, f64, f64), normal: (f64, f64, f64)) -> ducad_kernel::FaceHit {
+        ducad_kernel::FaceHit {
+            hit_point: origin,
+            centroid: origin,
+            normal,
+            surface_kind: ducad_kernel::SurfaceKind::Plane,
+            pull_dir: normal,
+            boundary_points: Vec::new(),
+            face_index: Some(0),
+            surface_radius: None,
+            radial_axis: None,
+        }
+    }
+
+    fn ray() -> ducad_kernel::PickRay {
+        ducad_kernel::PickRay {
+            origin: (0.0, 0.0, 0.0),
+            dir: (0.0, 0.0, -1.0),
+        }
+    }
+
+    fn min_x(app: &DuCADApp, b: BodyId) -> f64 {
+        app.model.geometry.get(b).unwrap().shape.bounding_box().unwrap().0[0]
+    }
+
+    #[test]
+    fn as_built_revolute_keeps_position_then_drives() {
+        let (mut app, a, b) = two_boxes();
+        app.staged_mate_targets = vec![
+            (a, ray(), hit((5.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
+            (b, ray(), hit((35.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
+        ];
+        let before = min_x(&app, b);
+        assert!(app.create_joint(JointKind::Revolute, true), "{:?}", app.model_status);
+        app.solve_and_apply_assembly();
+        assert!((min_x(&app, b) - before).abs() < 1e-6, "as-built tidak memindah");
+        let mid = *app.assembly_tree.mates.keys().next().unwrap();
+        app.set_joint_value(mid, 0, 180.0);
+        // Diputar 180° mengelilingi sumbu Z lewat (5,5): x 30..40 → -30..-20.
+        assert!((min_x(&app, b) + 30.0).abs() < 1e-3, "{}", min_x(&app, b));
+    }
+
+    #[test]
+    fn cam_follower_moves_until_contact() {
+        let (mut app, a, b) = two_boxes();
+        // Follower B (x 30..40) bergerak sepanjang X menuju cam A (x 0..10).
+        app.staged_mate_targets = vec![
+            (a, ray(), hit((10.0, 5.0, 5.0), (1.0, 0.0, 0.0))),
+            (b, ray(), hit((30.0, 5.0, 5.0), (-1.0, 0.0, 0.0))),
+        ];
+        assert!(app.create_joint(JointKind::Cam, false), "{:?}", app.model_status);
+        app.solve_and_apply_assembly();
+        let x = min_x(&app, b);
+        assert!((x - 10.0).abs() < 0.05, "follower menempel cam: {x}");
+    }
+
+    #[test]
+    fn persistence_round_trip_by_uuid() {
+        let (mut app, a, b) = two_boxes();
+        app.staged_mate_targets = vec![
+            (a, ray(), hit((5.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
+            (b, ray(), hit((35.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
+        ];
+        assert!(app.create_joint(JointKind::Slider, true));
+        for (_, body) in app.model.doc.bodies.iter_mut() {
+            if body.uuid.is_empty() {
+                body.uuid = format!("u-{}", body.name);
+            }
+        }
+        let json = app.assembly_to_json();
+        assert!(json.is_some());
+        let n_inst = app.assembly_tree.instances.len();
+        app.assembly_tree = Default::default();
+        app.assembly_from_json(json);
+        assert_eq!(app.assembly_tree.instances.len(), n_inst);
+        assert_eq!(app.assembly_tree.mates.len(), 1);
+        app.assembly_from_json(Some(serde_json::json!({"tree": "rusak"})));
+        assert!(app.assembly_tree.instances.is_empty());
+    }
+
+    #[test]
+    fn capture_revert_rename_contact_copy_active() {
+        let (mut app, a, b) = two_boxes();
+        app.capture_positions();
+        let ib = app.instance_of_body(b).unwrap();
+        let mut poses = app.instance_poses();
+        poses.get_mut(&ib).unwrap().0 = (0.0, 50.0, 0.0);
+        app.restore_instance_poses(&poses);
+        let y = app.model.geometry.get(b).unwrap().shape.bounding_box().unwrap().0[1];
+        assert!((y - 50.0).abs() < 1e-6, "{y}");
+        app.revert_positions();
+        let y = app.model.geometry.get(b).unwrap().shape.bounding_box().unwrap().0[1];
+        assert!(y.abs() < 1e-6, "{y}");
+        assert!(app.rename_component(ib, "Tutup"));
+        assert_eq!(app.model.doc.bodies.get(b).unwrap().name, "Tutup");
+        // Contact set: B didorong menembus A → ditolak.
+        app.selected_bodies = [a, b].into_iter().collect();
+        app.add_contact_set_from_selection();
+        assert_eq!(app.assembly_tree.contact_sets.len(), 1);
+        let before = app.instance_poses();
+        let mut p = before.clone();
+        p.get_mut(&ib).unwrap().0 = (-25.0, 0.0, 0.0);
+        app.restore_instance_poses(&p);
+        assert!(app.enforce_contact_sets(&before));
+        assert!((min_x(&app, b) - 30.0).abs() < 1e-6, "dikembalikan: {}", min_x(&app, b));
+        // Salin occurrence.
+        app.selected_bodies = [b].into_iter().collect();
+        let n = app.model.doc.bodies.len();
+        assert!(app.copy_occurrence([0.0, 20.0, 0.0]).is_some(), "{:?}", app.model_status);
+        assert_eq!(app.model.doc.bodies.len(), n + 1);
+        // Komponen aktif membatasi seleksi.
+        app.activate_component(Some(ib));
+        app.selected_bodies = [a, b].into_iter().collect();
+        app.enforce_active_component();
+        assert_eq!(app.selected_bodies.len(), 1);
+        app.activate_component(None);
+        app.selected_bodies = [a].into_iter().collect();
+        assert!(app.create_component_from_selection("Rangka").is_some());
     }
 }

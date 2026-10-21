@@ -325,6 +325,13 @@ pub struct DuCADApp {
     pub auth_rx: Option<std::sync::mpsc::Receiver<Result<ducad_cloud::TokenResponse, String>>>,
     pub account_drawer_open: bool,
     pub account_button_rect: egui::Rect,
+    /// Cloud Sync (berkas + preferensi), lihat `cloud_ui`.
+    pub cloud: crate::cloud_ui::CloudCtl,
+    /// Preferensi pengguna yang dipersist dan disinkronkan.
+    pub prefs: crate::cloud_ui::PrefsState,
+    pub prefs_path: std::path::PathBuf,
+    /// Hanya untuk tes: paksa tier tanpa akun login.
+    pub license_override: Option<ducad_core::LicenseTier>,
     /// Foto profil akun login (dimuat di latar; kosong = inisial).
     pub avatar: crate::avatar::AvatarLoader,
     pub server_url: String,
@@ -910,7 +917,17 @@ impl DuCADApp {
             onboarding: crate::onboarding_ui::OnboardingCtl::load(),
             mobile: Default::default(),
             update: crate::update_ui::UpdateCtl::load(&cc.egui_ctx),
+            cloud: Default::default(),
+            prefs: Default::default(),
+            prefs_path: crate::cloud_ui::PrefsState::default_path(),
+            license_override: None,
         };
+        // Preferensi lokal dulu (bahasa/satuan/ikon tetap setelah restart),
+        // lalu akun: tier dan preferensi dari perangkat lain menyusul di latar.
+        app.prefs = crate::cloud_ui::PrefsState::load(&app.prefs_path);
+        let local_prefs = app.prefs.prefs.clone();
+        app.apply_user_prefs(&local_prefs);
+        app.cloud_on_login();
         app.init_mobile(cc);
         // Instans ini hasil "Mulai ulang" setelah pembaruan: dokumen sudah
         // dipulihkan dari autosave di atas, jadi ganti pesan "sesi berhenti
@@ -1270,6 +1287,13 @@ impl DuCADApp {
             onboarding: crate::onboarding_ui::OnboardingCtl::disabled(),
             mobile: Default::default(),
             update: crate::update_ui::UpdateCtl::disabled(),
+            cloud: Default::default(),
+            prefs: Default::default(),
+            // Tes tidak boleh menulis ke data_dir pengguna.
+            prefs_path: std::env::temp_dir().join(format!("ducad-test-prefs-{}.json", std::process::id())),
+            // Tes alur kerja (package, ekspor) berjalan sebagai Pro;
+            // penolakan Free diuji tersendiri di `cloud_ui`.
+            license_override: Some(ducad_core::LicenseTier::Pro),
         }
     }
 
@@ -1946,6 +1970,7 @@ impl eframe::App for DuCADApp {
             self.model_status = Some("Foto profil diperbarui.".to_string());
         }
         self.avatar.update(&ctx, self.account.as_ref());
+        self.poll_cloud(&ctx);
 
         // Poll OAuth callback receiver jika sedang dalam proses otentikasi browser
         if let Some(ref rx) = self.auth_rx {
@@ -1960,6 +1985,7 @@ impl eframe::App for DuCADApp {
                         self.auth_status = ducad_cloud::AuthStatus::LoggedIn;
                         self.model_status = Some(format!("✨ Login berhasil! Selamat datang, {}.", user_title));
                         self.auth_rx = None;
+                        self.cloud_on_login();
                     }
                     Err(err_msg) => {
                         self.auth_status = ducad_cloud::AuthStatus::Error(err_msg.clone());
@@ -2183,14 +2209,17 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::SetUnit(u) => {
                                 self.unit = u;
                                 self.model.doc.unit = u;
+                                self.user_prefs_changed();
                             }
                             TopBarEvent::SetLanguage(lang) => {
                                 self.language = lang;
                                 ducad_i18n::set_language(lang);
+                                self.user_prefs_changed();
                             }
                             TopBarEvent::SetIconSize(sz) => {
                                 self.icon_size = sz;
                                 self.left_toolbar.icon_size = sz;
+                                self.user_prefs_changed();
                             }
                             TopBarEvent::File(op) => match op {
                                 TopBarFileOp::New => self.new_document(),
@@ -2951,6 +2980,7 @@ impl eframe::App for DuCADApp {
                 self.account.as_ref(),
                 &self.auth_status,
                 self.avatar.ui_state(),
+                self.cloud_view(),
             ) {
                 match acct_ev {
                     ducad_ui::AccountDrawerEvent::Login(provider) => {
@@ -2968,6 +2998,7 @@ impl eframe::App for DuCADApp {
                         let _ = ducad_cloud::clear_account();
                         ducad_cloud::clear_avatar_cache();
                         self.account = None;
+                        self.cloud_on_logout();
                         self.auth_status = ducad_cloud::AuthStatus::LoggedOut;
                         self.model_status = Some("Berhasil keluar dari akun DUCAD.".to_string());
                     }
@@ -2978,6 +3009,7 @@ impl eframe::App for DuCADApp {
                     ducad_ui::AccountDrawerEvent::Close => {
                         self.account_drawer_open = false;
                     }
+                    cloud_ev => self.handle_cloud_event(&cloud_ev),
                 }
             }
         }
@@ -3105,7 +3137,6 @@ impl eframe::App for DuCADApp {
                         &self.activity_cache,
                         needs_regen,
                         max_drawer_h,
-                        feat_bottom_y,
                         &timeline,
                     ) {
                         match ev {

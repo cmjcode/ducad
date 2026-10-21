@@ -23,6 +23,7 @@ pub mod chat_ui;
 pub mod checks_ui;
 pub mod clipboard;
 pub mod closed_objects;
+pub mod cloud_ui;
 pub mod constraint_glyphs;
 pub mod crash_reports;
 pub mod datum_tools;

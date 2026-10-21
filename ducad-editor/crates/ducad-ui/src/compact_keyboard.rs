@@ -711,7 +711,10 @@ mod tests {
         let mut text = String::new();
         // Frame pertama: fokuskan TextEdit.
         ctx.run_ui(RawInput { screen_rect: Some(screen()), ..Default::default() }, |ui| {
-            ui.add(egui::TextEdit::singleline(&mut text).desired_width(80.0)).request_focus();
+            let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(80.0));
+            if !r.has_focus() {
+                r.request_focus();
+            }
         })
         .textures_delta
         .clear();

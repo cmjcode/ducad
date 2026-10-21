@@ -88,11 +88,18 @@ pub struct DucadAccount {
     pub license_tier: String,
 }
 
+/// Sesi lama tanpa field `license_tier` → `Free` (gagal menutup). Tier yang
+/// sebenarnya dimuat ulang dari server saat aplikasi start.
 fn default_tier() -> String {
-    "Pro".to_string()
+    "Free".to_string()
 }
 
 impl DucadAccount {
+    /// Tier lisensi terketik untuk pembatasan fitur.
+    pub fn tier(&self) -> ducad_core::LicenseTier {
+        ducad_core::LicenseTier::parse(&self.license_tier)
+    }
+
     pub fn is_token_expired(&self) -> bool {
         let now = Utc::now().timestamp();
         // Buffer 60 detik sebelum benar-benar expired

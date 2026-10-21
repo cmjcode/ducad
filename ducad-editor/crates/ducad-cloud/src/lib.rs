@@ -7,7 +7,10 @@
 pub mod auth;
 pub mod avatar;
 pub mod client;
+pub mod sync;
 pub mod types;
+
+pub use sync::{CloudFile, CloudSession, FileList, RemotePrefs, SyncError};
 
 pub use avatar::{clear_avatar_cache, fetch_avatar, upload_avatar};
 pub use auth::{clear_account, load_account, open_url, save_account, session_file_path, start_oauth_flow, token_to_account};

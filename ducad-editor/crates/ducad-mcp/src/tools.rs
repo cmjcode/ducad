@@ -651,6 +651,9 @@ pub fn call_out(server: &mut Server, name: &str, arguments: Value) -> ToolOut {
     if let Some(attach) = server.attach.as_mut() {
         return attach.call(name, arguments);
     }
+    if let Err(e) = ducad_engine::tooling::check_tool_license(name, &arguments, server.tier) {
+        return ToolOut::err(e);
+    }
     // Pagar panik (ADR 0009): panik di tool mana pun menjadi error `internal`,
     // bukan server yang mati di tengah sesi agent.
     ducad_engine::guard::catch_op_panic(&format!("tool {name}"), || {

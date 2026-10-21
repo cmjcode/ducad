@@ -797,7 +797,7 @@ pub fn plate_from_solid(
     };
     model.validate().map_err(|e| not_plate(&e))?;
     let (want, got) = (shape.volume(), model.folded_volume());
-    if !(want > 0.0) || ((got - want) / want).abs() > 0.01 {
+    if want.is_nan() || want <= 0.0 || ((got - want) / want).abs() > 0.01 {
         return Err(not_plate(&format!(
             "volume pelat hasil deteksi {got:.1} mm³ ≠ volume solid {want:.1} mm³ (ada tekukan, fitur, atau lubang non-lingkaran)"
         )));

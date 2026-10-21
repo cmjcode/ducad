@@ -467,9 +467,10 @@ fn open_url_impl(_url: &str) -> Result<(), String> {
 
 /// Tier yang dipakai bila server tidak menyebutkan `license_tier`.
 ///
-/// Nilainya sama dengan yang dulu di-hardcode di sini, supaya sesi terhadap
-/// server lama tetap tampil seperti sebelumnya alih-alih mendadak turun tier.
-const FALLBACK_LICENSE_TIER: &str = "Pro";
+/// `Free`, karena tier kini membuka fitur (`ducad_core::license`): nilai
+/// yang tidak diketahui harus gagal menutup. `ducad-server` selalu mengirim
+/// tier-nya, jadi bawaan ini hanya berlaku untuk server lama.
+const FALLBACK_LICENSE_TIER: &str = "Free";
 
 /// Mengonversi TokenResponse dari server menjadi model DucadAccount lokal
 pub fn token_to_account(resp: &TokenResponse) -> DucadAccount {
@@ -685,8 +686,8 @@ mod tests {
         let account = token_to_account(&resp);
         assert_eq!(account.user_id, "usr_1");
         assert_eq!(account.email, "teknisi@ducad.app");
-        // Fixture tidak menyebut license_tier: pakai nilai bawaan.
-        assert_eq!(account.license_tier, "Pro");
+        // Fixture tidak menyebut license_tier: pakai nilai bawaan (gagal menutup).
+        assert_eq!(account.license_tier, "Free");
         assert!(!account.is_token_expired());
     }
 
@@ -705,6 +706,6 @@ mod tests {
         let mut json = token_json();
         json["user"]["license_tier"] = serde_json::json!("   ");
         let resp: TokenResponse = serde_json::from_value(json).expect("fixture harus valid");
-        assert_eq!(token_to_account(&resp).license_tier, "Pro");
+        assert_eq!(token_to_account(&resp).license_tier, "Free");
     }
 }

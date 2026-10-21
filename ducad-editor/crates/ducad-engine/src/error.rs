@@ -70,6 +70,10 @@ pub enum OpErrorCode {
     DrawingSectionEmpty,
     /// Dua potongan memakai huruf label yang sama.
     DrawingSectionLabelDup,
+    // ---- lisensi ----
+    /// Fitur membutuhkan tier lisensi yang lebih tinggi (lihat
+    /// `ducad_core::license`). Bukan galat parameter: jangan diulang.
+    LicenseRequired,
     // ---- pagar panik ----
     /// A panic inside DUCAD was caught (`guard`); the batch was rolled back. This is a DUCAD bug,
     /// not a parameter error.

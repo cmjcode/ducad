@@ -124,7 +124,7 @@ pub fn list_in(dir: &Path) -> Vec<RecoveryEntry> {
             })
         })
         .collect();
-    out.sort_by(|a, b| b.meta.saved_at.cmp(&a.meta.saved_at));
+    out.sort_by_key(|e| std::cmp::Reverse(e.meta.saved_at));
     out
 }
 

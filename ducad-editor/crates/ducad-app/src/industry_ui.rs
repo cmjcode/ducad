@@ -916,6 +916,33 @@ impl DuCADApp {
     }
 }
 
+impl DuCADApp {
+    /// Paritas 4.11: pratinjau konfigurasi `name` tanpa mengaktifkan —
+    /// ringkasan perubahan volume per body di status.
+    pub fn preview_configuration(&mut self, name: &str) {
+        self.sync_agent_meta();
+        match ducad_engine::preview_configuration(&self.model, &self.agent_meta.design, name) {
+            Ok(pv) => {
+                let changed: Vec<String> = pv
+                    .diff
+                    .iter()
+                    .filter(|d| d.status != "unchanged")
+                    .map(|d| match (d.volume_old, d.volume_new) {
+                        (Some(a), Some(b)) => format!("{} {:.0} -> {:.0} mm3", d.name, a, b),
+                        _ => format!("{} ({})", d.name, d.status),
+                    })
+                    .collect();
+                self.model_status = Some(if changed.is_empty() {
+                    ducad_i18n::t!("ind-cfg-preview-same", name = name)
+                } else {
+                    ducad_i18n::t!("ind-cfg-preview-result", name = name, changes = changed.join("; "))
+                });
+            }
+            Err(e) => self.model_status = Some(e.message),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1235,32 +1262,5 @@ mod tests {
         );
         let item: ducad_engine::check::CheckItem = serde_json::from_value(value).unwrap();
         assert_eq!(item.id.as_deref(), Some("stackup1"));
-    }
-}
-
-impl DuCADApp {
-    /// Paritas 4.11: pratinjau konfigurasi `name` tanpa mengaktifkan —
-    /// ringkasan perubahan volume per body di status.
-    pub fn preview_configuration(&mut self, name: &str) {
-        self.sync_agent_meta();
-        match ducad_engine::preview_configuration(&self.model, &self.agent_meta.design, name) {
-            Ok(pv) => {
-                let changed: Vec<String> = pv
-                    .diff
-                    .iter()
-                    .filter(|d| d.status != "unchanged")
-                    .map(|d| match (d.volume_old, d.volume_new) {
-                        (Some(a), Some(b)) => format!("{} {:.0} -> {:.0} mm3", d.name, a, b),
-                        _ => format!("{} ({})", d.name, d.status),
-                    })
-                    .collect();
-                self.model_status = Some(if changed.is_empty() {
-                    ducad_i18n::t!("ind-cfg-preview-same", name = name)
-                } else {
-                    ducad_i18n::t!("ind-cfg-preview-result", name = name, changes = changed.join("; "))
-                });
-            }
-            Err(e) => self.model_status = Some(e.message),
-        }
     }
 }

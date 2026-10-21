@@ -112,7 +112,8 @@ pub fn revolve_sheet(
     if sweep.abs() < 1e-6 || sweep.abs() > 360.0 + 1e-9 {
         bail!("sudut revolve permukaan harus 0 < |sudut| ≤ 360");
     }
-    if !(axis_dir.0.hypot(axis_dir.1) > 1e-9) {
+    let axis_len = axis_dir.0.hypot(axis_dir.1);
+    if axis_len.is_nan() || axis_len <= 1e-9 {
         bail!("arah sumbu revolve tidak boleh nol");
     }
     let (plane, curves, scale) = plane_and_curves(frame, chains)?;

@@ -2136,6 +2136,32 @@ pub fn call_core_tool(
     })
 }
 
+/// Fitur berlisensi yang dibutuhkan tool `name` dengan argumen `a`, atau
+/// `None` bila tool itu bebas. Dipakai host (server MCP, jembatan agent GUI)
+/// sebelum menjalankan tool — engine sendiri tidak tahu tier pengguna.
+pub fn tool_required_feature(name: &str, a: &Value) -> Option<ducad_core::Feature> {
+    let format = || a.get("format").and_then(Value::as_str).unwrap_or_default();
+    match name {
+        "build_package" | "submit_for_review" => Some(ducad_core::Feature::DesignPackage),
+        // `export` (STEP/STL/OBJ/GLB) dan `drawing` (PDF/SVG/DXF) memakai
+        // nama format yang sama dengan ekstensi berkasnya.
+        "export" | "drawing" => ducad_core::Feature::for_export_extension(format()),
+        _ => None,
+    }
+}
+
+/// Tolak tool berlisensi bila `tier` tidak mencukupi.
+pub fn check_tool_license(name: &str, a: &Value, tier: ducad_core::LicenseTier) -> OpResult<()> {
+    match tool_required_feature(name, a) {
+        Some(feature) if !tier.allows(feature) => Err(OpError::new(
+            OpErrorCode::LicenseRequired,
+            feature.locked_message(),
+        )
+        .with_hint("do not retry; tell the user this needs DUCAD Pro, or use a free format (STL/OBJ/GLB/SVG)")),
+        _ => Ok(()),
+    }
+}
+
 /// Tool tanpa state sesi (`get_schema`), di balik pagar panik yang sama.
 pub fn call_stateless_tool(name: &str, a: Value) -> OpResult<ToolOut> {
     crate::guard::catch_op_panic(&format!("tool {name}"), || {
@@ -2146,6 +2172,23 @@ pub fn call_stateless_tool(name: &str, a: Value) -> OpResult<ToolOut> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn licensed_tools_are_mapped_and_free_tier_is_refused() {
+        use ducad_core::{Feature, LicenseTier};
+        assert_eq!(tool_required_feature("build_package", &json!({})), Some(Feature::DesignPackage));
+        assert_eq!(tool_required_feature("submit_for_review", &json!({})), Some(Feature::DesignPackage));
+        assert_eq!(tool_required_feature("export", &json!({"format":"step"})), Some(Feature::ExportStep));
+        assert_eq!(tool_required_feature("export", &json!({"format":"stl"})), None);
+        assert_eq!(tool_required_feature("drawing", &json!({"format":"PDF"})), Some(Feature::ExportPdfDrawing));
+        assert_eq!(tool_required_feature("drawing", &json!({"format":"svg"})), None);
+        assert_eq!(tool_required_feature("simulate_static", &json!({})), None);
+
+        let err = check_tool_license("build_package", &json!({}), LicenseTier::Free).unwrap_err();
+        assert_eq!(err.code, OpErrorCode::LicenseRequired);
+        assert!(check_tool_license("build_package", &json!({}), LicenseTier::Pro).is_ok());
+        assert!(check_tool_license("run_ops", &json!({}), LicenseTier::Free).is_ok());
+    }
 
     #[test]
     fn oversized_text_is_truncated() {

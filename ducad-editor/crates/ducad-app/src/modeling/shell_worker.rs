@@ -39,7 +39,7 @@ pub(crate) struct ShellJob {
 
 /// Hasil compute: geometri baru, atau galat beserta kandidat perbaikan
 /// yang sudah diverifikasi (di thread yang sama, bukan di UI).
-pub(crate) type ShellOutcome = Result<BodyGeometry, (OpError, Vec<GuiFix>)>;
+pub(crate) type ShellOutcome = Result<BodyGeometry, Box<(OpError, Vec<GuiFix>)>>;
 
 /// Job yang sedang berjalan di thread latar.
 pub struct PendingShell {
@@ -64,7 +64,7 @@ pub(crate) fn compute_shell_job(shape: &KernelShape, job: &ShellJob) -> ShellOut
         Ok(geo) => Ok(geo),
         Err(e) => {
             let fixes = shell_fix_values(shape, &e, job.thickness, job.depth, &pick);
-            Err((e, fixes))
+            Err(Box::new((e, fixes)))
         }
     }
 }
@@ -171,7 +171,8 @@ impl DuCADApp {
                 }
                 self.model_status = done_status;
             }
-            Err((e, fixes)) => {
+            Err(failure) => {
+                let (e, fixes) = *failure;
                 self.model_status = Some(crate::modeling::operations::op_status("Shell", &e));
                 let fixes: Vec<(String, GuiFix)> =
                     fixes.into_iter().map(|f| (shell_fix_label(&f), f)).collect();

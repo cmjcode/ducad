@@ -59,7 +59,7 @@ pub use vector::{
     PropertiesPanelEvent, PropertiesPanelState, PropertyVal, StyleDiff, SwatchManager,
 };
 
-pub use account_drawer::{paint_avatar, AccountAvatar, AccountDrawer, AccountDrawerEvent};
+pub use account_drawer::{paint_avatar, AccountAvatar, AccountDrawer, AccountDrawerEvent, CloudView};
 pub use assembly_drawer::{AssemblyDrawer, AssemblyDrawerEvent};
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, ChainHudAction, DatumPlaneHudAction,

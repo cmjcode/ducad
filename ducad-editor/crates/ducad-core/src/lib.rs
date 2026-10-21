@@ -61,6 +61,9 @@ pub use assembly::{
     MotionStudy, SubAssembly, SubAssemblyId,
 };
 
+pub mod license;
+pub use license::{Feature, LicenseTier};
+
 pub mod iso286;
 pub use iso286::IsoFit;
 

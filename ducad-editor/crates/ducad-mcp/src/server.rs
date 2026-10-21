@@ -37,6 +37,29 @@ pub struct Server {
     /// Mode `--attach` (P5.2): tool diteruskan ke aplikasi yang terbuka
     /// dan server ini tidak memiliki sesi sendiri.
     pub attach: Option<crate::attach::AttachClient>,
+    /// Tier lisensi pengguna. Bawaan `Free` (gagal menutup); `main` dan
+    /// `ducad-cli chat` mengisinya dari sesi login aplikasi lewat
+    /// [`cached_license_tier`]. Tidak dipakai di mode attach: aplikasi yang
+    /// menerima tool menegakkan tier-nya sendiri.
+    pub tier: ducad_engine::LicenseTier,
+}
+
+/// Tier dari sesi login aplikasi DUCAD (`~/.ducad/session.json`, ditulis
+/// `ducad-cloud`). Tidak login, berkas rusak, atau tier tak dikenal → `Free`.
+pub fn cached_license_tier() -> ducad_engine::LicenseTier {
+    let Some(home) = dirs::home_dir() else {
+        return ducad_engine::LicenseTier::Free;
+    };
+    std::fs::read_to_string(home.join(".ducad").join("session.json"))
+        .map(|text| license_tier_from_session_json(&text))
+        .unwrap_or_default()
+}
+
+fn license_tier_from_session_json(text: &str) -> ducad_engine::LicenseTier {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|v| v.get("license_tier")?.as_str().map(ducad_engine::LicenseTier::parse))
+        .unwrap_or_default()
 }
 
 /// Pagar path berbasis satu direktori root.
@@ -92,6 +115,7 @@ impl Server {
             next_id: 1,
             root,
             attach: None,
+            tier: ducad_engine::LicenseTier::Free,
         })
     }
 
@@ -526,7 +550,33 @@ mod tests {
             std::thread::current().id()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        (Server::new(dir.clone()).unwrap(), dir)
+        let mut s = Server::new(dir.clone()).unwrap();
+        // Tes alur kerja penuh (package, ekspor STEP) memakai tier Pro;
+        // penolakan Free diuji tersendiri.
+        s.tier = ducad_engine::LicenseTier::Pro;
+        (s, dir)
+    }
+
+    #[test]
+    fn free_tier_is_refused_licensed_tools_with_license_required() {
+        let (mut s, _dir) = server();
+        s.tier = ducad_engine::LicenseTier::Free;
+        let _ = call(&mut s, 1, "new_part", json!({}));
+        let r = call(&mut s, 2, "build_package", json!({ "path": "x.pdf" }));
+        assert_eq!(r["isError"], true);
+        let text = r["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("license_required"), "{text}");
+        let r = call(&mut s, 3, "export", json!({ "format": "step", "path": "x.step" }));
+        assert_eq!(r["isError"], true);
+    }
+
+    #[test]
+    fn license_tier_is_read_from_session_json_and_fails_closed() {
+        use ducad_engine::LicenseTier;
+        assert_eq!(license_tier_from_session_json(r#"{"license_tier":"Pro"}"#), LicenseTier::Pro);
+        assert_eq!(license_tier_from_session_json(r#"{"license_tier":"Free"}"#), LicenseTier::Free);
+        assert_eq!(license_tier_from_session_json(r#"{}"#), LicenseTier::Free);
+        assert_eq!(license_tier_from_session_json("rusak"), LicenseTier::Free);
     }
 
     fn call(s: &mut Server, id: u64, name: &str, args: Value) -> Value {

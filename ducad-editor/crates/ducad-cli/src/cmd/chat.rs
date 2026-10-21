@@ -86,6 +86,7 @@ pub fn exec(a: Args) -> CliResult {
         None => std::env::current_dir().map_err(|e| CliError::usage(e.to_string()))?,
     };
     let mut server = Server::new(root).map_err(|e| CliError::usage(e.to_string()))?;
+    server.tier = ducad_mcp::server::cached_license_tier();
     let opened = match &a.part {
         Some(p) => ducad_mcp::tools::call_out(
             &mut server,

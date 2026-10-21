@@ -163,7 +163,6 @@ impl FeatureTreeDrawer {
         activities: &[ActivityItemInfo],
         needs_regen: bool,
         max_height: f32,
-        _anchor_bottom_y: f32,
         timeline: &TimelineInfo<'_>,
     ) -> Option<FeatureTreeEvent> {
         let mut event = None;
@@ -569,7 +568,9 @@ impl FeatureTreeDrawer {
                                                                 .desired_width(110.0)
                                                                 .font(egui::FontId::proportional(10.5)),
                                                         );
-                                                        r.request_focus();
+                                                        if !r.has_focus() {
+                                                            r.request_focus();
+                                                        }
                                                         if r.lost_focus() {
                                                             let name = text.clone();
                                                             let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));

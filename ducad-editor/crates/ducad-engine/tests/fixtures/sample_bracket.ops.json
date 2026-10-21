@@ -1,0 +1,32 @@
+{ "params": {"len": 60, "base": 40, "height": 35, "t": 5, "r": 3, "hole_off": 15},
+  "ops": [
+    {"op":"sketch","id":"profile","plane":"XZ","entities":[
+      {"line":{"from":[0,0],"to":[38,0],"name":"bottom"}},
+      {"line":{"from":[38,0],"to":[38,6],"name":"toe"}},
+      {"line":{"from":[38,6],"to":[6,6],"name":"base_top"}},
+      {"line":{"from":[6,6],"to":[6,33],"name":"wall_in"}},
+      {"line":{"from":[6,33],"to":[0,33],"name":"wall_top"}},
+      {"line":{"from":[0,33],"to":[0,0],"name":"back"}}],
+     "constraints":[
+      {"coincident":["bottom.end","toe.start"]},
+      {"coincident":["toe.end","base_top.start"]},
+      {"coincident":["base_top.end","wall_in.start"]},
+      {"coincident":["wall_in.end","wall_top.start"]},
+      {"coincident":["wall_top.end","back.start"]},
+      {"coincident":["back.end","bottom.start"]},
+      {"horizontal":"bottom"},
+      {"horizontal":"base_top"},
+      {"horizontal":"wall_top"},
+      {"vertical":"toe"},
+      {"vertical":"wall_in"},
+      {"vertical":"back"},
+      {"fixed":{"point":"bottom.start","at":[0,0]}},
+      {"distance":{"a":"bottom.start","b":"bottom.end","value":"$base"}},
+      {"distance":{"a":"back.start","b":"back.end","value":"$height"}},
+      {"distance":{"a":"toe.start","b":"toe.end","value":"$t"}},
+      {"distance":{"a":"wall_top.start","b":"wall_top.end","value":"$t"}}]},
+    {"op":"extrude","id":"bracket","sketch":"profile","distance":"$len"},
+    {"op":"fillet","id":"inner_fillet","body":"bracket","edges":"of(+Z except >Z) and of(+X except >X)","radius":"$r"},
+    {"op":"hole","id":"base_holes","body":"bracket","face":"+Z except >Z","at_world":[["$t + ($base - $t)/2","-$hole_off",0],["$t + ($base - $t)/2","$hole_off - $len",0]],"spec":{"iso":"M5"}},
+    {"op":"hole","id":"wall_holes","body":"bracket","face":"-X","at_world":[[0,"-$hole_off","$t + ($height - $t)/2"],[0,"$hole_off - $len","$t + ($height - $t)/2"]],"spec":{"iso":"M5"}}
+  ] }

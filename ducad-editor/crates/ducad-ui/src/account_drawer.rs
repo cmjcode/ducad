@@ -1,13 +1,15 @@
 //! Panel Popup & Pengaturan Akun DUCAD / Cloud Sync untuk DUCAD.
 
-use ducad_cloud::{AuthStatus, DucadAccount, OAuthProvider};
+use ducad_cloud::{AuthStatus, DucadAccount, FileList, OAuthProvider};
+use ducad_core::{Feature, LicenseTier};
 use egui::{
     Align, Align2, Area, Color32, CornerRadius, Frame, Layout, Margin, Order, Pos2, Rect,
     RichText, Sense, Stroke, TextureHandle, Ui, Vec2,
 };
 use egui_icons::icons::{
-    ICON_ADD_A_PHOTO, ICON_APPLE, ICON_CHECK, ICON_CLOSE, ICON_CLOUD, ICON_GITHUB, ICON_GOOGLE, ICON_LOGOUT,
-    ICON_SYNC,
+    ICON_ADD_A_PHOTO, ICON_APPLE, ICON_CHECK, ICON_CLOSE, ICON_CLOUD, ICON_CLOUD_DOWNLOAD,
+    ICON_CLOUD_UPLOAD, ICON_DELETE, ICON_GITHUB, ICON_GOOGLE, ICON_LOCK, ICON_LOGOUT,
+    ICON_REFRESH, ICON_SYNC, ICON_WARNING, ICON_WORKSPACE_PREMIUM,
 };
 
 use crate::theme::{
@@ -63,6 +65,28 @@ pub struct AccountAvatar<'a> {
     pub error: Option<&'a str>,
 }
 
+/// Keadaan Cloud Sync dan lisensi yang ditampilkan popup Akun. Semua data
+/// dimiliki aplikasi; popup hanya menggambar dan mengembalikan event.
+#[derive(Clone, Copy, Default)]
+pub struct CloudView<'a> {
+    /// Tier efektif akun (Free bila tidak login).
+    pub tier: LicenseTier,
+    /// Daftar berkas terakhir dari server; `None` = belum dimuat.
+    pub files: Option<&'a FileList>,
+    /// Ada permintaan ke server yang sedang berjalan.
+    pub busy: bool,
+    /// Pesan hasil operasi terakhir.
+    pub status: Option<&'a str>,
+    pub status_is_error: bool,
+    /// Nama berkas dokumen yang terbuka bila sudah disimpan ke disk;
+    /// `None` = tombol unggah dinonaktifkan.
+    pub current_document: Option<&'a str>,
+    /// Unggahan `name` ditolak karena versi di cloud lebih baru.
+    pub conflict: Option<&'a str>,
+    /// Id berkas yang menunggu konfirmasi hapus.
+    pub confirm_delete: Option<&'a str>,
+}
+
 /// Event yang dihasilkan oleh `AccountDrawer`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountDrawerEvent {
@@ -72,6 +96,21 @@ pub enum AccountDrawerEvent {
     Logout,
     CancelLogin,
     Close,
+    /// Muat ulang daftar berkas cloud dan tier akun.
+    CloudRefresh,
+    /// Unggah dokumen yang sedang terbuka.
+    CloudUploadCurrent,
+    /// Unduh berkas `id` lalu buka.
+    CloudOpen(String),
+    /// Minta konfirmasi hapus berkas `id`.
+    CloudDelete(String),
+    CloudDeleteConfirm,
+    CloudDeleteCancel,
+    /// Konflik: timpa versi cloud dengan versi perangkat ini.
+    CloudConflictOverwrite,
+    /// Konflik: unggah sebagai salinan bernama baru.
+    CloudConflictSaveCopy,
+    CloudConflictDismiss,
 }
 
 pub struct AccountDrawer;
@@ -84,6 +123,7 @@ impl AccountDrawer {
         account: Option<&DucadAccount>,
         auth_status: &AuthStatus,
         avatar: AccountAvatar<'_>,
+        cloud: CloudView<'_>,
     ) -> Option<AccountDrawerEvent> {
         let mut event = None;
 
@@ -143,7 +183,7 @@ impl AccountDrawer {
                             }
                             _ => {
                                 if let Some(acc) = account {
-                                    Self::render_logged_in(ui, acc, avatar, &mut event);
+                                    Self::render_logged_in(ui, acc, avatar, cloud, &mut event);
                                 } else {
                                     Self::render_logged_out(ui, &mut event);
                                 }
@@ -168,6 +208,7 @@ impl AccountDrawer {
         ui: &mut Ui,
         account: &DucadAccount,
         avatar: AccountAvatar<'_>,
+        cloud: CloudView<'_>,
         event: &mut Option<AccountDrawerEvent>,
     ) {
         // Unggah foto hanya ditawarkan bila akun memang tidak punya foto
@@ -248,52 +289,9 @@ impl AccountDrawer {
         }
 
         ui.add_space(10.0);
-
-        // Badge status & lisensi. Tint dibuat dengan `gamma_multiply` dari
-        // warna opak (hasilnya premultiplied yang benar). Jangan pakai
-        // `from_rgba_premultiplied` dengan RGB > alpha: egui menganggapnya
-        // aditif sehingga badge tampil sebagai blok cyan menyala.
-        Frame::new()
-            .fill(ACCENT_BLUE.gamma_multiply(0.14))
-            .corner_radius(CornerRadius::same(6))
-            .stroke(Stroke::new(1.0, ACCENT_BLUE.gamma_multiply(0.45)))
-            .inner_margin(Margin::symmetric(10, 6))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    let (dot, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                    ui.painter().circle_filled(dot.center(), 3.5, ACCENT_GREEN);
-                    ui.label(
-                        RichText::new(format!("Ducad {} Tier — Cloud Active", account.license_tier))
-                            .size(11.5)
-                            .strong()
-                            .color(TEXT_PRIMARY),
-                    );
-                });
-            });
-
+        Self::render_tier(ui, cloud.tier);
         ui.add_space(10.0);
-
-        // Daftar fitur
-        ui.label(
-            RichText::new("Fitur Cloud Terhubung:")
-                .size(11.0)
-                .strong()
-                .color(TEXT_SECONDARY),
-        );
-        ui.add_space(2.0);
-        for feature in [
-            "Sinkronisasi Proyek CAD Cloud",
-            "Riwayat Versi & Rollback",
-            "Standard Parts & Fastener Catalog",
-        ] {
-            ui.horizontal(|ui| {
-                ui.add_space(4.0);
-                ui.label(RichText::new(ICON_CHECK.codepoint).size(12.0).color(ACCENT_GREEN));
-                ui.label(RichText::new(feature).size(11.0).color(TEXT_PRIMARY));
-            });
-        }
-
+        Self::render_cloud(ui, cloud, event);
         ui.add_space(12.0);
 
         // Tombol keluar: gaya destruktif sekunder — isi merah tipis, teks
@@ -316,9 +314,229 @@ impl AccountDrawer {
         }
     }
 
+    /// Kartu tier: nama tier, lalu fitur Pro yang terbuka atau terkunci.
+    /// Tidak ada ajakan membeli di sini: build App Store hanya boleh menjual
+    /// lewat In-App Purchase (Guideline 3.1.1), dan pembayaran belum ada.
+    fn render_tier(ui: &mut Ui, tier: LicenseTier) {
+        let pro = tier == LicenseTier::Pro;
+        let accent = if pro { ACCENT_GREEN } else { ACCENT_BLUE };
+        // Tint dibuat dengan `gamma_multiply` dari warna opak (hasilnya
+        // premultiplied yang benar). Jangan pakai `from_rgba_premultiplied`
+        // dengan RGB > alpha: egui menganggapnya aditif sehingga badge
+        // tampil sebagai blok menyala.
+        Frame::new()
+            .fill(accent.gamma_multiply(0.14))
+            .corner_radius(CornerRadius::same(6))
+            .stroke(Stroke::new(1.0, accent.gamma_multiply(0.45)))
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    RichText::new(format!("{}  DUCAD {}", ICON_WORKSPACE_PREMIUM.codepoint, tier.as_str()))
+                        .size(12.0)
+                        .strong()
+                        .color(TEXT_PRIMARY),
+                );
+                ui.add_space(2.0);
+                for feature in Feature::ALL {
+                    let (icon, color) = if tier.allows(feature) {
+                        (ICON_CHECK.codepoint, ACCENT_GREEN)
+                    } else {
+                        (ICON_LOCK.codepoint, TEXT_SECONDARY)
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(icon).size(11.0).color(color));
+                        ui.label(RichText::new(feature.label()).size(10.5).color(TEXT_PRIMARY));
+                    });
+                }
+                if !pro {
+                    ui.add_space(2.0);
+                    ui.label(
+                        RichText::new("Fitur bertanda gembok tersedia di DUCAD Pro.")
+                            .size(10.5)
+                            .color(TEXT_SECONDARY),
+                    );
+                }
+            });
+    }
+
+    /// Bagian Cloud Sync: kuota, daftar berkas, unggah dokumen aktif, dan
+    /// penyelesaian konflik.
+    fn render_cloud(ui: &mut Ui, cloud: CloudView<'_>, event: &mut Option<AccountDrawerEvent>) {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("{}  Cloud Sync", ICON_CLOUD.codepoint))
+                    .size(12.0)
+                    .strong()
+                    .color(TEXT_PRIMARY),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let refresh = ui.add_enabled(
+                    !cloud.busy,
+                    egui::Button::new(RichText::new(ICON_REFRESH.codepoint).size(13.0).color(TEXT_SECONDARY))
+                        .frame(false),
+                );
+                if refresh.on_hover_text("Muat ulang").clicked() {
+                    *event = Some(AccountDrawerEvent::CloudRefresh);
+                }
+                if cloud.busy {
+                    ui.label(RichText::new(ICON_SYNC.codepoint).size(12.0).color(ACCENT_BLUE));
+                }
+            });
+        });
+
+        if let Some(list) = cloud.files {
+            ui.label(
+                RichText::new(format!(
+                    "{} dari {} - {} / {} berkas",
+                    human_bytes(list.used_bytes),
+                    human_bytes(list.quota_bytes),
+                    list.files.len(),
+                    list.max_files
+                ))
+                .size(10.5)
+                .color(TEXT_SECONDARY),
+            );
+            let frac = if list.quota_bytes == 0 {
+                0.0
+            } else {
+                (list.used_bytes as f32 / list.quota_bytes as f32).clamp(0.0, 1.0)
+            };
+            ui.add(egui::ProgressBar::new(frac).desired_height(4.0));
+        }
+
+        ui.add_space(6.0);
+        let upload_label = match cloud.current_document {
+            Some(name) => format!("{}  Unggah {}", ICON_CLOUD_UPLOAD.codepoint, name),
+            None => format!("{}  Simpan dokumen dulu untuk mengunggah", ICON_CLOUD_UPLOAD.codepoint),
+        };
+        let upload = ui.add_enabled(
+            cloud.current_document.is_some() && !cloud.busy,
+            egui::Button::new(RichText::new(upload_label).size(11.5).color(TEXT_PRIMARY))
+                .truncate()
+                .fill(BG_CARD_DARK)
+                .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+                .corner_radius(CornerRadius::same(6))
+                .min_size(Vec2::new(ui.available_width(), 26.0)),
+        );
+        if upload.clicked() {
+            *event = Some(AccountDrawerEvent::CloudUploadCurrent);
+        }
+
+        if let Some(name) = cloud.conflict {
+            ui.add_space(6.0);
+            Frame::new()
+                .fill(ACCENT_RED.gamma_multiply(0.10))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(Margin::same(8))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(
+                        RichText::new(format!(
+                            "{}  {} di cloud diubah dari perangkat lain.",
+                            ICON_WARNING.codepoint, name
+                        ))
+                        .size(11.0)
+                        .color(TEXT_PRIMARY),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.small_button("Timpa versi cloud").clicked() {
+                            *event = Some(AccountDrawerEvent::CloudConflictOverwrite);
+                        }
+                        if ui.small_button("Simpan sebagai salinan").clicked() {
+                            *event = Some(AccountDrawerEvent::CloudConflictSaveCopy);
+                        }
+                        if ui.small_button("Batal").clicked() {
+                            *event = Some(AccountDrawerEvent::CloudConflictDismiss);
+                        }
+                    });
+                });
+        }
+
+        if let Some(msg) = cloud.status {
+            ui.add_space(4.0);
+            let color = if cloud.status_is_error { ACCENT_RED } else { TEXT_SECONDARY };
+            ui.label(RichText::new(msg).size(10.5).color(color));
+        }
+
+        let Some(list) = cloud.files else {
+            return;
+        };
+        ui.add_space(6.0);
+        if list.files.is_empty() {
+            ui.label(
+                RichText::new("Belum ada berkas di cloud.")
+                    .size(10.5)
+                    .color(TEXT_SECONDARY),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .id_salt("ducad_cloud_files")
+            .max_height(170.0)
+            .show(ui, |ui| {
+                for file in &list.files {
+                    let confirming = cloud.confirm_delete == Some(file.id.as_str());
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.set_width((ui.available_width() - 56.0).max(80.0));
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&file.name).size(11.0).color(TEXT_PRIMARY),
+                                )
+                                .truncate(),
+                            );
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} - {}",
+                                    human_bytes(file.size),
+                                    short_timestamp(&file.updated_at)
+                                ))
+                                .size(9.5)
+                                .color(TEXT_SECONDARY),
+                            );
+                        });
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if confirming {
+                                return;
+                            }
+                            let del = ui.add_enabled(
+                                !cloud.busy,
+                                egui::Button::new(RichText::new(ICON_DELETE.codepoint).size(13.0).color(ACCENT_RED))
+                                    .frame(false),
+                            );
+                            if del.on_hover_text("Hapus dari cloud").clicked() {
+                                *event = Some(AccountDrawerEvent::CloudDelete(file.id.clone()));
+                            }
+                            let open = ui.add_enabled(
+                                !cloud.busy,
+                                egui::Button::new(RichText::new(ICON_CLOUD_DOWNLOAD.codepoint).size(13.0).color(ACCENT_BLUE))
+                                    .frame(false),
+                            );
+                            if open.on_hover_text("Unduh dan buka").clicked() {
+                                *event = Some(AccountDrawerEvent::CloudOpen(file.id.clone()));
+                            }
+                        });
+                    });
+                    if confirming {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Hapus permanen?").size(10.5).color(ACCENT_RED));
+                            if ui.small_button("Hapus").clicked() {
+                                *event = Some(AccountDrawerEvent::CloudDeleteConfirm);
+                            }
+                            if ui.small_button("Batal").clicked() {
+                                *event = Some(AccountDrawerEvent::CloudDeleteCancel);
+                            }
+                        });
+                    }
+                    ui.add_space(2.0);
+                }
+            });
+    }
+
     fn render_logged_out(ui: &mut Ui, event: &mut Option<AccountDrawerEvent>) {
         ui.label(
-            RichText::new("Masuk dengan Akun DUCAD untuk menikmati sinkronisasi proyek CAD cloud dan kolaborasi multi-user.")
+            RichText::new("Masuk untuk menyinkronkan berkas .ducad dan preferensi antar perangkat (Mac, iPad, Windows, Linux) dan memakai fitur DUCAD Pro bila akun Anda Pro.")
                 .size(12.0)
                 .color(TEXT_SECONDARY),
         );
@@ -419,5 +637,51 @@ impl AccountDrawer {
                 *event = Some(AccountDrawerEvent::CancelLogin);
             }
         });
+    }
+}
+
+/// Ukuran ringkas: `512 B`, `1.5 KB`, `12.3 MB`, `5.0 GB`.
+pub fn human_bytes(n: u64) -> String {
+    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
+    if n < 1024 {
+        return format!("{n} B");
+    }
+    let mut v = n as f64 / 1024.0;
+    let mut unit = 0;
+    while v >= 1024.0 && unit + 1 < UNITS.len() {
+        v /= 1024.0;
+        unit += 1;
+    }
+    format!("{v:.1} {}", UNITS[unit])
+}
+
+/// `2026-10-20T10:00:00Z` → `2026-10-20 10:00` (UTC, apa adanya). Masukan
+/// yang tidak dikenali dikembalikan utuh.
+pub fn short_timestamp(rfc3339: &str) -> String {
+    match (rfc3339.get(0..10), rfc3339.get(11..16)) {
+        (Some(date), Some(time)) if rfc3339.as_bytes().get(10) == Some(&b'T') => {
+            format!("{date} {time} UTC")
+        }
+        _ => rfc3339.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn human_bytes_picks_unit() {
+        assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(1023), "1023 B");
+        assert_eq!(human_bytes(1536), "1.5 KB");
+        assert_eq!(human_bytes(50 * 1024 * 1024), "50.0 MB");
+        assert_eq!(human_bytes(5 * 1024 * 1024 * 1024), "5.0 GB");
+    }
+
+    #[test]
+    fn short_timestamp_trims_seconds_and_keeps_unknown_input() {
+        assert_eq!(short_timestamp("2026-10-20T10:05:09Z"), "2026-10-20 10:05 UTC");
+        assert_eq!(short_timestamp("kemarin"), "kemarin");
     }
 }

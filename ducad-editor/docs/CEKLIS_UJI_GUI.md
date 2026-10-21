@@ -11,7 +11,9 @@ ini.
 
 Cara memakai: kerjakan **Bagian A** setiap kali ada perubahan di `ducad-app`,
 `ducad-ui`, atau `ducad-render`. Kerjakan **Bagian B** sebelum rilis atau setelah
-perubahan besar. Catat hasilnya di tabel Bagian E.
+perubahan besar. Kerjakan **Bagian P** (uji tugas designer) sebelum rilis dan
+sebelum/sesudah tiap step di `docs/PLAN_DESIGNER_UX.md`. Catat hasilnya di
+tabel Bagian E (Bagian P punya tabel sendiri, P.4).
 
 Konvensi: ☐ belum diuji · ✅ lulus · ❌ gagal (tulis nomor isu) · ⏭ dilewati
 (tulis alasan).
@@ -1050,6 +1052,91 @@ Jendela **Edit Langsung** dibuka dari palette (grup Solid: Offset Face, Hapus Fa
 | 5.4 | Klik face datar/silinder → Isocurve | Grid/garis biru muda di dalam batas face | ☐ |
 | 5.4 | Arah alat 0,0,-1 → Aksesibilitas pada kotak berongga | Titik hijau di face yang terjangkau dari atas, merah di sisi/bawah/rongga; persentase luas | ☐ |
 | 5.5 | Desain dengan op thread / lubang tap → Daftar ulir | Baris per ulir (body, M.., panjang, RH/LH, kosmetik) | ☐ |
+
+---
+
+## Bagian P — Uji tugas designer (workflow sasaran, Step 0)
+
+Bagian ini berbeda dari A dan B. Yang diuji bukan "apakah tombol X bekerja",
+melainkan **apakah designer bisa menyelesaikan pekerjaan nyata tanpa dibantu**.
+Hasilnya menjadi baseline `docs/PLAN_DESIGNER_UX.md` §6 dan dibandingkan
+sebelum/sesudah tiap step.
+
+Padanan otomatisnya (alur yang sama lewat oplog) ada di
+`crates/ducad-engine/tests/sample_project.rs` dengan fixture
+`crates/ducad-engine/tests/fixtures/sample_bracket.ops.json`. Kalau tes itu merah,
+perbaiki dulu sebelum sesi uji: masalahnya ada di engine, bukan di GUI.
+
+### P.1 Persona, platform, dan aturan sesi
+
+- **Persona:** designer produk yang membuat dan merevisi part mekanik sederhana.
+  Paham CAD parametrik umum (SolidWorks, Fusion, Onshape, atau FreeCAD), belum
+  pernah memakai DUCAD.
+- **Platform utama:** desktop (macOS/Windows) dengan mouse dan keyboard.
+- **Aturan pengamat:**
+  1. Berikan lembar tugas P.2 saja. Jangan tunjukkan menu, tombol, atau langkah.
+  2. Minta penguji berpikir keras (*think aloud*). Catat kalimat yang
+     menunjukkan bingung, mis. "ini mode apa?", "kok hilang?".
+  3. Jangan membantu. Kalau penguji buntu > 3 menit atau meminta bantuan, beri
+     satu petunjuk lalu tandai tugas itu **dengan bantuan**.
+  4. Mulai stopwatch saat penguji membaca tugas; hentikan saat ia menyatakan
+     selesai atau menyerah.
+  5. Data desain penguji tidak dikirim ke mana pun. Simpan hanya catatan P.3 dan,
+     bila diizinkan, berkas `.ducad` hasilnya.
+
+### P.2 Lembar tugas (diberikan ke penguji)
+
+**Model sasaran — bracket L:**
+
+```text
+        ┌──┐  ← dinding: tinggi total 35, tebal 5
+        │  │     2 lubang M5 tembus (clearance Ø5.5), di tengah tinggi dinding
+        │  │
+        │  ╰──────────┐  ← fillet sudut dalam R3
+        └─────────────┘  ← alas: lebar 40, tebal 5
+                            2 lubang M5 tembus di tengah lebar alas
+   Panjang (tegak lurus gambar): 60. Lubang berjarak 15 dari tiap ujung.
+```
+
+| Tugas | Instruksi untuk penguji |
+|---|---|
+| T1 | Buat bracket di atas dari sketsa berdimensi. Ukurannya harus bisa diubah nanti. |
+| T2 | Klien minta bracket lebih kuat: ubah tebal menjadi 8 dan tinggi dinding menjadi 50. Pastikan fillet dan semua lubang tetap benar. |
+| T3 | Coba fillet sudut dalam R40. Kalau tidak bisa, kembalikan model ke keadaan yang benar dan pakai radius terbesar yang masuk akal. |
+| T4 | Simpan, tutup DUCAD, buka lagi. Pastikan dimensinya masih bisa diubah. |
+| T5 | Kirim model ke rekan yang memakai CAD lain (STEP) dan ke vendor 3D print (STL). |
+| T6 | Buat gambar kerja sederhana: minimal tiga tampak, dimensi utama, dan catatan lubang. Ekspor ke PDF. |
+
+### P.3 Lembar catatan pengamat (satu baris per tugas per penguji)
+
+| Penguji | Tugas | Hasil (✅ mandiri / 🟡 dengan bantuan / ❌ gagal) | Durasi (mm:ss) | Undo / batal | Salah mode / salah pilih | Kehilangan state/data | Kutipan kebingungan | Isu |
+|---|---|---|---|---|---|---|---|---|
+| | T1 | | | | | | | |
+| | T2 | | | | | | | |
+| | T3 | | | | | | | |
+| | T4 | | | | | | | |
+| | T5 | | | | | | | |
+| | T6 | | | | | | | |
+
+Yang dicari pengamat per tugas:
+
+- **T1:** apakah penguji menemukan cara memberi dimensi dan tahu kapan sketsa
+  sudah terkunci penuh? Apakah ia paham bidang sketsa yang aktif?
+- **T2:** apakah perubahan dimensi awal memperbarui fillet dan lubang, atau ada
+  fitur yang hilang, pindah ke face lain, atau gagal tanpa penjelasan?
+- **T3:** apakah pesan error menjelaskan sebab dan batas radius? Apakah model
+  tetap utuh, dan apakah penguji bisa kembali tanpa undo berkali-kali?
+- **T4:** apakah riwayat fitur, parameter, dan dimensi masih bisa diedit
+  setelah dibuka ulang, bukan hanya geometri mati?
+- **T5:** apakah satuan dan body yang diekspor jelas sebelum berkas dibuat?
+  Buka STEP-nya di aplikasi lain bila ada.
+- **T6:** apakah tampak, skala, dimensi, dan catatan lubang di PDF sesuai model?
+
+### P.4 Ringkasan sesi
+
+| Tanggal | Versi/commit | Platform | Jumlah penguji | Tugas mandiri (dari 6 × penguji) | Median waktu T1 | Crash/kehilangan data | Isu utama |
+|---|---|---|---|---|---|---|---|
+| | | | | | | | |
 
 ---
 

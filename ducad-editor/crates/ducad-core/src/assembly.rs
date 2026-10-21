@@ -501,6 +501,9 @@ fn local_pose(t: (f64, f64, f64), q: (f64, f64, f64, f64)) -> (DVec3, DQuat) {
     (DVec3::new(t.0, t.1, t.2), quat)
 }
 
+/// Pose instance yang disimpan: (translasi, rotasi quaternion) lokal.
+pub type CapturedPose = ((f64, f64, f64), (f64, f64, f64, f64));
+
 /// Struktur data lengkap Pohon Hierarki Perakitan (Assembly Tree).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssemblyTree {
@@ -533,7 +536,7 @@ pub struct AssemblyTree {
     /// Posisi tersimpan lewat "Capture position" (Paritas 4.7):
     /// instance → (translasi, rotasi) lokal.
     #[serde(default)]
-    pub captured_poses: HashMap<AssemblyInstanceId, ((f64, f64, f64), (f64, f64, f64, f64))>,
+    pub captured_poses: HashMap<AssemblyInstanceId, CapturedPose>,
     pub next_instance_id: AssemblyInstanceId,
     pub next_mate_id: MateConstraintId,
     pub next_sub_id: SubAssemblyId,

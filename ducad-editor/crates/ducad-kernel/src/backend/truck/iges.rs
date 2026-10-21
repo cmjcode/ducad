@@ -38,9 +38,12 @@ pub fn write_iges(shapes: &[(&str, &KernelShape)], path: impl AsRef<std::path::P
 /// Batas ukuran berkas IGES yang dibaca (sama dengan SolidCraft).
 pub const MAX_IGES_BYTES: usize = solidcraft_kernel::MAX_IGES_BYTES;
 
+/// Hasil impor IGES: shape bernama dan peringatan entitas yang tidak terbaca.
+pub type IgesImport = (Vec<(String, KernelShape)>, Vec<String>);
+
 /// Baca teks IGES: tiap solid (atau shell hasil jahitan permukaan) jadi satu
 /// shape bernama, plus peringatan entitas yang tidak terbaca.
-pub fn read_iges_string(text: &str) -> Result<(Vec<(String, KernelShape)>, Vec<String>)> {
+pub fn read_iges_string(text: &str) -> Result<IgesImport> {
     if text.len() > MAX_IGES_BYTES {
         bail!("berkas IGES terlalu besar ({} byte, maks {MAX_IGES_BYTES})", text.len());
     }
@@ -61,7 +64,7 @@ pub fn read_iges_string(text: &str) -> Result<(Vec<(String, KernelShape)>, Vec<S
 }
 
 /// Baca berkas `.igs`/`.iges`.
-pub fn read_iges(path: impl AsRef<std::path::Path>) -> Result<(Vec<(String, KernelShape)>, Vec<String>)> {
+pub fn read_iges(path: impl AsRef<std::path::Path>) -> Result<IgesImport> {
     let bytes = std::fs::read(path).context("read_iges: gagal membaca berkas")?;
     let text = String::from_utf8_lossy(&bytes);
     read_iges_string(&text)
