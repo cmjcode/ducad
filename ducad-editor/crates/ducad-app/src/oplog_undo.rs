@@ -183,6 +183,7 @@ impl DuCADApp {
         self.model_undo.undo(&mut self.model);
         self.selected_bodies.clear();
         self.take_restored_oplog();
+        self.sync_round_history();
     }
 
     /// Redo langkah geometri beserta oplog yang menyertainya.
@@ -190,6 +191,7 @@ impl DuCADApp {
         self.model_undo.redo(&mut self.model);
         self.selected_bodies.clear();
         self.take_restored_oplog();
+        self.sync_round_history();
     }
 }
 

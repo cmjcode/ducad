@@ -421,6 +421,9 @@ pub struct DuCADApp {
     pub edge_gizmo_edit_input: String,
 
     pub round_history: std::collections::HashMap<BodyId, RoundHistory>,
+    /// Riwayat rounding yang dilepas oleh edit lain; dipulihkan saat undo
+    /// mengembalikan geometri yang cocok (lihat `sync_round_history`).
+    pub round_history_archive: Vec<(BodyId, RoundHistory)>,
     pub editing_round: Option<(BodyId, usize)>,
     pub round_gizmo_style: crate::types::RoundStyle,
     /// Cached preview mesh: (kind, radius, body_id, mesh, edge_lines). Recomputed only when radius changes.
@@ -831,6 +834,7 @@ impl DuCADApp {
             edge_gizmo_edit_input: "0".to_string(),
 
             round_history: std::collections::HashMap::new(),
+            round_history_archive: Vec::new(),
             editing_round: None,
             round_gizmo_style: crate::types::RoundStyle::Fillet,
             round_preview_cache: None,
@@ -1205,6 +1209,7 @@ impl DuCADApp {
             edge_gizmo_edit_input: "0".to_string(),
 
             round_history: std::collections::HashMap::new(),
+            round_history_archive: Vec::new(),
             editing_round: None,
             round_gizmo_style: crate::types::RoundStyle::Fillet,
             round_preview_cache: None,
@@ -1383,6 +1388,7 @@ impl DuCADApp {
         self.picking_mode = crate::types::PickMode::None;
         self.active_face = None;
         self.round_history.clear();
+        self.round_history_archive.clear();
         self.loft_staged_body_id = None;
         self.set_tool(ToolKind::Select);
 

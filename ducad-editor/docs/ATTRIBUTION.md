@@ -19,6 +19,4 @@ Teks lisensi dan berkas `NOTICE` SolidCraft ikut di `vendors/solidcraft/`
 
 Setiap biner DUCAD memuat kode SolidCraft dan truck: sertakan
 `vendors/solidcraft/NOTICE` beserta teks Apache-2.0 di paket/“Tentang”
-aplikasi. (Backend OpenCASCADE dan submodule `vendors/opencascade-rs`
-dihapus di 0.6.0, PLAN_MIGRASI_TRUCK F6.4; rilis ≤ 0.6.0-beta masih
-memuatnya, LGPL-2.1 + OCCT exception.)
+aplikasi.

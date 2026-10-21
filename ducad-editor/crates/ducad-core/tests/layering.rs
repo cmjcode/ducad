@@ -2,7 +2,7 @@
 //! CADCraft). Peta crate di `CONTRIBUTING.md` (root repo) adalah kontrak: setiap crate hanya
 //! boleh bergantung pada crate DUCAD yang tercantum di tabel ini, crate UI
 //! (egui/eframe/wgpu/winit/rfd) hanya boleh muncul di lapisan GUI, dan
-//! `solidcraft-*`/`truck-*` hanya di `ducad-kernel` (OpenCASCADE dilarang sejak 0.6.0). Menambah panah baru = ubah tabel
+//! `solidcraft-*`/`truck-*` hanya di `ducad-kernel`. Menambah panah baru = ubah tabel
 //! ini DAN peta di `CONTRIBUTING.md`.
 //!
 //! Dijalankan dari `ducad-core` karena crate ini paling bawah dan paling
@@ -227,8 +227,7 @@ fn ui_toolkits_stay_in_the_gui_layer() {
     }
 }
 
-/// OpenCASCADE dihapus di 0.6.0 (PLAN_MIGRASI_TRUCK F6.4): tidak ada crate
-/// yang boleh menariknya kembali.
+/// Penjaga: tidak ada crate yang boleh menarik binding kernel C++.
 #[test]
 fn no_crate_links_opencascade() {
     for (name, text) in manifests() {

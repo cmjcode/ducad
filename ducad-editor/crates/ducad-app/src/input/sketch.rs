@@ -858,6 +858,7 @@ impl DuCADApp {
         let Some(target_geo) = self.model.geometry.get(target_id) else {
             return;
         };
+        let old_fingerprint = target_geo.mesh_fingerprint;
         match ducad_kernel::translate_shape(
             &target_geo.shape,
             delta.x as f64,
@@ -866,6 +867,7 @@ impl DuCADApp {
         ) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
+                let new_fingerprint = new_geo.mesh_fingerprint;
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
                     self.execute_model_command(
@@ -885,7 +887,12 @@ impl DuCADApp {
                         )),
                         &format!("Menggeser posisi objek sejauh ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
                     );
-                    self.round_history.remove(&target_id);
+                    self.transform_round_history(
+                        target_id,
+                        crate::modeling::rounding::RoundTransform::Translate(delta.as_dvec3()),
+                        old_fingerprint,
+                        new_fingerprint,
+                    );
                     // Sinkronkan instance perakitan & biarkan mate menarik
                     // balik sepanjang derajat kebebasan yang terkunci.
                     self.after_body_moved(target_id, delta);
@@ -911,9 +918,11 @@ impl DuCADApp {
         let angle_rad = angle_deg.to_radians();
         let pivot = (center.x as f64, center.y as f64, center.z as f64);
         let axis_tup = (axis.x as f64, axis.y as f64, axis.z as f64);
+        let old_fingerprint = target_geo.mesh_fingerprint;
         match ducad_kernel::rotate_shape(&target_geo.shape, pivot, axis_tup, angle_rad) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
+                let new_fingerprint = new_geo.mesh_fingerprint;
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
                     self.execute_model_command(Box::new(cmd), &format!("Menduplikasi & memutar rotasi {:.1}°", angle_deg));
@@ -927,7 +936,16 @@ impl DuCADApp {
                         )),
                         &format!("Memutar rotasi objek sebesar {:.1}°", angle_deg),
                     );
-                    self.round_history.remove(&target_id);
+                    self.transform_round_history(
+                        target_id,
+                        crate::modeling::rounding::RoundTransform::Rotate {
+                            pivot: glam::DVec3::new(pivot.0, pivot.1, pivot.2),
+                            axis: axis.as_dvec3(),
+                            angle_rad,
+                        },
+                        old_fingerprint,
+                        new_fingerprint,
+                    );
                     self.model_status = Some(format!("Body diputar {:.1}°", angle_deg));
                 }
             }
@@ -971,9 +989,11 @@ impl DuCADApp {
         let factor = new_length_mm / old_len;
 
         let pivot = (center.x as f64, center.y as f64, center.z as f64);
+        let old_fingerprint = target_geo.mesh_fingerprint;
         match ducad_kernel::scale_shape(&target_geo.shape, pivot, factor) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
+                let new_fingerprint = new_geo.mesh_fingerprint;
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
                     self.execute_model_command(
@@ -991,7 +1011,15 @@ impl DuCADApp {
                         )),
                         &format!("Skala {:.0}%", factor * 100.0),
                     );
-                    self.round_history.remove(&target_id);
+                    self.transform_round_history(
+                        target_id,
+                        crate::modeling::rounding::RoundTransform::Scale {
+                            pivot: glam::DVec3::new(pivot.0, pivot.1, pivot.2),
+                            factor,
+                        },
+                        old_fingerprint,
+                        new_fingerprint,
+                    );
                     self.model_status =
                         Some(format!("Body diresize {:.0}%", factor * 100.0));
                 }
@@ -1044,7 +1072,7 @@ impl DuCADApp {
                         )),
                         &format!("Ubah Rusuk {:.2} mm", new_length_mm),
                     );
-                    self.round_history.remove(&body_id);
+                    self.archive_round_history(body_id);
                     self.model_status =
                         Some(format!("Ukuran rusuk diubah ke {:.2} mm", new_length_mm));
                 }

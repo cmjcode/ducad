@@ -1,8 +1,8 @@
 # Berkontribusi ke DUCAD
 
 Aturan keras dan peta crate untuk siapa pun (manusia atau agent) yang
-mengubah kode. Menggantikan `CLAUDE.md` lama (dihapus di `cd57db0f`, masih
-berbingkai OpenCASCADE). Diperbarui 2026-10-21 (Step 5
+mengubah kode. Menggantikan `CLAUDE.md` lama (dihapus di `cd57db0f`).
+Diperbarui 2026-10-21 (Step 5
 `ducad-editor/docs/PLAN_DESIGNER_UX.md`).
 
 ## Peta crate (`ducad-editor/crates/`)
@@ -28,8 +28,8 @@ Arah panah = "bergantung pada". Tabel ini **kontrak** yang dijaga
 ## Aturan keras
 
 1. **Kernel terkurung.** Hanya `ducad-kernel` yang boleh memakai crate
-   `solidcraft-*`/`truck-*`. OpenCASCADE dilarang sejak 0.6.0 (tes
-   `no_crate_links_opencascade`).
+   `solidcraft-*`/`truck-*`. Dependensi kernel C++ dilarang (dijaga
+   `ducad-core/tests/layering.rs`).
 2. **Engine tanpa GUI.** `ducad-engine` tidak boleh bergantung pada
    egui/eframe/wgpu/ducad-render/ducad-ui/rfd (`engine_has_no_gui_dependency`).
    Crate UI hanya di glass/render/ui/app/android.

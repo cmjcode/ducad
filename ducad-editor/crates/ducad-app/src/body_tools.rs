@@ -215,7 +215,7 @@ impl DuCADApp {
                 Box::new(ReplaceGeometryCommand::new(cmd_label, id, geo)),
                 detail,
             );
-            self.round_history.remove(&id);
+            self.archive_round_history(id);
             self.hole_history.remove(&id);
         }
         self.model_status = Some(detail.to_string());

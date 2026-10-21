@@ -8,39 +8,7 @@ alasan dan alternatif yang ditolak, supaya tidak perlu diperdebatkan ulang.
 
 ---
 
-## 1. Fork OCCT dijadikan submodule yang dideklarasikan
-
-**Masalah.** `ducad-editor/vendors/opencascade-rs` sudah lama tercatat di
-git sebagai gitlink (mode `160000`) tetapi **tanpa `.gitmodules`**.
-Akibatnya `git clone` biasa menghasilkan direktori kosong, dan karena
-`[patch.crates-io]` di manifes workspace menunjuk ke dalamnya, `cargo`
-gagal saat **resolusi dependensi** — sebelum satu baris pun dikompilasi.
-Repo praktis tidak dapat dibangun ulang oleh siapa pun selain mesin asal,
-dan CI mustahil dijalankan.
-
-Ditemukan juga satu tambalan penting pada `crates/opencascade-sys/build.rs`
-yang **belum di-commit sama sekali**: pengemasan ulang arsip statis Apple
-lewat `libtool` (menghindari pemotongan argumen `ar` karena ARG_MAX),
-penautan seluruh `libTK*.a`, dan `libc++`. Tanpa itu tautan statis Apple
-gagal. Tambalan ini hanya ada di disk satu mesin.
-
-**Keputusan.** Menambahkan `.gitmodules` yang mendeklarasikan submodule
-(URL **HTTPS**, bukan SSH, karena runner CI tidak punya kunci SSH), serta
-meng-commit tambalan `build.rs` ke fork `ducad-patches`.
-
-**Alternatif yang ditolak.**
-- *Menyalin OCCT apa adanya ke dalam repo (vendoring penuh).* Repo
-  membengkak puluhan ribu berkas dan tambalan kita jadi sulit dibedakan
-  dari kode upstream.
-- *Menjadikannya crate terpisah di registry.* Tambalan masih sering
-  berubah; siklus rilis akan memperlambat pengembangan kernel.
-
-**Konsekuensi.** Clone **wajib** memakai `--recurse-submodules` (README
-sudah diperbaiki). Commit fork harus di-*push* sebelum CI bisa hijau.
-
----
-
-## 2. Gate `rustfmt` dipasang sebagai informasi dulu, belum memblokir
+## 1. Gate `rustfmt` dipasang sebagai informasi dulu, belum memblokir
 
 **Masalah.** Basis kode belum pernah dilewatkan rustfmt:
 `cargo fmt --all -- --check` melaporkan ~1.628 selisih yang tersebar di
@@ -72,7 +40,7 @@ terkecil (1.628) dibanding `use_small_heuristics="Max"` (1.806),
 `max_width=110` (1.685), atau gabungan keduanya (1.986). Persentil panjang
 baris kode saat ini p95 = 91, p99 = 113 — cocok dengan default.
 
-## 3. `clippy -D warnings` LANGSUNG memblokir; `cargo-deny` belum
+## 2. `clippy -D warnings` LANGSUNG memblokir; `cargo-deny` belum
 
 **Temuan.** Seluruh workspace hanya menghasilkan **6 peringatan clippy
 unik** — jauh lebih bersih dari dugaan. Keenamnya diperbaiki di tempat
@@ -88,7 +56,7 @@ mengabaikannya. Hapus penanda itu begitu `cargo deny check` hijau sekali.
 
 ---
 
-## 4. Toolchain: `stable`, belum dipaku ke versi eksak
+## 3. Toolchain: `stable`, belum dipaku ke versi eksak
 
 **Keputusan.** `rust-toolchain.toml` menjamin komponen `rustfmt` + `clippy`
 tersedia, tetapi `channel` masih `"stable"`.
@@ -96,32 +64,32 @@ tersedia, tetapi `channel` masih `"stable"`.
 **Alasan.** Memaku versi eksak memang yang benar untuk reproduktifitas
 (rilis stable baru bisa menambah lint dan membuat `-D warnings` mendadak
 merah tanpa perubahan kode), **tetapi** mengganti channel mengubah
-fingerprint build sehingga OCCT dikompilasi ulang dari nol (~10-15 menit),
+fingerprint build sehingga seluruh workspace dikompilasi ulang dari nol,
 dan versi yang hendak dipaku belum terpasang di mesin pengembang. Lakukan
 pemakuan sebagai PR tersendiri saat rebuild penuh tidak mengganggu.
 
 ---
 
-## 5. `panic = "unwind"` di profil rilis — bukan `"abort"`
+## 4. `panic = "unwind"` di profil rilis — bukan `"abort"`
 
 **Keputusan.** Profil rilis memakai `lto = "thin"`, `codegen-units = 1`,
 dan secara **eksplisit** `panic = "unwind"`.
 
-**Alasan.** `ducad_kernel::lock_kernel()` dirancang untuk **pulih** dari
-`KERNEL_LOCK` yang ter-*poison* akibat panic pada operasi kernel
-sebelumnya, supaya satu operasi gagal tidak mengunci permanen seluruh
+**Alasan.** Pagar `catch_op_panic` (`ducad-engine/src/guard.rs`) dan
+`guard` SolidCraft mengubah panik di dalam op kernel menjadi error yang
+bisa di-*rollback*, supaya satu operasi gagal tidak menjatuhkan seluruh
 aplikasi. Mekanisme itu hanya berfungsi bila panic dapat di-*unwind*.
 `"abort"` akan mematikan aplikasi CAD berisi pekerjaan pengguna yang belum
 tersimpan — harga yang jauh lebih mahal daripada selisih ukuran binernya.
 
-`lto` sengaja `"thin"`, bukan `"fat"`: graf dependensi menarik OCCT
-(ratusan objek C++) bersama wgpu/egui, sementara kode C++ itu tidak ikut
-ter-LTO dari sisi Rust sama sekali — jadi biaya link fat LTO tidak
-terbayar.
+`lto` sengaja `"thin"`, bukan `"fat"`: fat LTO pada graf wgpu/egui +
+SolidCraft menaikkan waktu link rilis dan kebutuhan RAM runner CI. Naikkan
+hanya kalau benchmark (`cargo bench -p ducad-kernel`) membuktikan
+manfaatnya.
 
 ---
 
-## 6. Undo lintas domain: `Transaction`, bukan penggabungan tumpukan
+## 5. Undo lintas domain: `Transaction`, bukan penggabungan tumpukan
 
 **Masalah.** `ducad-app` memegang satu `UndoStack<Sketch>` **per bidang
 sketsa** ditambah satu `UndoStack<ModelDoc>` terpisah. Satu aksi pengguna

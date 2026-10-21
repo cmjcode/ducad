@@ -5,7 +5,7 @@ use glam::Vec3;
 
 use crate::app::DuCADApp;
 use crate::model::{BodyGeometry, ReplaceGeometryCommand};
-use crate::types::{RoundFeature, RoundHistory, RoundKind, RoundStyle};
+use crate::types::{RoundFeature, RoundHistory, RoundKind, RoundPostOp, RoundPostStep, RoundStyle};
 use crate::viewport::{pixel_tolerance_to_world, screen_to_ray, world_to_screen_pos};
 
 impl DuCADApp {
@@ -19,6 +19,9 @@ impl DuCADApp {
     ) -> Option<(BodyId, usize)> {
         let mut best: Option<(BodyId, usize, f32)> = None;
         for (body_id, hist) in &self.round_history {
+            if self.fresh_round_history(*body_id).is_none() {
+                continue;
+            }
             if let Some(body) = self.model.doc.bodies.get(*body_id) {
                 if !body.visible {
                     continue;
@@ -47,7 +50,7 @@ impl DuCADApp {
         if surface_kind == SurfaceKind::Plane {
             return None;
         }
-        let hist = self.round_history.get(&body_id)?;
+        let hist = self.fresh_round_history(body_id)?;
         let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
         let hp = glam::DVec3::new(hit_point.0, hit_point.1, hit_point.2);
         let mut best: Option<(usize, f64)> = None;
@@ -471,6 +474,170 @@ impl DuCADApp {
         Ok(shape)
     }
 
+    /// Bangun shape dari riwayat rounding lengkap: fitur rounding diselingi
+    /// edit susulan pada posisinya (`base → fitur[..a] → edit → fitur[a..]`),
+    /// sehingga mengubah radius fillet lama tidak menghapus push/pull sesudahnya.
+    pub fn build_round_history_shape(
+        base: &KernelShape,
+        features: &[RoundFeature],
+        post_ops: &[RoundPostStep],
+    ) -> Result<KernelShape, String> {
+        let mut steps: Vec<&RoundPostStep> = post_ops.iter().collect();
+        steps.sort_by_key(|s| s.after);
+        let mut shape = ducad_kernel::clone_shape(base).map_err(|e| e.to_string())?;
+        let mut done = 0;
+        for step in steps {
+            let upto = step.after.min(features.len());
+            if upto > done {
+                shape = Self::build_rounded_shape(&shape, &features[done..upto])?;
+                done = upto;
+            }
+            shape = match step.op {
+                RoundPostOp::ExtrudeFace { ray, distance } => {
+                    ducad_kernel::extrude_face(&shape, ray, distance).map_err(|e| e.to_string())?
+                }
+            };
+        }
+        if done < features.len() {
+            shape = Self::build_rounded_shape(&shape, &features[done..])?;
+        }
+        Ok(shape)
+    }
+
+    /// Fitur `idx` dihapus: edit susulan sesudahnya bergeser satu posisi.
+    fn shift_post_ops_after_removal(post_ops: &mut [RoundPostStep], idx: usize) {
+        for s in post_ops.iter_mut().filter(|s| s.after > idx) {
+            s.after -= 1;
+        }
+    }
+
+    /// Riwayat rounding `body_id` bila masih menggambarkan geometri body
+    /// sekarang. Riwayat basi (undo, edit lain) diabaikan: membangun ulang
+    /// darinya akan menimpa geometri dengan versi lama.
+    pub fn fresh_round_history(&self, body_id: BodyId) -> Option<&RoundHistory> {
+        let geo = self.model.geometry.get(body_id)?;
+        self.round_history
+            .get(&body_id)
+            .filter(|h| h.result_fingerprint == geo.mesh_fingerprint)
+    }
+
+    /// Lepas riwayat rounding body ke arsip (bukan dibuang): undo yang
+    /// mengembalikan geometrinya membuat rounding bisa diedit lagi.
+    pub fn archive_round_history(&mut self, body_id: BodyId) {
+        const MAX_ARCHIVE: usize = 64;
+        if let Some(h) = self.round_history.remove(&body_id) {
+            self.round_history_archive.push((body_id, h));
+            if self.round_history_archive.len() > MAX_ARCHIVE {
+                self.round_history_archive.remove(0);
+            }
+        }
+    }
+
+    /// Selaraskan riwayat rounding dengan geometri sekarang setelah
+    /// undo/redo: riwayat yang basi diarsipkan, versi arsip yang cocok
+    /// dengan geometri body dipulihkan. Murah (bandingkan fingerprint saja).
+    pub fn sync_round_history(&mut self) {
+        let ids: Vec<BodyId> = self.model.geometry.iter().map(|(id, _)| id).collect();
+        for id in ids {
+            if self.fresh_round_history(id).is_some() {
+                continue;
+            }
+            let Some(fp) = self.model.geometry.get(id).map(|g| g.mesh_fingerprint) else {
+                continue;
+            };
+            let found = self
+                .round_history_archive
+                .iter()
+                .rposition(|(b, h)| *b == id && h.result_fingerprint == fp);
+            if let Some(pos) = found {
+                self.archive_round_history(id);
+                let (_, h) = self.round_history_archive.remove(pos);
+                self.round_history.insert(id, h);
+            }
+        }
+    }
+
+    /// Push/pull sisi pada body berounding: catat sebagai edit susulan agar
+    /// rounding tetap bisa diedit. `new_fingerprint` = geometri hasil edit.
+    pub fn record_round_post_op(&mut self, body_id: BodyId, op: RoundPostOp, old_fingerprint: u64, new_fingerprint: u64) {
+        match self.round_history.get_mut(&body_id) {
+            Some(h) if h.result_fingerprint == old_fingerprint => {
+                // Salinan untuk undo: riwayat SEBELUM edit ini tetap di arsip.
+                if let Ok(base) = ducad_kernel::clone_shape(&h.base) {
+                    let before = RoundHistory {
+                        base,
+                        features: h.features.clone(),
+                        post_ops: h.post_ops.clone(),
+                        result_fingerprint: h.result_fingerprint,
+                    };
+                    let after = h.features.len();
+                    h.post_ops.push(RoundPostStep { after, op });
+                    h.result_fingerprint = new_fingerprint;
+                    self.round_history_archive.push((body_id, before));
+                } else {
+                    self.archive_round_history(body_id);
+                }
+            }
+            _ => self.archive_round_history(body_id),
+        }
+    }
+
+    /// Body berounding dipindah/diputar/diskala utuh: transformasikan juga
+    /// riwayatnya (shape dasar, sinar pick, jangkar) supaya rounding tetap
+    /// bisa diedit di posisi barunya.
+    pub fn transform_round_history(
+        &mut self,
+        body_id: BodyId,
+        xf: RoundTransform,
+        old_fingerprint: u64,
+        new_fingerprint: u64,
+    ) {
+        let fresh = self
+            .round_history
+            .get(&body_id)
+            .is_some_and(|h| h.result_fingerprint == old_fingerprint);
+        if !fresh {
+            self.archive_round_history(body_id);
+            return;
+        }
+        let Some(h) = self.round_history.get(&body_id) else { return };
+        let Ok(base) = xf.apply_shape(&h.base) else {
+            self.archive_round_history(body_id);
+            return;
+        };
+        let moved = RoundHistory {
+            base,
+            features: h
+                .features
+                .iter()
+                .map(|f| RoundFeature {
+                    ray: xf.ray(f.ray),
+                    anchor: xf.point(f.anchor),
+                    radius: f.radius * xf.length_factor(),
+                    radius_end: f.radius_end.map(|r| r * xf.length_factor()),
+                    polyline: f.polyline.iter().map(|p| xf.point(*p)).collect(),
+                    ..f.clone()
+                })
+                .collect(),
+            post_ops: h
+                .post_ops
+                .iter()
+                .map(|s| RoundPostStep {
+                    after: s.after,
+                    op: match s.op {
+                        RoundPostOp::ExtrudeFace { ray, distance } => RoundPostOp::ExtrudeFace {
+                            ray: xf.ray(ray),
+                            distance: distance * xf.length_factor(),
+                        },
+                    },
+                })
+                .collect(),
+            result_fingerprint: new_fingerprint,
+        };
+        self.archive_round_history(body_id);
+        self.round_history.insert(body_id, moved);
+    }
+
     pub fn clear_round_gizmo(&mut self, kind: RoundKind) {
         eprintln!(
             "[FILLET-CHAMFER][CLEAR_GIZMO] >>> [FUNCTION: DuCADApp::clear_round_gizmo] \
@@ -531,15 +698,15 @@ impl DuCADApp {
             return;
         };
 
-        let mut features: Vec<RoundFeature> = self
-            .round_history
-            .get(&body_id)
-            .map(|h| h.features.clone())
+        let (mut features, mut post_ops) = self
+            .fresh_round_history(body_id)
+            .map(|h| (h.features.clone(), h.post_ops.clone()))
             .unwrap_or_default();
         match self.editing_round {
             Some((b, idx)) if b == body_id && idx < features.len() => {
                 if sharp {
                     features.remove(idx);
+                    Self::shift_post_ops_after_removal(&mut post_ops, idx);
                 } else {
                     features[idx].radius = magnitude;
                     features[idx].style = style;
@@ -574,8 +741,8 @@ impl DuCADApp {
             }
         }
 
-        let (build, new_base) = if let Some(h) = self.round_history.get(&body_id) {
-            (Self::build_rounded_shape(&h.base, &features), None)
+        let (build, new_base) = if let Some(h) = self.fresh_round_history(body_id) {
+            (Self::build_round_history_shape(&h.base, &features, &post_ops), None)
         } else {
             match ducad_kernel::clone_shape(&geo.shape) {
                 Ok(base) => (Self::build_rounded_shape(&base, &features), Some(base)),
@@ -589,21 +756,26 @@ impl DuCADApp {
 
         match build {
             Ok(shape) => {
-                if let Some(base) = new_base {
-                    self.round_history.insert(
-                        body_id,
-                        RoundHistory {
-                            base,
-                            features: Vec::new(),
-                        },
-                    );
-                }
-                if features.is_empty() {
-                    self.round_history.remove(&body_id);
-                } else if let Some(h) = self.round_history.get_mut(&body_id) {
-                    h.features = features;
-                }
                 let new_geo = BodyGeometry::from_shape(shape);
+                // Versi riwayat sebelum edit ini tetap di arsip (untuk undo).
+                let old_base = match self.fresh_round_history(body_id) {
+                    Some(h) => ducad_kernel::clone_shape(&h.base).ok(),
+                    None => None,
+                };
+                self.archive_round_history(body_id);
+                if !features.is_empty() {
+                    if let Some(base) = new_base.or(old_base) {
+                        self.round_history.insert(
+                            body_id,
+                            RoundHistory {
+                                base,
+                                features,
+                                post_ops,
+                                result_fingerprint: new_geo.mesh_fingerprint,
+                            },
+                        );
+                    }
+                }
                 let label = match style {
                     RoundStyle::Fillet => "Fillet",
                     RoundStyle::Chamfer => "Chamfer",
@@ -729,10 +901,9 @@ impl DuCADApp {
         };
         let geo = self.model.geometry.get(body_id)?;
 
-        let mut features: Vec<RoundFeature> = self
-            .round_history
-            .get(&body_id)
-            .map(|h| h.features.clone())
+        let (mut features, mut post_ops) = self
+            .fresh_round_history(body_id)
+            .map(|h| (h.features.clone(), h.post_ops.clone()))
             .unwrap_or_default();
 
         let sharp = radius.abs() < Self::ROUND_SHARP_MM;
@@ -742,6 +913,7 @@ impl DuCADApp {
             Some((b, idx)) if b == body_id && idx < features.len() => {
                 if sharp {
                     features.remove(idx);
+                    Self::shift_post_ops_after_removal(&mut post_ops, idx);
                 } else {
                     features[idx].radius = magnitude;
                     features[idx].style = style;
@@ -764,17 +936,76 @@ impl DuCADApp {
         }
 
         let base_owned;
-        let base: &KernelShape = match self.round_history.get(&body_id) {
+        let base: &KernelShape = match self.fresh_round_history(body_id) {
             Some(h) => &h.base,
             None => {
                 base_owned = ducad_kernel::clone_shape(&geo.shape).ok()?;
+                post_ops.clear();
                 &base_owned
             }
         };
 
-        Self::build_rounded_shape(base, &features)
+        Self::build_round_history_shape(base, &features, &post_ops)
             .ok()
             .map(|shape| (body_id, shape))
+    }
+}
+
+/// Transformasi utuh body yang ikut diterapkan ke riwayat rounding.
+#[derive(Clone, Copy, Debug)]
+pub enum RoundTransform {
+    Translate(glam::DVec3),
+    /// Putar `angle_rad` (tangan kanan) mengelilingi sumbu lewat `pivot`.
+    Rotate { pivot: glam::DVec3, axis: glam::DVec3, angle_rad: f64 },
+    /// Skala uniform terhadap `pivot`.
+    Scale { pivot: glam::DVec3, factor: f64 },
+}
+
+impl RoundTransform {
+    fn apply_shape(self, shape: &KernelShape) -> anyhow::Result<KernelShape> {
+        let t = |v: glam::DVec3| (v.x, v.y, v.z);
+        match self {
+            Self::Translate(d) => ducad_kernel::translate_shape(shape, d.x, d.y, d.z),
+            Self::Rotate { pivot, axis, angle_rad } => {
+                ducad_kernel::rotate_shape(shape, t(pivot), t(axis), angle_rad)
+            }
+            Self::Scale { pivot, factor } => ducad_kernel::scale_shape(shape, t(pivot), factor),
+        }
+    }
+
+    fn vec3(p: (f64, f64, f64)) -> glam::DVec3 {
+        glam::DVec3::new(p.0, p.1, p.2)
+    }
+
+    fn point(self, p: (f64, f64, f64)) -> (f64, f64, f64) {
+        let v = Self::vec3(p);
+        let r = match self {
+            Self::Translate(d) => v + d,
+            Self::Rotate { pivot, axis, angle_rad } => {
+                pivot + glam::DQuat::from_axis_angle(axis.normalize_or_zero(), angle_rad) * (v - pivot)
+            }
+            Self::Scale { pivot, factor } => pivot + (v - pivot) * factor,
+        };
+        (r.x, r.y, r.z)
+    }
+
+    fn ray(self, ray: PickRay) -> PickRay {
+        let dir = match self {
+            Self::Rotate { axis, angle_rad, .. } => {
+                let d = glam::DQuat::from_axis_angle(axis.normalize_or_zero(), angle_rad)
+                    * Self::vec3(ray.dir);
+                (d.x, d.y, d.z)
+            }
+            _ => ray.dir,
+        };
+        PickRay { origin: self.point(ray.origin), dir }
+    }
+
+    fn length_factor(self) -> f64 {
+        match self {
+            Self::Scale { factor, .. } => factor.abs(),
+            _ => 1.0,
+        }
     }
 }
 
@@ -887,6 +1118,8 @@ mod tests {
         app.round_history.insert(id, RoundHistory {
             base: shape2,
             features: vec![feature],
+            post_ops: Vec::new(),
+            result_fingerprint: app.model.geometry.get(id).unwrap().mesh_fingerprint,
         });
 
         // Set editing round active on this feature
@@ -1050,4 +1283,104 @@ mod tests {
         assert!(ok_chamfer, "Inner edge chamfer preview cache update must succeed");
         assert!(app.round_preview_cache.is_some());
     }
+
+    /// Kotak 20 mm + fillet R3 pada rusuk vertikal x=y=0 lewat gizmo.
+    fn app_with_filleted_box() -> (DuCADApp, ducad_core::BodyId, PickRay) {
+        let mut app = DuCADApp::new_for_test();
+        let (shape, _) = make_test_box();
+        let id = app.model.doc.add_body_with_material("Box", ducad_core::Material::default());
+        app.model.geometry.insert(id, BodyGeometry::from_shape(shape));
+        let ray = PickRay { origin: (-5.0, -5.0, 10.0), dir: (1.0, 1.0, 0.0) };
+        app.active_edge = Some((id, ray, (0.0, 0.0, 10.0)));
+        app.edge_gizmo_radius = 3.0;
+        app.commit_round(RoundKind::Edge);
+        assert!(app.fresh_round_history(id).is_some(), "fillet harus punya riwayat");
+        (app, id, ray)
+    }
+
+    fn top_z(app: &DuCADApp, id: ducad_core::BodyId) -> f64 {
+        app.model.geometry.get(id).unwrap().shape.bounding_box().unwrap().1[2]
+    }
+
+    fn volume(app: &DuCADApp, id: ducad_core::BodyId) -> f64 {
+        app.model.geometry.get(id).unwrap().shape.volume()
+    }
+
+    fn pull_top_face(app: &mut DuCADApp, id: ducad_core::BodyId, distance: f64) {
+        let face_ray = PickRay { origin: (15.0, 15.0, 80.0), dir: (0.0, 0.0, -1.0) };
+        let hit = ducad_kernel::pick_face_details(&app.model.geometry.get(id).unwrap().shape, face_ray)
+            .expect("sisi atas harus terpilih");
+        app.active_face = Some((id, face_ray, hit));
+        app.extrude_active_face(distance);
+    }
+
+    fn edit_fillet(app: &mut DuCADApp, id: ducad_core::BodyId, ray: PickRay, radius: f64) {
+        app.editing_round = Some((id, 0));
+        app.active_edge = Some((id, ray, (0.0, 0.0, 10.0)));
+        app.edge_gizmo_radius = radius;
+        app.commit_round(RoundKind::Edge);
+    }
+
+    /// Laporan pengguna: fillet lalu push/pull sisi → fillet tidak bisa
+    /// diedit lagi (klik/drag permukaan lengkung malah jadi extrude).
+    #[test]
+    fn fillet_stays_editable_after_push_pull() {
+        let (mut app, id, ray) = app_with_filleted_box();
+        pull_top_face(&mut app, id, 10.0);
+        assert!((top_z(&app, id) - 30.0).abs() < 1e-3);
+        let hist = app.fresh_round_history(id).expect("riwayat fillet tidak boleh hilang");
+        assert_eq!(hist.post_ops.len(), 1);
+
+        let v_r3 = volume(&app, id);
+        edit_fillet(&mut app, id, ray, 6.0);
+        let hist = app.fresh_round_history(id).expect("fillet tetap bisa diedit");
+        assert!((hist.features[0].radius - 6.0).abs() < 1e-9);
+        // Push/pull ikut diputar ulang sesudah fillet baru.
+        assert!((top_z(&app, id) - 30.0).abs() < 1e-3, "tarikan sisi hilang saat fillet diedit");
+        assert!(volume(&app, id) < v_r3 - 1.0, "radius lebih besar harus membuang material");
+    }
+
+    #[test]
+    fn fillet_history_follows_undo_and_redo() {
+        let (mut app, id, ray) = app_with_filleted_box();
+        pull_top_face(&mut app, id, 10.0);
+        edit_fillet(&mut app, id, ray, 6.0);
+
+        app.undo_model();
+        let hist = app.fresh_round_history(id).expect("undo edit fillet → riwayat R3 kembali");
+        assert!((hist.features[0].radius - 3.0).abs() < 1e-9);
+        assert_eq!(hist.post_ops.len(), 1);
+
+        app.undo_model();
+        let hist = app.fresh_round_history(id).expect("undo push/pull → riwayat tanpa tarikan");
+        assert!(hist.post_ops.is_empty());
+        assert!((top_z(&app, id) - 20.0).abs() < 1e-3);
+
+        app.redo_model();
+        app.redo_model();
+        let hist = app.fresh_round_history(id).expect("redo → riwayat R6 kembali");
+        assert!((hist.features[0].radius - 6.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fillet_stays_editable_after_moving_body() {
+        let (mut app, id, _) = app_with_filleted_box();
+        app.tool = crate::types::ToolKind::Select;
+        app.selected_bodies.clear();
+        app.selected_bodies.insert(id);
+        app.translate_selected_body(Vec3::new(40.0, 0.0, 0.0));
+        let hist = app.fresh_round_history(id).expect("geser body tidak boleh membuang fillet");
+        assert!((hist.features[0].anchor.0 - 40.0).abs() < 1e-9);
+
+        let (moved_ray, moved_anchor) = (hist.features[0].ray, hist.features[0].anchor);
+        app.editing_round = Some((id, 0));
+        app.active_edge = Some((id, moved_ray, moved_anchor));
+        app.edge_gizmo_radius = 5.0;
+        app.commit_round(RoundKind::Edge);
+        let hist = app.fresh_round_history(id).expect("fillet di posisi baru tetap bisa diedit");
+        assert!((hist.features[0].radius - 5.0).abs() < 1e-9);
+        let min_x = app.model.geometry.get(id).unwrap().shape.bounding_box().unwrap().0[0];
+        assert!((min_x - 40.0).abs() < 1e-3, "body harus tetap di posisi barunya");
+    }
+
 }

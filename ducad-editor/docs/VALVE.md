@@ -24,7 +24,7 @@ build`) secara deterministik, **dan** bisa diatur ulang di editor lembar GUI.
 |---|---|---|
 | Kertas A4/A3, bingkai + zona, title block, catatan | ada | `ducad-io/src/drawing.rs` |
 | Front/Top/Right/Iso dengan HLR **berbasis mesh** | ada | `ducad-kernel/src/hlr.rs` |
-| HLR eksak OCCT (`HLRBRep_Algo`, lingkaran tetap lingkaran) | ada tapi **hanya dipakai `vector_snapshot`**, belum untuk lembar | `ducad-kernel/src/hlr_exact.rs` |
+| HLR eksak (`hlr_exact`, lingkaran tetap lingkaran) | ada tapi **hanya dipakai `vector_snapshot`**, belum untuk lembar | `ducad-kernel/src/hlr_exact.rs` |
 | Section + arsir 45° | ada, **satu** bidang (A-A), selalu `from_model_bbox_center_y` | `ducad-kernel/src/section.rs`, `hlr.rs:271` |
 | Detail view berskala | ada | `ducad-kernel/src/detail.rs` |
 | Skala | satu skala per lembar; `SheetViewPlacement.scale` ada tetapi tidak dihormati ekspor/dimensi | `drawing.rs::layout_with_scale` |
@@ -50,11 +50,8 @@ build`) secara deterministik, **dan** bisa diatur ulang di editor lembar GUI.
 
 ### Prinsip
 
-- Semua logika gambar tetap di `ducad-kernel` (OCCT) → `ducad-io/drawing`
+- Semua logika gambar tetap di `ducad-kernel` → `ducad-io/drawing`
   → `ducad-engine/drawing_auto`; GUI hanya memanggil dan menampilkan.
-- Aturan `lock_kernel()`: fungsi publik kernel baru memakai pola
-  `extract_*` (ambil guard) + `extract_*_internal` (`pub(crate)`, tanpa guard),
-  seperti `SectionExtractor` sekarang.
 - Hasil headless harus deterministik byte demi byte (gold file di
   `tests/golden/`), karena `build` dipakai CI.
 - Teks yang dibaca agent (deskripsi tool, skema) bahasa Inggris; komentar
@@ -79,8 +76,8 @@ engine, uji asap editor). Penyimpangan dari rencana di bawah, semuanya disengaja
   `SheetViewPlacement.kind`), dirender rasterizer CPU sendiri
   (`ducad-io/src/drawing/raster.rs`) dan disematkan `/FlateDecode`.
 - **`HlrDrawing.section_a`/`cutting_plane`** dihapus langsung tanpa alias serde
-  (risiko 4: lembar belum pernah dipersistenkan).
-- **Batas waktu HLR 10 s:** OCCT tidak bisa dihentikan di tengah jalan; yang
+  (risiko 3: lembar belum pernah dipersistenkan).
+- **Batas waktu HLR 10 s:** HLR eksak tidak dihentikan di tengah jalan; yang
   ada hanya peringatan `HLR_EXACT_SLOW` + fallback bila HLR gagal.
 - **Cache HLR** global-proses di `ducad-engine/src/drawing_auto.rs` (kunci:
   sidik jari geometri + potongan), bukan field `SessionCore`.
@@ -168,7 +165,7 @@ engine, uji asap editor). Penyimpangan dari rencana di bawah, semuanya disengaja
   renderer; arcs digambar sebagai kurva di PDF (Bézier) dan SVG (`<path A>`),
   DXF (`ARC`).
 - [x] `HlrExtractor::extract_view` memakai `hlr_exact` sebagai jalur utama,
-  fallback ke mesh HLR bila OCCT gagal (log peringatan `HLR_EXACT_FALLBACK`
+  fallback ke mesh HLR bila HLR eksak gagal (log peringatan `HLR_EXACT_FALLBACK`
   di `ToolOut.warnings`, sama pola dengan `SIM_MESH_FALLBACK_HEX`).
 - [x] Garis sumbu otomatis: tiap busur penuh (lingkaran) dan permukaan
   silinder yang tampak dari samping mendapat centerline/center mark ISO 128.
@@ -312,14 +309,11 @@ engine, uji asap editor). Penyimpangan dari rencana di bawah, semuanya disengaja
   P21.8 (P21.3 sebelum P21.2 karena skala per tampak paling mudah diuji
   dengan busur eksak; P21.4 bergantung pada `edge_refs` P21.3).
 - Estimasi total ≈ 31 hari kerja; P21.1, P21.3, P21.4 adalah jalur kritis.
-- **Risiko 1 — HLR eksak OCCT lambat/gagal** pada fillet kompleks:
+- **Risiko 1 — HLR eksak lambat/gagal** pada fillet kompleks:
   fallback mesh dipertahankan; batas waktu per tampak 10 s lalu fallback.
-- **Risiko 2 — deadlock `lock_kernel`**: section multi-bidang memanggil
-  `section_with_plane` berulang; semua di satu guard lewat helper
-  `pub(crate)`.
-- **Risiko 3 — ukuran PDF** karena gambar raster: batas 1600 px per
+- **Risiko 2 — ukuran PDF** karena gambar raster: batas 1600 px per
   render, peringatan bila > 4 MB.
-- **Risiko 4 — kompatibilitas serde** `HlrDrawing`/`DrawingSheet` yang
+- **Risiko 3 — kompatibilitas serde** `HlrDrawing`/`DrawingSheet` yang
   disimpan user lama: tidak ada (lembar belum pernah dipersistenkan), jadi
   pemutusan format aman sebelum P21.6 dirilis.
 - **Di luar cakupan P21:** tampak bantu (auxiliary view) miring, broken-out

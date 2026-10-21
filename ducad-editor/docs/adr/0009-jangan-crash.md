@@ -14,7 +14,7 @@ boleh crash, dan pekerjaan pengguna tidak boleh hilang**.
 
 Keadaan DUCAD sebelum ADR ini:
 
-- Satu `panic!` di dalam op (OCCT, index di luar batas, `unwrap` yang
+- Satu `panic!` di dalam op (kernel, index di luar batas, `unwrap` yang
   terlewat) menjatuhkan GUI (dengan pekerjaan yang belum disimpan), server
   `ducad-mcp` (di tengah sesi agent), atau `ducad-cli` (di tengah build CI).
   `SessionCore::run_with` membuka transaksi undo dan tidak pernah menutupnya.
@@ -38,8 +38,9 @@ Keadaan DUCAD sebelum ADR ini:
    (command GUI) dijalankan di bawah `catch_unwind`. Panik menjadi `OpError`
    berkode baru **`internal`** (hint: "ini bug DUCAD, bukan salah parameter"),
    jalur rollback batch yang biasa tetap berjalan, dan paniknya dicatat
-   `log::error!`. `lock_kernel()` sudah memulihkan mutex yang ter-poison, jadi
-   kernel tetap bisa dipakai setelahnya.
+   `log::error!`. Kernel tidak memakai kunci global (`KernelShape` `Send +
+   Sync`) dan setiap panggilan SolidCraft dibungkus `solidcraft_kernel::guard`,
+   jadi kernel tetap bisa dipakai setelahnya.
 2. **Lint anti-panik di SEMUA crate workspace**:
    `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic,
    clippy::todo, clippy::unimplemented)]` di akar setiap crate (modul tes
@@ -76,12 +77,12 @@ Keadaan DUCAD sebelum ADR ini:
    `file-restored-autosave-desktop`.
 6. **Penjaga layering tabel** (`ducad-core/tests/layering.rs`): tabel
    dependensi DUCAD yang diizinkan per crate (= peta `CLAUDE.md`, kini `CONTRIBUTING.md`), crate UI
-   hanya di `glass/render/ui/app/android`, `opencascade` hanya di `kernel`.
+   hanya di `glass/render/ui/app/android`, `solidcraft-*`/`truck-*` hanya di
+   `kernel`.
    Menambah panah = ubah tabel + peta.
-7. **Batas jangkauan sebelum kernel.** Exception C++ OCCT yang tidak
-   dibungkus binding (`StdFail_NotDone`, `Standard_DomainError`) menembus FFI
-   dan meng-ABORT proses; `catch_unwind` tidak bisa menangkapnya. Tes hostil
-   menemukan dua pemicu (lubang Ø1e308, box 1e-300). Pertahanannya di engine:
+7. **Batas jangkauan sebelum kernel.** Angka ekstrem bisa membuat kernel
+   gagal secara tak terduga. Tes hostil menemukan dua pemicu (lubang Ø1e308,
+   box 1e-300). Pertahanannya di engine:
    `compute::check_op_magnitudes` menolak setiap angka op di luar ±1e9 sebelum
    `apply`, dan `require_positive` (semua panjang/radius/tebal, kini juga
    dimensi primitif) membatasi ke 1e-6..1e6 mm. Keduanya `invalid_param`,
@@ -96,8 +97,8 @@ Keadaan DUCAD sebelum ADR ini:
 - **Kanal kontrol TCP + `ui_click`/`screenshot` lewat protokol JSON.** DUCAD
   memakai soket Unix `agent.sock` dengan pagar persetujuan pengguna
   (`propose_ops`); menambah klik UI sintetis bertentangan dengan pagar itu.
-- **Clean-room/ATTRIBUTION per aset.** Tidak relevan: DUCAD memakai OCCT
-  (LGPL, dibungkus satu crate) dan `deny.toml` sudah menjaga lisensi.
+- **Clean-room/ATTRIBUTION per aset.** Tidak relevan: kernel pihak ketiga
+  dibungkus satu crate (`ducad-kernel`) dan `deny.toml` sudah menjaga lisensi.
 - **Dokumen paritas** (`gaps.md`, `*-parity.md`): DUCAD bukan klon produk
   lain; `docs/PLAN.md` + `STATUS_FASE_A_B.md` sudah memegang peran itu.
 
@@ -115,14 +116,7 @@ Keadaan DUCAD sebelum ADR ini:
 - `DuCADApp::new` kini mengembalikan `Result` (tanpa backend wgpu, eframe
   melaporkan error alih-alih panik); `ImportWorker` menjalankan impor di
   thread pemanggil bila thread worker gagal dibuat.
-- Exception C++ OCCT tetap menjadi jalur crash yang tersisa untuk input yang
-  lolos validasi tetapi tetap ditolak OCCT. Perbaikan tuntasnya adalah
-  membungkus pembuat shape/boolean di binding yang di-vendor
-  (`vendors/opencascade-rs/crates/opencascade-sys/include/*.hxx`, pola
-  `try { … } catch (const Standard_Failure&)` yang sudah dipakai
-  `b_rep_adaptor.hxx`) — pekerjaan terpisah karena menyentuh blok
-  `[patch.crates-io]`. Sampai itu selesai, setiap abort baru yang ditemukan
-  sapuan penuh ditutup dengan validasi di engine plus kasus di
-  `absurd_magnitudes_are_rejected_before_the_kernel`.
+- Setiap kegagalan baru yang ditemukan sapuan penuh ditutup dengan validasi di
+  engine plus kasus di `absurd_magnitudes_are_rejected_before_the_kernel`.
 - `cargo test -p ducad-core --test layering` wajib hijau sebelum menambah
   dependensi antar-crate.

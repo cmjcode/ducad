@@ -672,7 +672,12 @@ impl DuCADApp {
                 let round_history = self.round_history.get(&id).map(|h| {
                     let feats: Vec<ducad_io::native::NativeRoundFeature> =
                         h.features.iter().map(ducad_io::native::NativeRoundFeature::from).collect();
-                    (&h.base, feats)
+                    let post_ops = h
+                        .post_ops
+                        .iter()
+                        .map(ducad_io::native::NativeRoundPostStep::from)
+                        .collect();
+                    (&h.base, feats, post_ops)
                 });
                 Some(ducad_io::native::ExportBody {
                     name: meta.name.as_str(),
@@ -836,6 +841,8 @@ mod tests {
         app.round_history.insert(id, crate::types::RoundHistory {
             base: shape2,
             features: vec![feature],
+            post_ops: Vec::new(),
+            result_fingerprint: 0,
         });
 
         let export_bodies = app.native_export_bodies();

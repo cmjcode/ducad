@@ -173,6 +173,7 @@ impl DuCADApp {
                 self.line_chain_start = None;
                 self.line_chain_segments = 0;
                 self.round_history.clear();
+                self.round_history_archive.clear();
                 self.editing_round = None;
                 self.active_vertex = None;
                 self.active_edge = None;
@@ -198,9 +199,18 @@ impl DuCADApp {
                         meta.uuid = nb.uuid;
                         meta.mechanical = nb.mechanical;
                     }
-                    if let Some((base, native_feats)) = nb.round_history {
+                    if let Some((base, native_feats, native_post)) = nb.round_history {
                         let features = native_feats.into_iter().map(crate::types::RoundFeature::from).collect();
-                        self.round_history.insert(id, crate::types::RoundHistory { base, features });
+                        let post_ops = native_post.into_iter().map(crate::types::RoundPostStep::from).collect();
+                        // Riwayat menghasilkan geometri yang tersimpan bersamanya.
+                        let result_fingerprint = new_model
+                            .geometry
+                            .get(id)
+                            .map_or(0, |g| g.mesh_fingerprint);
+                        self.round_history.insert(
+                            id,
+                            crate::types::RoundHistory { base, features, post_ops, result_fingerprint },
+                        );
                     }
                 }
                 self.model = new_model;

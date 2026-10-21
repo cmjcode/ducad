@@ -2,20 +2,18 @@
 
 Aplikasi CAD gaya AutoCAD (drafting 2D presisi) yang berevolusi ke pemodelan
 3D gaya Shapr3D (sketch → extrude, direct modeling). Rust + egui/eframe,
-kernel geometri OpenCASCADE via [opencascade-rs](https://github.com/bschwind/opencascade-rs).
+kernel geometri SolidCraft di atas `truck` (Rust murni, di-vendor di `vendors/solidcraft`).
 Target desktop (macOS/Windows/Linux) dan iPad.
 
 ## Keputusan Arsitektur
 
 - **Workspace Cargo**, satu crate per lapisan tanggung jawab — lihat tabel di bawah.
-- **Kernel**: OpenCASCADE (via `opencascade-rs`), dibungkus di `ducad-kernel`.
-  Seluruh aplikasi hanya menyentuh tipe dari `ducad-kernel`, tidak pernah
-  `opencascade`/OCCT langsung — supaya kernel bisa ditambal/diganti tanpa
-  merombak app. (truck dipertimbangkan dan ditolak: tidak punya
-  fillet/chamfer 3D dan boolean rapuh di kasus tangensial — lihat diskusi
-  di riwayat perencanaan.)
+- **Kernel**: SolidCraft di atas `truck` (Rust murni), dibungkus di
+  `ducad-kernel` (backend di `src/backend/truck/`). Seluruh aplikasi hanya
+  menyentuh tipe dari `ducad-kernel`, tidak pernah crate kernel pihak ketiga
+  langsung — supaya kernel bisa ditambal/diganti tanpa merombak app.
 - **Rendering**: viewport 3D custom via `egui_wgpu` paint callback. Mesh
-  hasil tessellation OCCT (`BRepMesh`) di-upload ke wgpu, di-cache per-body.
+  hasil tessellation kernel di-upload ke wgpu, di-cache per-body.
 - **Paradigma modeling**: direct modeling (sketch → push/pull), bukan
   feature-tree parametrik penuh — realistis untuk kernel & cocok untuk touch.
 - **Input abstraction**: event pointer yang sama untuk mouse, jari, dan
@@ -28,7 +26,7 @@ Target desktop (macOS/Windows/Linux) dan iPad.
 |---|---|
 | `ducad-core` | Document model, command/undo-redo |
 | `ducad-sketch` | Entitas 2D, snapping, constraint solver (Fase 1–2) |
-| `ducad-kernel` | Wrapper di atas opencascade-rs (modeling, boolean, mesh, STEP) |
+| `ducad-kernel` | Wrapper di atas SolidCraft/truck (modeling, boolean, mesh, STEP) |
 | `ducad-render` | Viewport wgpu: kamera orbit, grid, pipeline, gizmo |
 | `ducad-io` | Format native `.ducad`, STEP, DXF, STL/OBJ (Fase 5) |
 | `ducad-ui` | Komponen egui bersama: toolbar, radial menu, numpad (Fase 4) |
@@ -37,7 +35,7 @@ Target desktop (macOS/Windows/Linux) dan iPad.
 ## Fase
 
 0. **Fondasi & viewport** — workspace, kamera orbit/pan/zoom, grid, spike
-   build iOS + spike cross-compile OCCT ke `aarch64-apple-ios`. **[status:
+   build iOS. **[status:
    kerangka jadi, lihat bawah]**
 1. **Sketching 2D + snapping** — line/arc/circle/spline, snap engine,
    dynamic input. **[status: selesai + iterasi lanjutan, lihat bawah]**
@@ -59,13 +57,11 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    STEP & DXF, export STL/OBJ, lihat bawah]**
 6. **Port iPad** — winit iOS + Metal via wgpu, Apple Pencil, Files.app,
    TestFlight. **[status: seluruh stack Rust DUCAD + eframe/winit/wgpu
-   terbukti compile bersih untuk `aarch64-apple-ios`; satu blocker upstream
-   tersisa — OCCT (kernel geometri) belum bisa link untuk iOS, lihat
-   bawah]**
+   terbukti compile bersih untuk `aarch64-apple-ios`, lihat bawah]**
 7. **Poles & performa** — alat ukur, section view, tessellation di thread
    terpisah, packaging. **[status: putaran pertama selesai — tool Ukur
    Jarak/Sudut, Section View (clip plane shader), worker thread Import
-   STEP + kunci kernel global baru, metadata packaging `cargo-bundle`,
+   STEP, metadata packaging `cargo-bundle`,
    lihat bawah]**
 8. **Modeling 3D lanjutan** — Revolve, loft, boolean intersect, picking
    edge/face 3D di viewport untuk fillet/chamfer per-tepi & shell
@@ -81,11 +77,8 @@ Target desktop (macOS/Windows/Linux) dan iPad.
 Detail penuh tiap fase, tabel risiko, dan estimasi ada di riwayat sesi
 perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
-- Cross-compile OCCT ke iOS + ukuran binary — dibuktikan lewat spike di
-  Fase 0, bukan ditunda ke Fase 6.
-- Dukungan egui/winit di iOS masih berkembang — spike sama.
-- Coverage binding `opencascade-rs` belum 100% API OCCT — mitigasi: tambah
-  binding cxx sendiri di `ducad-kernel` saat dibutuhkan.
+- Dukungan egui/winit di iOS + ukuran binary masih berkembang — dibuktikan
+  lewat spike, bukan ditunda ke Fase 6.
 
 ## Status Fase 0 (dikerjakan)
 
@@ -97,21 +90,15 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       fade jarak).
 - [x] Navigasi: drag kiri/tengah orbit, shift+drag/kanan pan, scroll/pinch
       zoom, multi-touch dua jari (trackpad/iPad) untuk orbit+zoom.
-- [x] `ducad-kernel`: wrapper `make_filleted_box`/`tessellate`/`write_stl`
-      di atas opencascade-rs, plus binary `smoke` untuk validasi.
-- [x] Build OCCT (`cargo build -p ducad-kernel`) — sukses. Sempat kena
-      konflik versi `glam` (opencascade 0.2.0 pin ke glam 0.23, workspace
-      pakai 0.29) — diperbaiki dengan memberi `ducad-kernel` dependensi
-      glam 0.23 sendiri (tidak dari workspace), karena `KernelMesh`
-      memang sudah mengonversi ke `[f32; 3]` mentah sehingga tidak
-      membocorkan tipe glam versi berbeda ke crate lain.
+- [x] `ducad-kernel`: wrapper `make_filleted_box`/`tessellate`/`write_stl`,
+      plus binary `smoke` untuk validasi.
 - [x] Smoke test kernel (`cargo run -p ducad-kernel --bin smoke`) — box
       40×30×20 mm + fillet r3 → 2129 vertex/3478 tri, STL tertulis.
       Alur inti "sketch → extrude → fillet → mesh → export" terbukti hidup.
 - [ ] Verifikasi visual jendela: **perlu dijalankan manual** oleh
       developer (`cargo run -p ducad-app`) di sesi desktop interaktif —
       shell agent tidak punya akses WindowServer untuk screenshot.
-- [ ] Spike build iOS (winit iOS + cross-compile OCCT) — belum dimulai,
+- [ ] Spike build iOS (winit iOS) — belum dimulai,
       masih prioritas tertinggi berikutnya (risiko arsitektur, lihat
       status Fase 1 di bawah untuk kenapa ditunda satu putaran).
 
@@ -300,9 +287,9 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 3 — Modeling 3D (dikerjakan, putaran pertama)
 
-- [x] `ducad-kernel` ditulis ulang: `KernelShape` (pembungkus `Shape` OCCT
+- [x] `ducad-kernel` ditulis ulang: `KernelShape` (pembungkus shape kernel
       yang SEPENUHNYA privat — sebelumnya `make_filleted_box`/`tessellate`
-      membocorkan tipe `opencascade::primitives::Shape` langsung ke
+      membocorkan tipe shape kernel langsung ke
       pemanggil, melanggar aturan arsitektur sendiri; sekarang benar-benar
       tertutup). API baru: `extrude_profile`, `union`, `subtract`,
       `fillet_all`, `chamfer_all`, `shell_hollow`, semua fungsional
@@ -310,36 +297,9 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       input pemanggil).
 - [x] `Profile`/`ProfileSegment`: profil 2D di bidang XY dalam koordinat
       mentah `(f64,f64)` (bukan `glam::DVec2`) — pola yang sama dengan
-      `KernelMesh` sebelumnya, supaya glam 0.23 (pin kernel) tidak pernah
-      bocor ke `ducad-app` (glam 0.29). Mendukung `Circle` (jadi silinder)
+      `KernelMesh` sebelumnya, supaya tipe glam tidak pernah bocor
+      lintas crate. Mendukung `Circle` (jadi silinder)
       dan `Loop` tertutup segmen Line/Arc.
-- [x] **Bug ditemukan lewat test, bukan teori** (lagi — pola yang sama
-      persis dengan bug damping LM di Fase 2): `opencascade-rs` 0.2.0
-      TIDAK menyediakan `Clone` untuk `Shape` (cuma `UniquePtr` C++ tanpa
-      binding copy-constructor), padahal `fillet`/`chamfer` memutasi diri
-      sendiri di tempat dan `hollow` mengonsumsi kepemilikan — kalau
-      dipakai langsung, shape ASLI pemanggil akan rusak/hilang, merusak
-      undo. Diperbaiki dengan `deep_clone` internal: roundtrip lewat file
-      STEP sementara (satu-satunya cara publik menyalin B-rep persis di
-      binding ini) sebelum operasi destruktif — didokumentasikan di kode
-      sebagai keputusan sadar, bukan technical debt.
-- [x] **Bug thread-safety ditemukan lewat test**: `cargo test -p
-      ducad-kernel` (multi-thread default) crash `SIGABRT` /
-      `Interface_InterfaceError` — jalur transfer STEP OCCT (dipakai
-      `deep_clone`) punya state global yang tidak aman dipanggil dari
-      banyak thread sekaligus. Semua 9 test lulus satu-satu; diperbaiki
-      dengan `Mutex` global yang menyerialkan test modul (tidak
-      mempengaruhi `ducad-app` — kernel selalu dipanggil dari UI thread
-      tunggal).
-- [x] **Blocker environment ditemukan & diperbaiki**: `cargo build -p
-      ducad-kernel` gagal total di mesin ini — CMake 4.3.4 terinstal
-      menolak `cmake_minimum_required` versi lama di `CMakeLists.txt`
-      bawaan OCCT (dependensi `occt-sys`). Diperbaiki lewat
-      `.cargo/config.toml` (`CMAKE_POLICY_VERSION_MINIMUM = "3.5"`,
-      env var yang dibaca `cmake` crate) — otomatis berlaku untuk semua
-      `cargo build/test/run` di workspace ini, tidak perlu diketik manual.
-      Build OCCT dari source makan waktu ~8 menit sekali (di-cache
-      `target/` setelahnya).
 - [x] `ducad-app/src/model.rs` (modul baru, pola sama dengan
       `ducad-sketch::constraint`): `ModelDoc` menggabungkan
       `ducad_core::Document` (metadata body, sengaja tetap bebas
@@ -385,9 +345,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       constraint, 4 model chain-builder).
 - [ ] **Sengaja belum ada** (lingkup Fase 3 dipersempit ke inti yang bisa
       dikirim solid dalam satu putaran — sisanya bukan lupa): Revolve,
-      sweep/loft (API `opencascade-rs` 0.2.0 cuma punya `Solid::loft`
-      lintas-penampang, bukan sweep-sepanjang-jalur sungguhan), boolean
-      intersect/irisan (binding cuma expose union & subtract), sketch-on-
+      sweep/loft, boolean intersect/irisan, sketch-on-
       face (sketch DUCAD masih selalu di bidang XY — butuh picking face
       3D + workplane lokal, infrastruktur belum ada), picking body/face
       lewat klik viewport 3D (body dipilih dari daftar di panel, bukan
@@ -503,14 +461,13 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       internal ikut tersimpan) — jadi `EntityId` mentah di dalam
       `Constraint`/`PointRef` (mis. `Coincident { a, b }`) balik PERSIS
       sama tanpa remapping id manual sama sekali. `glam` juga dibangun
-      dengan fitur "serde" (cuma di dependensi WORKSPACE 0.29 — pin
-      independen `ducad-kernel` ke glam 0.23 tidak tersentuh) supaya
+      dengan fitur "serde" supaya
       `DVec2` di dalam `Entity`/`Constraint` ikut serialize.
 - [x] `ducad-kernel`: `KernelShape::to_step_string`/`from_step_string`
-      (roundtrip lewat file sementara, pola sama dengan `deep_clone`),
+      (roundtrip lewat file sementara),
       `KernelShape::read_step` (baca file `.step` sungguhan), dan
       `write_step_compound` (gabung beberapa shape jadi SATU file STEP
-      lewat `opencascade::primitives::Compound`, masing-masing tetap
+      lewat compound, masing-masing tetap
       solid terpisah — bukan di-union). `KernelMesh::merge` ditambahkan
       sekalian (dipakai render viewport DAN export STL/OBJ multi-body —
       sebelumnya `ducad-app::build_combined_body_mesh` menduplikasi
@@ -560,19 +517,6 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       roundtrip DXF Line/Circle/Arc dengan verifikasi sudut Arc, Ellipse
       dilaporkan skip, section ENTITIES hilang ditangani, entitas tak
       dikenal dilewati bukan gagal).
-      **Bug ditemukan lewat test, bukan teori** (pola yang sama lagi
-      dengan Fase 2/3): test `native`/`step_io` gagal ACAK dengan
-      exception OCCT `InterfaceModel : AddWithRefs` — ternyata dua lock
-      test TERPISAH (satu per modul) tidak cukup, karena `cargo test`
-      menjalankan SEMUA modul dalam SATU binary test di banyak thread
-      sekaligus, jadi test `native::*` dan `step_io::*` (dua-duanya
-      menyentuh jalur transfer STEP OCCT yang sama) tetap bisa jalan
-      BERSAMAAN lintas modul walau masing-masing sudah dikunci sendiri-
-      sendiri. Diperbaiki dengan SATU lock `pub(crate)` di
-      `ducad-io::lib` dipakai bersama oleh `native`+`step_io` — beda
-      dari `ducad-kernel::tests::TEST_LOCK` yang cukup satu per crate
-      karena krat itu cuma satu binary test tanpa modul lain yang ikut
-      menyentuh OCCT.
 - [x] `ducad-app`: menu "📄 File" di toolbar (Baru, Buka…/Simpan/Simpan
       Sebagai… native, submenu Import STEP/DXF, submenu Export
       STEP/STL/OBJ/DXF) + dialog file native lewat `rfd`. Shortcut
@@ -612,53 +556,11 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       WindowServer, dan dialog file native `rfd` butuh interaksi GUI
       sungguhan yang tidak bisa disimulasikan headless).
 
-## Status Fase 6 — Port iPad (dikerjakan, satu blocker upstream)
+## Status Fase 6 — Port iPad (dikerjakan)
 
-- [x] **Spike cross-compile OCCT ke `aarch64-apple-ios` — risiko tertinggi
-      sejak Fase 0, akhirnya dieksekusi di Fase 6**: `occt-sys` (dependensi
-      `ducad-kernel`) pakai crate `cmake` untuk build OCCT dari source.
-      Ditemukan (via `cargo build --target aarch64-apple-ios`, bukan
-      dugaan) crate `cmake` 0.1.58 SUDAH mengeset `CMAKE_SYSTEM_NAME=iOS`+
-      `CMAKE_SYSTEM_PROCESSOR=arm64` otomatis saat cross-compiling, TAPI
-      TIDAK PERNAH mengeset `CMAKE_OSX_SYSROOT`/`CMAKE_OSX_ARCHITECTURES`
-      untuk target iOS (cabang itu di source cuma jalan untuk target yang
-      mengandung `"darwin"`, bukan `"ios"`) — CMake diam-diam jatuh ke SDK
-      macOS host, hasil kompilasi OCCT jadi object file bertanda platform
-      macOS (`LC_BUILD_VERSION platform=1`, dicek langsung lewat
-      `otool -l`), gagal link terhadap binary yang ditarget iOS
-      (`ld: building for iOS, but linking in object file built for
-      macOS`).
-- [x] Diperbaiki **wiring**-nya (`crates/ducad-kernel/ios/ios-toolchain.cmake`
-      + env var `CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios` di
-      `.cargo/config.toml`, format nama yang dibaca crate `cmake` lewat
-      `getenv_target_os`) — DIBUKTIKAN bekerja lewat probe CMake project
-      berdiri sendiri (`cmake -DCMAKE_TOOLCHAIN_FILE=...` + `otool -l`
-      hasil `.o` → `platform=2` alias iOS, bukan cuma baca cache).
-- [ ] **TAPI toolchain file yang sama TIDAK cukup untuk occt-sys
-      sungguhan** — dicoba 3 varian (nama SDK pendek `iphoneos`,
-      `execute_process(xcrun...)` resolve PATH, PATH absolut di-hardcode
-      + `CACHE ... FORCE`), ketiganya menghasilkan `CMakeCache.txt` OCCT
-      sungguhan dengan `CMAKE_OSX_SYSROOT:STRING=` tetap KOSONG (dicek
-      langsung tiap kali, bukan dugaan) walau `CMAKE_OSX_ARCHITECTURES`
-      berhasil ter-set. Root cause paling mungkin (didukung bukti, bukan
-      spekulasi murni): OCCT (source yang divendor `occt-sys`) TERNYATA
-      punya jalur build iOS RESMI SENDIRI —
-      `OCCT/adm/scripts/ios_build.sh` — yang meneruskan
-      `-D CMAKE_OSX_SYSROOT:PATH=...` lewat ARGUMEN COMMAND-LINE cmake
-      langsung, BUKAN lewat toolchain file generik. `occt-sys` 0.2.0
-      punya `build.rs` yang HANYA memanggil `cmake::Config::new("OCCT")`
-      generik (didesain untuk Android/Linux/Windows, tidak pernah
-      diadaptasi untuk kebutuhan khusus iOS OCCT) — jadi ini **gap
-      upstream di `occt-sys`/`opencascade-rs` 0.2.0**, bukan sesuatu yang
-      bisa diperbaiki dari sisi DUCAD lewat env var/toolchain file saja.
-      **Dihentikan setelah 4 percobaan rebuild penuh** (tiap percobaan
-      ~20-30 menit) karena hasil identik tiap kali — melanjutkan tebak-
-      tebakan toolchain lebih jauh tidak produktif, lihat "Langkah
-      lanjutan" di bawah.
-- [x] **Ditemukan & diperbaiki bug KEDUA yang independen** (ketemu selagi
-      memverifikasi lewat `cargo check`, bukan `build`, untuk melewati
-      blocker OCCT di atas): `eframe = { features = ["wgpu"] }` tanpa
-      `default-features = false` tetap ikut mengaktifkan fitur DEFAULT
+- [x] **Ditemukan & diperbaiki bug** (ketemu selagi memverifikasi lewat
+      `cargo check --target aarch64-apple-ios`): `eframe = { features =
+      ["wgpu"] }` tanpa `default-features = false` tetap ikut mengaktifkan fitur DEFAULT
       eframe termasuk `"glow"` (backend OpenGL lewat `egui_glow`/
       `glutin`) walau DUCAD SELALU cuma pakai backend wgpu
       (`eframe::Renderer::Wgpu`, `ducad-app/src/main.rs`). `glutin`
@@ -710,22 +612,9 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       dari proses yang sama, baca `argc`/`argv` proses lewat
       `_NSGetArgc`/`_NSGetArgv`. Artinya binary `[[bin]] name = "ducad"`
       yang sudah ada (`crates/ducad-app/Cargo.toml`) BISA LANGSUNG jadi
-      executable `.app` iOS begitu OCCT beres — tidak perlu crate
+      executable `.app` iOS — tidak perlu crate
       `staticlib` terpisah atau project Xcode dengan kode ObjC tambahan.
-- [ ] **Langkah lanjutan untuk blocker OCCT** (belum dikerjakan, di luar
-      lingkup putaran ini karena butuh pendekatan berbeda, bukan lagi
-      sekadar env var): (a) patch `occt-sys`/`opencascade-rs`
-      (fork+tempel lewat `[patch.crates-io]`) supaya `build.rs`-nya
-      meniru `OCCT/adm/scripts/ios_build.sh` — meneruskan
-      `CMAKE_OSX_SYSROOT` dkk. lewat argumen `-D` cmake langsung (bukan
-      toolchain file) plus flag-flag lain yang dipakai skrip itu
-      (`IPHONEOS_DEPLOYMENT_TARGET`, daftar modul aktif); ATAU (b) build
-      OCCT untuk iOS SEKALI secara terpisah lewat `ios_build.sh` resmi di
-      luar Cargo, lalu arahkan `occt-sys` ke hasilnya lewat env var
-      `DEP_OCCT_ROOT` (disebutkan di dokumentasi `opencascade-sys`,
-      belum dicoba). Keduanya pekerjaan baru yang cukup besar untuk sesi
-      terpisah, bukan lanjutan kecil dari sesi ini.
-- [ ] **Sengaja belum ada** (di luar 2 blocker/keputusan di atas): paket
+- [ ] **Sengaja belum ada** (di luar keputusan di atas): paket
       `.app` + code signing + provisioning profile + upload TestFlight —
       SEMUANYA butuh Xcode GUI interaktif + akun Apple Developer
       berbayar, TIDAK BISA dilakukan dari sandbox agent ini (tidak ada
@@ -733,18 +622,17 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       dibuat (Info.plist masih template, bukan file aktif); testing di
       perangkat/simulator sungguhan (sama alasan — perlu Xcode GUI).
 - [ ] Verifikasi lewat `cargo check --target aarch64-apple-ios`
-      (type-check, BUKAN link — link final baru mungkin setelah blocker
-      OCCT beres): `ducad-render`+`ducad-core`+`ducad-sketch`+
+      (type-check, BUKAN link): `ducad-render`+`ducad-core`+`ducad-sketch`+
       `ducad-ui` bersih total. `ducad-app` (seluruh app termasuk
-      eframe/winit/wgpu/egui-winit DAN `ducad-kernel`/`opencascade`)
-      JUGA bersih total setelah 2 perbaikan di atas — `cargo check
+      eframe/winit/wgpu/egui-winit DAN `ducad-kernel`)
+      JUGA bersih total setelah perbaikan di atas — `cargo check
       --workspace` di macOS host tetap hijau sepanjang perubahan ini
       (diverifikasi ulang, bukan diasumsikan aman).
 
 ## Status Fase 6 — lanjutan tablet (2026-10-06)
 
-- [x] Blocker OCCT/iOS selesai (`build_ipad.sh` pre-build OCCT per target);
-      `.ipa`/TestFlight lewat skrip yang sama.
+- [x] Build iPad lewat `build_ipad.sh`; `.ipa`/TestFlight lewat skrip
+      yang sama.
 - [x] **Gap native vs egui dipetakan dan sebagian besar ditutup** — lihat
       `docs/TABLET.md`: keyboard lunak (sudah lewat winit `UIKeyInput`),
       picker Files.app + share sheet (`apple_ios.rs`), autosave saat OS
@@ -753,8 +641,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       Liquid Glass GPU mati bawaan di tablet (`platform.rs`).
 - [x] **Android tablet (M7.2 dari rencana multi-tool)**: crate
       `ducad-android` (`android_main`, GameActivity), proyek Gradle
-      `android/`, toolchain OCCT NDK (`crates/ducad-kernel/android/`),
-      `make android-check|android-so|android-apk`. Kernel ikut dikompilasi
+      `android/`, `make android-check|android-so|android-apk`. Kernel ikut dikompilasi
       (tidak memakai fitur `kernel` opsional dari rencana M7.1).
 - [ ] Ditunda (dicatat di `docs/TABLET.md`): SAF Android, tombol stylus
       Android, UIScene, VoiceOver/TalkBack, Sign in with Apple in-app.
@@ -818,7 +705,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       terbalik/kebalik walau garisnya miring ke kiri.
 - [x] **Section View**: clip plane di render, BUKAN operasi kernel — sadar
       dipilih supaya bisa digeser real-time (tiap frame) tanpa memanggil
-      OCCT sama sekali (beda dari Boolean yang benar-benar memotong
+      kernel sama sekali (beda dari Boolean yang benar-benar memotong
       B-rep). `shader.wgsl`/`SceneRenderer` dapat field `clip_plane:
       vec4<f32>` (`dot(normal, world) - offset`, fragment dengan hasil > 0
       di-`discard` di `fs_mesh`); nonaktif = normal nol vektor + offset
@@ -829,47 +716,11 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       bukan cuma normal, supaya posisi potong di slider tidak ikut lompat
       saat cuma membalik sisi yang dibuang — bidang `dot(n,p)=d` dan
       `dot(-n,p)=-d` adalah bidang geometris yang sama persis).
-- [x] **Temuan arsitektur nyata (dibuktikan lewat compile-time check,
-      bukan dugaan)**: `KernelShape` — dan `opencascade::Shape` di
-      baliknya — TERBUKTI TIDAK `Send` (`UniquePtr<TopoDS_Shape>` milik
-      `cxx` tidak pernah diberi `unsafe impl Send` di binding
-      `opencascade-rs` 0.2.0, konsisten dengan OCCT yang memang tidak
-      thread-safe — akar masalah yang sama dengan bug `SIGABRT` STEP
-      transfer di Fase 3). Ini membatasi arti "tessellation di thread
-      terpisah" dari rencana awal: `KernelShape` TIDAK BISA dikirim ke
-      thread lain sama sekali, jadi background thread cuma bisa dipakai
-      untuk operasi yang bisa dibungkus lewat tipe `Send` murni
-      (`PathBuf`/`String`/`KernelMesh`) di kedua ujungnya — bukan
-      "jalankan operasi kernel apa saja secara paralel" (OCCT memang
-      tidak mendukung itu). Latar belakang penuh untuk SEMUA operasi
-      kernel (Extrude/Fillet/dst, bukan cuma Import) butuh rearsitektur
-      command pipeline jadi async end-to-end — pekerjaan besar tersendiri,
-      SENGAJA ditunda ke putaran lain, bukan dipaksakan setengah jalan di
-      sini (sama semangat dengan blocker OCCT/iOS Fase 6: root-cause dulu,
-      jangan tebak-tebak toolchain).
-- [x] **`ducad-kernel::KERNEL_LOCK`** (baru, PRODUKSI bukan cuma test):
-      `Mutex<()>` global yang WAJIB dikunci di SETIAP fungsi publik kernel
-      (14 titik: `tessellate`, `write_stl`, `write_step`, `read_step`,
-      `to_step_string`, `from_step_string`, `extrude_profile`, `union`,
-      `subtract`, `fillet_all`, `chamfer_all`, `shell_hollow`,
-      `write_step_compound`, `make_filleted_box`) — dipegang HANYA di
-      fungsi publik, bukan di helper privat (`deep_clone`/
-      `tessellate_shape`) yang selalu dipanggil dari dalam fungsi publik
-      yang sudah memegang lock, supaya tidak deadlock (`Mutex` std tidak
-      reentrant). Sebelum Fase 7 ini tidak perlu — `ducad-app` cuma
-      pernah memanggil kernel dari UI thread tunggal; sekarang WAJIB
-      karena `import_worker` menambah thread kedua yang bisa memanggil
-      kernel. Menjamin tidak pernah ada 2 panggilan OCCT jalan bersamaan
-      apa pun urutan klik user (mis. Extrude persis saat Import STEP
-      latar belakang masih jalan) — cukup untuk KEBENARAN (tidak crash),
-      BUKAN untuk paralelisme (OCCT tetap serial, itu memang batasannya).
-      14 test `ducad-kernel` tetap hijau, termasuk jalan multi-thread
-      default (bukan cuma `--test-threads=1`).
 - [x] **`ducad-app::import_worker`** (baru): satu thread background
       berumur-panjang, job Import STEP diproses lewat `mpsc` channel.
       HANYA tipe `Send` murni yang lewat channel — `PathBuf` masuk,
       `(String teks STEP, KernelMesh)` keluar; `KernelShape` TIDAK PERNAH
-      menyeberang thread (lihat temuan arsitektur di atas). Thread utama
+      menyeberang thread. Thread utama
       membangun `KernelShape` MILIKNYA SENDIRI dari string STEP lewat
       `from_step_string` untuk disimpan di `ModelDoc` — pola sama dengan
       "raw types at the kernel boundary" yang sudah dipakai
@@ -879,7 +730,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       dan `ctx.request_repaint()` dipaksa selama ada job pending supaya
       hasil muncul secepat worker selesai, bukan menunggu event input
       (mouse bergerak dsb.) — egui default cuma redraw saat ada event.
-      Import DXF SENGAJA tetap synchronous (murah, tidak menyentuh OCCT
+      Import DXF SENGAJA tetap synchronous (murah, tidak menyentuh kernel
       sama sekali, tidak butuh threading).
 - [x] **Packaging**: `crates/ducad-app/Cargo.toml` dapat
       `[package.metadata.bundle]` untuk `cargo-bundle` (nama, identifier,
@@ -893,22 +744,16 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       ikon `.icns` — semua butuh sertifikat berbayar/aset visual/GUI
       interaktif di luar sandbox agent, sama alasan dengan TestFlight iOS
       Fase 6). `cargo bundle --release` sendiri SENGAJA tidak dijalankan
-      di sesi ini — release profile akan memicu build ulang OCCT dari
-      nol (~8-40 menit, target dir profile terpisah dari debug), biaya
-      besar cuma untuk verifikasi sintaks metadata; field yang dipakai
+      di sesi ini; field yang dipakai
       (`name`/`identifier`/`icon`/`version`/`copyright`/`category`/
       `short_description`/`long_description`) sudah dicocokkan manual ke
       skema `cargo-bundle` yang terdokumentasi.
 - [ ] **Sengaja belum ada** (lingkup Fase 7 putaran pertama dipersempit ke
-      yang bisa diverifikasi tanpa rearsitektur besar atau build ulang
-      OCCT berkali-kali, lihat catatan biaya sesi Fase 6): background
+      yang bisa diverifikasi tanpa rearsitektur besar): background
       thread untuk operasi kernel LAIN selain Import STEP (Extrude/
-      Fillet/Chamfer/Boolean/Shell tetap synchronous di UI thread — lihat
-      "Temuan arsitektur" di atas untuk kenapa ini pekerjaan besar
-      tersendiri, bukan tambahan kecil); kontrol kualitas tessellation
-      (`opencascade` 0.2.0 hardcode deflection 0.01 di `Mesher::new`,
-      tidak ada API publik untuk mengubahnya tanpa memanggil
-      `opencascade_sys::ffi` level rendah — di luar lingkup putaran ini);
+      Fillet/Chamfer/Boolean/Shell tetap synchronous di UI thread — butuh
+      rearsitektur command pipeline jadi async end-to-end, pekerjaan besar
+      tersendiri, bukan tambahan kecil); kontrol kualitas tessellation;
       pengukuran 3D sungguhan (jarak/sudut antar titik body 3D, bukan
       cuma titik sketch 2D — butuh picking face/edge 3D yang belum ada,
       sama batasan dengan "Sengaja belum ada" Fase 3); label angka
@@ -928,30 +773,11 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 8 — Modeling 3D Lanjutan (dikerjakan, putaran pertama)
 
-Riset API `opencascade-rs` 0.2.0 sebelum implementasi mengubah beberapa
-dugaan lama di dokumen ini:
-
-- **Revolve TERNYATA sudah ada** di binding (`Face::revolve`, 360° default)
-  — Fase 3 dulu salah menyimpulkan ini belum tersedia (yang benar-benar
-  tidak ada cuma sweep).
-- **Sweep sepanjang jalur TIDAK ADA** sama sekali (tidak ada binding
-  `BRepOffsetAPI_MakePipe`/`MakePipeShell` di `opencascade-sys`) — gap
-  upstream sekelas blocker OCCT-iOS Fase 6, butuh menambal binding cxx
-  sendiri. **Tetap didefer**, bukan dipaksakan.
-- **Boolean intersect** ada level FFI (`BRepAlgoAPI_Common`, dipakai
-  `AdHocShape::intersect`) tapi tidak diekspos di `Shape` publik seperti
-  union/subtract — diimplementasi lewat `AdHocShape` sekali pakai.
-- **Face-ray-cast SUDAH ADA** (`Shape::faces_along_ray`, exact level B-rep)
-  — pas untuk face-picking. **Edge-ray-cast TIDAK ADA** — ditulis sendiri
-  (closest-point ray-vs-segmen 3D, pola project yang sama dengan solver LM/
-  snap engine/DXF writer: tulis lapisan tipis sendiri, bukan dependensi
-  besar untuk sebagian kecil kemampuannya).
-
 - [x] **`revolve_profile(profile, axis_origin, axis_dir, angle_degrees)`**
-      (`ducad-kernel`): `build_wire` (sudah ada) → `Face::from_wire` →
-      `face.revolve(...)`. Validasi `axis_dir` non-degenerate SEBELUM
-      panggil OCCT (dir nol → `Err`, bukan panic). `angle_degrees: None` =
-      360° penuh (default binding); `Some(derajat)` didukung kernel tapi
+      (`ducad-kernel`): `build_wire` (sudah ada) → face → revolve.
+      Validasi `axis_dir` non-degenerate SEBELUM
+      panggil kernel (dir nol → `Err`, bukan panic). `angle_degrees: None` =
+      360° penuh; `Some(derajat)` didukung kernel tapi
       BELUM ada UI-nya (defer, lihat bawah). 2 test baru: revolve persegi
       yang TIDAK menyentuh axis → verifikasi geometris nyata (radius dalam
       >5, radius luar dalam rentang 15-25, tinggi dalam rentang y profil —
@@ -976,17 +802,10 @@ dugaan lama di dokumen ini:
       Seleksi" men-stage `pending_loft_bottom: Option<Profile>`, field
       Tinggi + tombol "Loft" pakai profil bawah ter-stage + seleksi sketch
       SAAT DIKLIK sebagai profil atas.
-- [x] **`intersect(a, b)`** (`ducad-kernel`) — `Shape` publik tidak
-      expose `.intersect()` seperti union/subtract (cuma `AdHocShape`,
-      wrapper tipis `BRepAlgoAPI_Common`) — `deep_clone` dulu (pola sama
-      dengan fillet/chamfer, `a`/`b` asli pemanggil tidak tersentuh), lalu
-      dibungkus `AdHocShape` sekali pakai. Hasil kosong (tidak
-      bersinggungan) DIDETEKSI (`triangle_count() == 0` via helper privat
-      `tessellate_shape`, BUKAN `KernelShape::tessellate()` publik — itu
-      akan `lock_kernel()` lagi selagi guard `intersect` sendiri masih
-      dipegang, `Mutex` std tidak reentrant, deadlock; ditemukan &
-      diperbaiki sebelum sempat jadi bug produksi, bukan lewat teori) →
-      `Err` rapi. 2 test: 2 box overlap → hasil lebih kecil dari union
+- [x] **`intersect(a, b)`** (`ducad-kernel`) — `deep_clone` dulu (pola
+      sama dengan fillet/chamfer, `a`/`b` asli pemanggil tidak tersentuh).
+      Hasil kosong (tidak bersinggungan) DIDETEKSI (`triangle_count() == 0`
+      via helper privat `tessellate_shape`) → `Err` rapi. 2 test: 2 box overlap → hasil lebih kecil dari union
       (bukti nyata "cuma irisan"); 2 box tidak overlap → `Err`.
       `ducad-app`: `model::BooleanKind::Intersect` (varian baru,
       `BooleanCommand`/`try_new` existing dipakai apa adanya — tidak perlu
@@ -1001,15 +820,15 @@ dugaan lama di dokumen ini:
       origin, dir }`) yang dipakai klik, bukan index/handle. Saat apply,
       `deep_clone` dulu, lalu cast ULANG ray yang SAMA terhadap shape hasil
       clone (`faces_along_ray` untuk face; pencarian jarak-ray-ke-polyline
-      custom untuk edge, TIDAK ADA primitif OCCT untuk ini) — karena
+      custom untuk edge, TIDAK ADA primitif kernel untuk ini) — karena
       `deep_clone` tidak memindah geometri di ruang dunia, ray yang sama
       selalu kena permukaan/tepi yang SAMA secara geometris. Menghindari
       SELURUH masalah index-stability/handle-identity lewat operasi
       geometris yang robust by construction, bukan asumsi yang butuh
       diverifikasi.
       **Divalidasi lewat test WAJIB** (dijalankan SEBELUM lanjut ke
-      fillet/chamfer/shell per-tepi, pola root-cause-dulu yang sama dengan
-      blocker OCCT/iOS Fase 6): `pick_face_consistent_across_deep_clone`/
+      fillet/chamfer/shell per-tepi, pola root-cause-dulu):
+      `pick_face_consistent_across_deep_clone`/
       `pick_edge_consistent_across_deep_clone` — ray yang sama di-cast ke
       shape asli DAN ke hasil `deep_clone`-nya, titik hit HARUS sama dalam
       toleransi numerik kecil. Keduanya lulus — asumsi terbukti valid,
@@ -1017,8 +836,7 @@ dugaan lama di dokumen ini:
 - [x] **`pick_face(shape, ray)`** / **`pick_edge(shape, ray, tolerance)`**
       (`ducad-kernel`, publik — dipakai UI utk feedback interaktif) +
       helper privat `resolve_face_along_ray`/`resolve_edge_along_ray`
-      (dipakai ULANG oleh fillet/chamfer/shell per-tepi di bawah, supaya
-      tidak `lock_kernel()` dua kali dari dalam fungsi publik yang sama).
+      (dipakai ULANG oleh fillet/chamfer/shell per-tepi di bawah).
       `closest_point_ray_segment`: closest-point ray-vs-segmen 3D ditulis
       sendiri (pendekatan dua-langkah standar utk hit-testing interaktif,
       BUKAN solusi jarak-minimum-tersertifikasi — didokumentasikan sebagai
@@ -1029,13 +847,7 @@ dugaan lama di dokumen ini:
       **`shell_hollow_faces(shape, thickness, rays)`** (`ducad-kernel`,
       fungsi TERPISAH dari `fillet_all`/`chamfer_all`/`shell_hollow` lama
       — perilaku lama TIDAK berubah sama sekali, backward-compatible
-      penuh). `Shape::fillet_edges`/`chamfer_edges` TERNYATA sudah ada
-      sebagai primitif publik di binding (`fillet_all` yang sudah ada
-      sejak Fase 3 ternyata cuma `fillet_edges(radius, self.edges())` di
-      baliknya) — tidak perlu menambal apa pun di binding.
-      `Shape::hollow` TERNYATA SUDAH generic multi-face sejak awal
-      (`shell_hollow` lama membatasi ke 1 face lewat `try_farthest`
-      sendiri, bukan batasan binding). Semua 3 fungsi menolak `rays`
+      penuh). Semua 3 fungsi menolak `rays`
       kosong (error mengarahkan ke varian "semua tepi/arah otomatis").
       3 test geometris nyata: fillet 1 tepi spesifik pada box → jumlah
       vertex hasil LEBIH SEDIKIT dari `fillet_all` (bukti cuma 1 tepi yang
@@ -1061,11 +873,8 @@ dugaan lama di dokumen ini:
       garis oranye tidak query kernel ulang tiap frame render). Tombol
       "Reset Pilihan" mengosongkan seleksi picking.
 - [ ] **Sengaja belum ada** (lingkup Fase 8 putaran pertama dipersempit ke
-      yang bisa dibangun di atas API `opencascade-rs` 0.2.0 yang sudah ada
-      + terverifikasi robust, sisanya bukan lupa): sweep sepanjang jalur
-      (gap upstream `opencascade-sys`, butuh menambal binding cxx sendiri
-      — pekerjaan besar terpisah, sekelas blocker OCCT-iOS Fase 6, bukan
-      tambahan kecil); Revolve sudut PARSIAL (kernel sudah mendukung lewat
+      yang bisa dibangun + terverifikasi robust, sisanya bukan lupa): sweep
+      sepanjang jalur (pekerjaan besar terpisah, bukan tambahan kecil); Revolve sudut PARSIAL (kernel sudah mendukung lewat
       `angle_degrees: Some(..)`, UI-nya belum — cuma 360° penuh); loft
       lintas-workplane sungguhan & sketch-on-face (butuh konsep workplane
       baru yang cross-cutting — menyentuh `screen_to_plane_point`, semua
@@ -1153,19 +962,8 @@ mendatang seperti smart-boolean-cutting yang lebih presisi, atau hint UI
 khusus per tipe permukaan) — sekadar deteksi/label tipe permukaan
 geometris di balik sebuah `Face`, belum dipakai fitur apa pun.
 
-- [x] **`Face::surface_kind() -> String`** (vendor `opencascade-0.2.0`,
-      `src/primitives/face.rs`) — kembalikan nama kelas dinamis C++/OCCT
-      dari permukaan di balik face (mis. `"Geom_Plane"`,
-      `"Geom_CylindricalSurface"`, `"Geom_SphericalSurface"`). Disusun
-      MURNI dari binding FFI yang sudah ada di `opencascade-sys` 0.2.0
-      (`BRep_Tool_Surface` + `DynamicType` + `type_name`) — **tanpa
-      menyentuh `opencascade-sys` sama sekali**, pola identik dengan patch
-      `faces_along_ray_with_tolerance` yang sudah ada (lihat
-      `vendor/README.md`).
-      Fixture test tambahan: `AdHocShape::make_sphere(r)` (patch vendor
-      baru juga, sama-sama tanpa sentuh `-sys` — cuma bungkus
-      `BRepPrimAPI_MakeSphere_ctor` yang FFI-nya sudah ada tapi belum
-      punya wrapper Rust publik).
+- [x] **`surface_kind()`** (`ducad-kernel`) — kembalikan nama tipe
+      permukaan di balik face (bidang, silinder, bola, dst.).
 - [x] **`SurfaceKind` enum** (`ducad-kernel`) — `Plane | Cylinder | Cone |
       Sphere | Torus | Other`, `From<&str>` mem-parse keluaran
       `surface_kind()` (nama tak dikenal jatuh ke `Other`, bukan error —
@@ -1174,110 +972,36 @@ geometris di balik sebuah `Face`, belum dipakai fitur apa pun.
       face semuanya `Plane`; silinder → 2 `Plane` (tutup) + 1 `Cylinder`
       (selimut); bola → 1 face `Sphere`.
 
-## Status Fase 8 Lanjutan 3 — Vendor `opencascade-sys` + Binding Baru (dikerjakan, Fase 2)
-
-Lanjutan langsung dari "Fase 8 Lanjutan 2" di atas: deteksi tipe surface
-(Fase 1, `surface_kind()`) cukup dari FFI yang SUDAH ADA; giliran ini butuh
-FFI yang BELUM ADA sama sekali (arah gizmo radial silinder/kerucut presisi
-+ offset shell per-face) — dua kelas OCCT yang belum ada binding-nya di
-`opencascade-sys` 0.2.0 upstream, jadi crate itu sendiri (bukan cuma
-`opencascade`) sekarang juga di-vendor. Detail lengkap alasan & pola di
-`vendor/README.md` (§ `opencascade-sys-0.2.0`) — ringkasan di sini:
-
-- [x] **Vendor `opencascade-sys-0.2.0`** ke `vendor/`, terdaftar di
-      `[patch.crates-io]` root `Cargo.toml` bersebelahan dengan
-      `opencascade-0.2.0` yang sudah ada. `opencascade-0.2.0` vendored
-      otomatis ikut memakai copy lokal ini (dependensinya
-      `opencascade-sys = "0.2"` tak berubah, resolusi patch yang
-      mengarahkan).
-- [x] **Binding `BRepAdaptor_Surface`** (`include/wrapper.hxx` +
-      `src/lib.rs`) — ctor dari `TopoDS_Face`, `GetType()` (enum
-      `GeomAbs_SurfaceType`), dan accessor `gp_Cylinder`/`gp_Cone` (titik
-      axis, arah axis, radius, semi-angle) — dasar utk arah gizmo radial
-      & validasi tipe surface sebelum drag.
-- [x] **Binding `BRepOffset_MakeOffset`** (offset shell per-face) —
-      `Initialize(shape, offset, tol, mode, intersection, self_inter,
-      join, thickening, remove_int_edges)`, `SetOffsetOnFace(face, d)`,
-      `MakeOffsetShape()`, `IsDone()`, `Shape()`.
-- [x] **Semua langkah yang bisa gagal secara geometris di OCCT
-      dideklarasikan `Result<>`** di cxx bridge, dibungkus manual
-      `try/catch(Standard_Failure) → throw std::runtime_error` di
-      `wrapper.hxx` — `Standard_Failure` OCCT TERNYATA turunan
-      `Standard_Transient`, BUKAN `std::exception` (diverifikasi dari
-      header OCCT vendored), jadi mekanisme auto-catch cxx (yang cuma
-      nangkep `std::exception`) tidak cukup; tanpa wrapper manual ini,
-      exception OCCT tembus jadi `std::terminate` (abort proses), bukan
-      `Result::Err`. Dibuktikan lewat 5 test baru,
-      `vendor/opencascade-sys-0.2.0/tests/surface_and_offset.rs` (mis.
-      `plane_face_reports_plane_type_and_rejects_cylinder_accessor` —
-      manggil `Cylinder()` di face datar, harus `Err` rapi bukan crash
-      test binary).
-- [x] **Pola dobel-deklarasi enum ditemukan & didokumentasikan**: enum
-      baru (`GeomAbs_SurfaceType`, `BRepOffset_Mode`, `GeomAbs_JoinType`)
-      yang namanya bentrok dengan `enum` C++ asli OCCT (sudah
-      di-`#include`) WAJIB juga dideklarasikan `type X;` di dalam blok
-      `unsafe extern "C++"` cxx bridge — kalau tidak, cxx generate `enum
-      class` sendiri dan gagal kompilasi C++ ("enumeration previously
-      declared as unscoped"). Pola ini sudah lama dipakai diam-diam oleh
-      `TopAbs_ShapeEnum`/`BOPAlgo_GlueEnum`/`IFSelect_ReturnStatus` di
-      binding upstream — baru ketauan & didokumentasikan eksplisit pas
-      nambah enum baru pertama kali sejak vendor dibuat.
-- [x] 43 test `ducad-kernel` + 5 test baru `opencascade-sys` lulus,
-      seluruh workspace (`cargo test --workspace`) hijau.
-- [ ] **Sengaja belum ada di putaran ini**: belum ada API level
-      `ducad-kernel`/`opencascade` yang memanggil `BRepAdaptor_Surface`/
-      `BRepOffset_MakeOffset` baru ini — Fase 2 murni nambah FFI mentah di
-      `opencascade-sys`, integrasi ke gizmo radial & fitur offset shell
-      di level kernel/UI DUCAD ditunda ke putaran berikutnya.
-
 ## Status Fase 8 Lanjutan 4 — `extrude_face` Dispatch per Tipe Surface (dikerjakan, Fase 3)
 
-Integrasi FFI mentah dari "Fase 8 Lanjutan 3" (`BRepOffset_MakeOffset`,
-`BRepAdaptor_Surface`) ke level `ducad-kernel`: `extrude_face` sekarang
-dispatch berdasarkan `SurfaceKind` face yang di-pick, bukan selalu
+`extrude_face` (`ducad-kernel`) sekarang dispatch berdasarkan `SurfaceKind` face yang di-pick, bukan selalu
 extrude+boolean.
 
-- [x] **`Shape::volume()` + `Shape::offset_on_face()`** (vendor
-      `opencascade-0.2.0`, `src/primitives/shape.rs`) — `volume()` lewat
-      `BRepGProp_VolumeProperties`/`Mass()` (FFI sudah ada, cuma belum ada
-      wrapper publik); `offset_on_face(face, offset)` menyusun
-      `BRepOffset_MakeOffset` (base offset `0.0` semua face,
-      `SetOffsetOnFace` cuma di face terpilih, mode `BRepOffset_Skin` +
-      `intersection=true` + join `GeomAbs_Intersection`) — TIDAK ada
-      perubahan lagi di `opencascade-sys`, murni pemakaian FFI Fase 2 yang
-      sebelumnya belum dipakai siapa pun. Varian error baru
-      `Error::OffsetOnFaceFailed(String)` di `src/lib.rs` utk
-      membungkus pesan `cxx::Exception`-nya. Detail lengkap di
-      `vendor/README.md` (Perubahan #4, #6).
-- [x] **`Face::cylinder_or_cone_radius()`** (vendor `opencascade-0.2.0`,
-      `src/primitives/face.rs`) — coba `BRepAdaptor_Surface_cylinder`/
-      `_cone` berantai, `None` kalau bukan keduanya (Sphere/Torus sengaja
-      tidak tercakup — `opencascade-sys` belum ada binding
-      `gp_Sphere`/`gp_Torus`, di luar cakupan Fase 2). Detail di
-      `vendor/README.md` (Perubahan #5).
+- [x] **Volume shape + offset satu face** (kernel) — offset hanya di face
+      terpilih, face lain tetap; dasar jalur non-planar di bawah.
+- [x] **Radius silinder/kerucut dari face** — `None` kalau bukan keduanya
+      (Sphere/Torus sengaja tidak tercakup).
 - [x] **`extrude_face` jadi dispatch per `SurfaceKind`** (`ducad-kernel`):
       - `Plane` → jalur ASLI (extrude+union/subtract) **tidak disentuh
-        sama sekali** — termasuk catatan deadlock `KERNEL_LOCK` yang sudah
-        ada, tetap berlaku persis seperti sebelumnya.
+        sama sekali**.
       - `Cylinder`/`Cone`/`Sphere`/`Torus`/`Other` → jalur baru:
-        `Shape::offset_on_face` langsung pada solid hasil `deep_clone`,
-        `SetOffsetOnFace(face_terpilih, distance)`, hasilnya LANGSUNG
+        offset per-face langsung pada solid hasil `deep_clone` (face
+        terpilih sejauh `distance`), hasilnya LANGSUNG
         solid baru (bukan dua langkah extrude+boolean seperti wajah
         datar — extrude wajah lengkung menghasilkan *swept surface* baru,
         bukan silinder/kerucut/bola dengan radius berbeda, jadi tidak
         cocok untuk union/subtract). Validasi batas SEBELUM memanggil
-        OCCT: utk Cylinder/Cone, `radius + distance <= 0` → `bail!` jelas
+        kernel: utk Cylinder/Cone, `radius + distance <= 0` → `bail!` jelas
         (pesan sebut radius saat ini & jarak drag); utk Sphere/Torus/Other
-        (tidak ada pre-check radius presisi), `offset_on_face` sendiri
-        `bail!` lewat `Result::Err`/`IsDone()==false` dari OCCT kalau
-        geometri kolaps.
+        (tidak ada pre-check radius presisi), offset sendiri `bail!` lewat
+        `Result::Err` kalau geometri kolaps.
       - **Konvensi tanda tervalidasi empiris** (bukan asumsi): `distance`
-        diteruskan APA ADANYA ke `SetOffsetOnFace` — utk wajah cembung
+        diteruskan APA ADANYA ke offset kernel — utk wajah cembung
         (selimut luar silinder/bola), `distance > 0` membesarkan radius
         (drag keluar); utk wajah cekung (dinding lubang/interior),
         `distance > 0` justru MENGECILKAN radius (karena normal-keluar-
-        dari-material OCCT di wajah itu mengarah ke sumbu) — perilaku
-        OCCT standar, bukan bug, dibuktikan lewat test volume presisi di
+        dari-material di wajah itu mengarah ke sumbu) — perilaku
+        kernel standar, bukan bug, dibuktikan lewat test volume presisi di
         bawah.
 - [x] **6 test baru volume** (`ducad-kernel`, total sekarang 50 test,
       seluruh workspace `cargo test --workspace` hijau):
@@ -1285,15 +1009,13 @@ extrude+boolean.
         `π·12²·20` (radius membesar).
       - Sama, push -3 mm → volume persis `π·7²·20` (radius mengecil).
       - Push -10 mm (radius jadi persis 0) → `bail!` jelas (pesan sebut
-        "radius"), bukan gagal telat di OCCT.
+        "radius"), bukan gagal telat di kernel.
       - Tabung berlubang (R_out=20, R_in=8), dinding lubang didorong
         radial ke dalam +2 mm → volume persis cocok dgn lubang mengecil
         ke R_in=6 (`π·(20²−6²)·20`).
       - Bola R=7 di-pull +1.5 mm → volume persis `4/3·π·8.5³` (offset satu
         face penuh = offset seragam seluruh bola, exact secara analitik).
-      - Kerucut (fixture via `revolve_profile`, `BRepPrimAPI_MakeCone`
-        sendiri tidak ada binding-nya — di luar cakupan Fase 2, sengaja
-        tidak nambah FFI baru cuma utk test) — offset selimut kerucut
+      - Kerucut (fixture via `revolve_profile`) — offset selimut kerucut
         TIDAK proporsional-sederhana ke volume (properti "cone sejajar":
         offset menggeser posisi puncak sepanjang sumbu), jadi test ini
         cuma validasi ARAH (tarik keluar = volume naik, tekan masuk =
@@ -1336,15 +1058,9 @@ melainkan arah radial di titik hit itu sendiri.
         persis pusat bola (centroid luas permukaan bola simetris = pusat).
       - `Torus`/`Other` → fallback ke `normal` (belum ada rumus radial
         khusus utk tipe ini).
-- [x] **`Face::cylinder_or_cone_axis()`** (vendor `opencascade-0.2.0`,
-      `src/primitives/face.rs`) — method baru, `Option<(DVec3, DVec3)>`
-      (titik acuan + arah satuan sumbu), pola identik
-      `cylinder_or_cone_radius` (Fase 3): coba `BRepAdaptor_Surface_cylinder`/
-      `_cone` berantai. Menyusun ulang binding `gp_Cylinder_location`/
-      `_direction`/`gp_Cone_location`/`_direction` yang SUDAH ADA di
-      `opencascade-sys` sejak Fase 2 (dulu cuma dipakai radius) — TIDAK ada
-      perubahan lagi di `opencascade-sys` di fase ini. Detail di
-      `vendor/README.md` (Perubahan #7).
+- [x] **Sumbu silinder/kerucut dari face** — `Option<(DVec3, DVec3)>`
+      (titik acuan + arah satuan sumbu), pola identik dengan pembacaan
+      radius (Fase 3).
 - [x] **Bug ditemukan & diperbaiki sekaligus: `pick_face_details` kini
       berhasil utk bola PENUH.** Newell's method (`compute_face_normal_and_
       centroid`) tetap gagal `None` utk boundary bola (seam+2 pole
@@ -1356,10 +1072,8 @@ melainkan arah radial di titik hit itu sendiri.
       nyata yang ditemukan & diperbaiki saat implementasi**: fallback awal
       memproyeksikan `centroid` (pusat bola) ke permukaannya sendiri —
       kasus *degenerate* (berjarak sama ke SEMUA titik permukaan),
-      `GeomAPI_ProjectPointOnSurf` gagal dapat solusi tunggal dan OCCT
-      melempar `Standard_OutOfRange` yang TIDAK tertangkap cxx (abort
-      proses via `std::terminate`, dibuktikan lewat crash nyata saat
-      `cargo test -p ducad-kernel`). Diperbaiki dgn memproyeksikan
+      proyeksi titik ke permukaan gagal dapat solusi tunggal dan proses
+      abort (dibuktikan lewat crash nyata saat `cargo test -p ducad-kernel`). Diperbaiki dgn memproyeksikan
       `hit_point` (titik yang TERBUKTI ada di permukaan, hasil ray-face
       intersection) — selalu well-defined.
 - [x] **Gizmo (`ducad-app`) pakai `pull_dir`, bukan `normal`** — 5 titik:
@@ -1385,15 +1099,14 @@ melainkan arah radial di titik hit itu sendiri.
       arah utk dinding lubang (face CEKUNG/`Reversed`).** Precheck lama
       selalu memakai `current_radius + distance <= 0`, sama seperti wajah
       cembung (`Forward`) — tapi utk dinding lubang, normal-keluar-dari-
-      material OCCT mengarah ke sumbu, jadi rumus radius barunya TERBALIK
+      material mengarah ke sumbu, jadi rumus radius barunya TERBALIK
       (`R − distance`, dibuktikan test `..._shrinks_hole_when_pushed_
       radially_inward` yg sudah ada: R=8 → 6 saat distance=+2). Akibat
       tanda salah: (1) memperbesar lubang lewat `distance` negatif —
       operasi VALID — ditolak keliru dgn pesan "radius ≤ 0"; (2)
       `distance` yang menutup lubang penuh (radius jadi 0) malah LOLOS
-      precheck lalu gagal telat & generik di OCCT — persis yang ingin
-      dicegah precheck ini. Diperbaiki dgn `Face::orientation()` (sudah
-      ada di vendor, `face.rs:345`): `Forward` → `R + d`, `Reversed` →
+      precheck lalu gagal telat & generik di kernel — persis yang ingin
+      dicegah precheck ini. Diperbaiki dgn orientasi face: `Forward` → `R + d`, `Reversed` →
       `R − d`. 2 test baru menyusul (total sekarang 56 test
       `ducad-kernel`): lubang membesar MELEBIHI radius awal via distance
       negatif harus berhasil; lubang didorong persis sejauh radiusnya
@@ -1426,8 +1139,8 @@ melainkan arah radial di titik hit itu sendiri.
       BERHASIL, dan `centroid`-nya = rata-rata boundary loop FACE ITU —
       BUKAN pusat bola — jadi arah gizmo melenceng jauh (dibuktikan di
       test baru: sebelum perbaikan `pull_dir` di titik `(R,0,0)` jadi
-      `(0.58, −0.58, −0.58)`, seharusnya `(1,0,0)`). Diperbaiki tanpa
-      binding `gp_Sphere` baru: pakai `face.normal_at(hit)` langsung
+      `(0.58, −0.58, −0.58)`, seharusnya `(1,0,0)`). Diperbaiki dgn
+      pakai `face.normal_at(hit)` langsung
       (normal permukaan bola SELALU radial dari pusat, valid utk
       penuh maupun parsial — properti geometris bola), dgn koreksi
       tanda thd `ray_dir` sama seperti fallback GProp di
@@ -1458,7 +1171,7 @@ jadi sudut membulat (spherical corner).
       — `ray` di-cast ULANG ke shape hasil `deep_clone` (pola sama dgn
       `fillet_edges`/`PickRay`), tepi-tepi yang endpoint-nya berimpit
       (epsilon SAMA, 1e-6 mm) dgn vertex terpilih dikumpulkan lalu
-      di-fillet SEKALIGUS lewat `Shape::fillet_edges` — OCCT sendiri yang
+      di-fillet SEKALIGUS lewat `fillet_edges` — kernel sendiri yang
       menghasilkan sudut membulat saat >1 tepi bertemu di 1 titik difillet
       bareng dgn radius sama. 5 test baru (`ducad-kernel` sekarang 62
       test, `cargo test --workspace` — 142 test total — hijau).
@@ -1517,7 +1230,7 @@ jadi sudut membulat (spherical corner).
       bukan toleransi piksel — tidak ada akses `rect` layar di titik
       commit ini) — sukses → `ReplaceGeometryCommand` lewat
       `self.model_undo.execute` (jalur undo SAMA dgn `fillet_selected_body`),
-      `active_vertex` di-clear; gagal (mis. radius kebesaran, OCCT
+      `active_vertex` di-clear; gagal (mis. radius kebesaran, kernel
       menolak) → `model_status` pesan error, shape body ASLI tidak
       tersentuh (`fillet_vertex` bekerja di atas `deep_clone`). Tidak ada
       test baru (murni UI/rendering — sama alasan dgn catatan "Fase
@@ -1627,7 +1340,7 @@ kedua konteks ("mode sketch 2D atau mode 3D") sekaligus:
   SEKALI saat geometri body dibuat/berubah (constructor
   `from_shape`/`from_shape_with_mesh`, pola sama dengan cache `mesh`) —
   bukan tiap frame render, supaya toggle checkbox tidak memicu traversal
-  OCCT berulang. `from_shape_with_mesh` juga dipakai jalur Import STEP
+  topologi kernel berulang. `from_shape_with_mesh` juga dipakai jalur Import STEP
   (`poll_import_worker`) yang sebelumnya membangun `BodyGeometry` lewat
   struct literal langsung (bypass `from_shape`) — sekarang tetap dapat
   `edge_dims` walau mesh-nya sudah dihitung worker di thread lain.
@@ -1771,7 +1484,7 @@ perlu logika SAMA tapi dry-run:
   `build_rounded_shape(base, &features)`, TAPI tidak menyentuh
   `round_history`/`model_undo`/`model_status` — murni menghitung shape
   utk digambar. `None` kalau gizmo tidak aktif, radius masih di bawah
-  ambang "siku" (`ROUND_SHARP_MM`), atau rebuild OCCT gagal (radius
+  ambang "siku" (`ROUND_SHARP_MM`), atau rebuild kernel gagal (radius
   kebesaran dsb, frame itu saja tanpa preview).
 - `build_combined_body_mesh`: body target disembunyikan (skip mesh asli)
   selagi `filleting_vertex_from_gizmo`/`filleting_edge_from_gizmo` aktif
@@ -1790,64 +1503,35 @@ dipanggil lebih sering lewat jalur dry-run baru).
 
 User melaporkan: drag gizmo rounding (fillet vertex/edge) sampai batas
 ujung objek (radius terlalu besar utk tepi/sudut yang dipilih) membuat
-SELURUH aplikasi langsung close, log:
-```
-libc++abi: terminating due to uncaught exception of type StdFail_NotDone
-zsh: abort      cargo run -p ducad-app
-```
+SELURUH aplikasi langsung close (abort proses).
 
-Root cause: `BRepFilletAPI_MakeFillet`/`BRepFilletAPI_MakeChamfer::Shape()`
-(OCCT) melempar `StdFail_NotDone` kalau build fillet/chamfer gagal
-(`IsDone()==false`) — dan `StdFail_NotDone` adalah turunan
-`Standard_Failure`, BUKAN `std::exception` (pola yang sudah didokumentasikan
-di `vendor/README.md` sejak Fase 2 utk `BRepAdaptor_Surface`/
-`BRepOffset_MakeOffset`). Mekanisme cxx yang otomatis menerjemahkan
-exception C++ jadi `Result::Err` cuma nangkep `std::exception`, jadi
-binding `opencascade-0.2.0::Shape::fillet_edges`/`chamfer_edges` yang
-manggil `.Shape()` mentah TANPA try/catch bikin exception-nya TEMBUS lewat
-cxx dan memicu `std::terminate` — abort seluruh proses `cargo run`, bukan
-error Rust yang bisa ditangani `commit_round`/`round_gizmo_preview_shape`
-di `ducad-app`. Live preview real-time yang baru ditambahkan (lihat
-"Perbaikan susulan" di atas) membuat crash ini jauh lebih gampang kepancing
-— radius ekstrem kini dievaluasi TIAP FRAME selagi drag, bukan cuma sekali
-saat dilepas.
+Root cause: kernel gagal membangun fillet/chamfer di radius ekstrem, dan
+kegagalan itu tidak tersalurkan sebagai `Result::Err` — seluruh proses
+`cargo run` abort, bukan error Rust yang bisa ditangani `commit_round`/
+`round_gizmo_preview_shape` di `ducad-app`. Live preview real-time yang
+baru ditambahkan (lihat "Perbaikan susulan" di atas) membuat crash ini jauh
+lebih gampang kepancing — radius ekstrem kini dievaluasi TIAP FRAME selagi
+drag, bukan cuma sekali saat dilepas.
 
-Perbaikan (vendor patch, ikut pola `Standard_Failure`→`Result` yang sudah
-ada — lihat `vendor/README.md` § `opencascade-0.2.0` Perubahan #8 &
-§ `opencascade-sys-0.2.0` Perubahan #3 utk detail lengkap):
+Perbaikan:
 
-- `vendor/opencascade-sys-0.2.0`: dua binding baru,
-  `BRepFilletAPI_MakeFillet_shape_checked`/`BRepFilletAPI_MakeChamfer_
-  shape_checked` — `Shape()` dibungkus try/catch(Standard_Failure) +
-  rethrow `std::runtime_error` di `wrapper.hxx` (helper
-  `rethrow_standard_failure_as_runtime_error` yang sudah ada, bukan baru),
-  dideklarasikan `Result<&TopoDS_Shape>` di cxx bridge. ADDITIVE murni —
-  binding `Shape()` mentah lama TETAP ADA (dipakai `Solid::fillet_edge`/
-  `AdHocShape::fillet_edges`/`chamfer_edges` yang tidak dipakai
-  ducad-kernel).
-- `vendor/opencascade-0.2.0`: `Error::FilletFailed(String)` (variant baru,
-  pola sama `OffsetOnFaceFailed`); `Shape::fillet_edge`/`fillet_edges`/
-  `chamfer_edge`/`chamfer_edges`/`fillet`/`chamfer` sekarang balikin
-  `Result<(), Error>` (dulu `()`), manggil versi `_checked` di atas;
-  `BooleanShape::fillet_new_edges`/`chamfer_new_edges` ikut disesuaikan
-  (tidak dipakai ducad-kernel, cuma biar konsisten & tidak diam-diam
-  mengabaikan `Result`).
 - `ducad-kernel`: `fillet_edges`/`fillet_vertex`/`chamfer_edges`/
-  `fillet_all`/`chamfer_all`/`make_filleted_box` menyalurkan `Result` baru
-  itu lewat `.context("...")?` — pesan error jelas ("radius fillet
-  terlalu besar untuk tepi/sudut terpilih") alih-alih crash. Signature
-  publik kernel (`Result<KernelShape>`) TIDAK berubah, jadi TIDAK ADA
-  perubahan di `ducad-app` — `commit_round` dan `round_gizmo_preview_shape`
-  (lihat "Perbaikan susulan" di atas) sudah menangani `Err` dgn benar
-  (pesan status / skip frame preview), sekarang cuma benar-benar
-  menerimanya lewat jalur normal, bukan lewat proses yang sudah mati.
+  `fillet_all`/`chamfer_all`/`make_filleted_box` menyalurkan kegagalan
+  kernel sebagai `Result` lewat `.context("...")?` — pesan error jelas
+  ("radius fillet terlalu besar untuk tepi/sudut terpilih") alih-alih
+  crash. Signature publik kernel (`Result<KernelShape>`) TIDAK berubah,
+  jadi TIDAK ADA perubahan di `ducad-app` — `commit_round` dan
+  `round_gizmo_preview_shape` (lihat "Perbaikan susulan" di atas) sudah
+  menangani `Err` dgn benar (pesan status / skip frame preview), sekarang
+  cuma benar-benar menerimanya lewat jalur normal, bukan lewat proses
+  yang sudah mati.
 
 Regresi dibuktikan 3 test baru di `ducad-kernel`
 (`fillet_edges_oversized_radius_errors_not_crashes`,
 `fillet_vertex_oversized_radius_errors_not_crashes`,
 `chamfer_edges_oversized_distance_errors_not_crashes`) — radius/jarak
-1000mm pada box 30×20×15: tanpa patch SIGABRT test binary, dengan patch
-`Result::Err` biasa. `cargo build --workspace` bersih, `cargo test
+1000mm pada box 30×20×15: tanpa perbaikan SIGABRT test binary, dengan
+perbaikan `Result::Err` biasa. `cargo build --workspace` bersih, `cargo test
 --workspace -- --test-threads=1` 151 test hijau (67 ducad-kernel, +3 dari
 sebelumnya).
 
@@ -1855,9 +1539,8 @@ sebelumnya).
 crash):** user kirim screenshot — SETELAH fix crash di atas, drag gizmo
 rounding sampai "batas ujung objek" masih tidak berhenti: sudut box
 "memakan" seluruh sisi jadi bentuk baji/quarter-cylinder, bukan sudut
-membulat wajar. Beda root cause dari fix sebelumnya — OCCT sendiri masih
-`IsDone()==true` di radius segini (bukan `StdFail_NotDone`), jadi
-`Shape::fillet_edges`/`fillet_vertex` TIDAK `Err`; DUCAD sendiri yang
+membulat wajar. Beda root cause dari fix sebelumnya — kernel sendiri masih
+sukses di radius segini, jadi `fillet_edges`/`fillet_vertex` TIDAK `Err`; DUCAD sendiri yang
 belum punya batas atas geometris wajar utk radius/jarak rounding.
 
 - `ducad-kernel`: fungsi privat baru `max_fillet_radius(shape,
@@ -1865,7 +1548,7 @@ belum punya batas atas geometris wajar utk radius/jarak rounding.
   TERPENDEK yang terlibat (tepi target sendiri + semua tepi lain di shape
   yang endpoint-nya berimpit dgn endpoint tepi target, epsilon sama dgn
   `fillet_vertex`/`collect_vertices`). Dipanggil sbg precheck SEBELUM
-  manggil OCCT (pola sama validasi radius silinder/kerucut di
+  manggil kernel (pola sama validasi radius silinder/kerucut di
   `extrude_face`) di `fillet_edges`/`fillet_vertex`/`chamfer_edges`/
   `fillet_all`/`chamfer_all` — `bail!` dgn pesan jelas ("radius fillet
   (X mm) melebihi batas geometris ... (maks Y mm)") kalau radius/jarak
@@ -1892,12 +1575,10 @@ belum punya batas atas geometris wajar utk radius/jarak rounding.
   kalau rounding pertama kali (pola sama dgn `build_rounded_shape` yang
   selalu rebuild dari `base`, bukan shape final).
 
-2 test baru di `ducad-kernel`
-(`fillet_vertex_radius_exceeding_shortest_edge_errors_before_reaching_occt`,
-`fillet_edges_radius_exceeding_shortest_touching_edge_errors_before_reaching_occt`,
-lihat "Perbaikan susulan 2" di bawah utk nama final setelah dikoreksi)
+2 test baru di `ducad-kernel` (vertex & edge: radius melebihi tepi
+terpendek harus ditolak precheck, lihat "Perbaikan susulan 2" di bawah)
 — radius 10mm pada box 30×20×15 (tepi terpendek 15mm): SENGAJA jauh lebih
-kecil dari radius 1000mm di test crash sebelumnya (yang sudah bikin OCCT
+kecil dari radius 1000mm di test crash sebelumnya (yang sudah bikin kernel
 sendiri gagal) supaya benar-benar menguji precheck geometris BARU, bukan
 cuma re-test fix crash lama. `cargo build --workspace` bersih, `cargo
 test --workspace -- --test-threads=1` 153 test hijau (69 ducad-kernel,
@@ -1922,8 +1603,8 @@ di tengah tepi).
 Perbaikan (`ducad-kernel::max_fillet_radius`): buang `/ 2.0`, balikin
 `min_len` langsung. Kalau radius sampai PERSIS menyentuh sudut tetangga
 (kasus batas paling ekstrem, marjinal secara numerik), `fillet_edges`/
-`fillet_vertex` masih bisa `Err` dari OCCT sendiri — itu SUDAH aman
-(tidak crash, fix `StdFail_NotDone` di "Perbaikan" sebelumnya), jadi
+`fillet_vertex` masih bisa `Err` dari kernel sendiri — itu SUDAH aman
+(tidak crash, fix di "Perbaikan" sebelumnya), jadi
 tidak perlu margin pengaman tambahan di precheck ini.
 
 2 test lama (`*_exceeding_half_shortest_*`, radius 10mm vs batas lama
@@ -1933,8 +1614,7 @@ tidak perlu margin pengaman tambahan di precheck ini.
   `fillet_edges_radius_near_full_shortest_touching_edge_succeeds` —
   radius 14mm (dekat batas baru 15mm) HARUS sukses — bukti formula
   `/2.0` tidak lagi aktif (kalau regresi, 14 > cap lama 7.5 → gagal).
-- `fillet_vertex_radius_exceeding_shortest_edge_errors_before_reaching_occt`
-  / `fillet_edges_radius_exceeding_shortest_touching_edge_errors_before_reaching_occt`
+- Varian vertex & edge "radius melebihi tepi terpendek harus ditolak"
   — radius 20mm (> batas baru 15mm) tetap ditolak.
 
 `cargo build --workspace` bersih, `cargo test --workspace --
@@ -1953,9 +1633,9 @@ SEMBUNYIKAN body berdasarkan FLAG drag aktif semata (mis.
 `filleting_vertex_from_gizmo`), BUKAN berdasarkan apakah preview
 penggantinya benar-benar berhasil dihitung frame itu. Begitu radius
 mendekati batas paling ekstrem, `round_gizmo_preview_shape` (via
-`fillet_vertex`) bisa `Err` dari OCCT sendiri WALAU sudah lolos precheck
+`fillet_vertex`) bisa `Err` dari kernel sendiri WALAU sudah lolos precheck
 `max_fillet_radius` kita (radius PERSIS di batas = kasus paling marjinal
-secara numerik OCCT, sudah diantisipasi aman dari SISI CRASH sejak
+secara numerik, sudah diantisipasi aman dari SISI CRASH sejak
 "Perbaikan" pertama, tapi belum dari sisi RENDER) — body sudah kadung
 disembunyikan tapi preview penggantinya `None`, jadi viewport kosong.
 
@@ -1983,7 +1663,7 @@ syarat terpisah yang bisa tidak sinkron).
 menyentuh kernel).
 
 **Perbaikan susulan 4 — formula geometris TERBUKTI dua kali salah,
-diganti validasi trial langsung ke OCCT:** user kirim screenshot keempat
+diganti validasi trial langsung ke kernel:** user kirim screenshot keempat
 — objek 3D sudah tidak hilang, tapi radius masih berhenti SEBELUM
 benar-benar mencapai pinggir objek (R 61.89mm ditampilkan, tapi kurva
 belum sampai ujung). Ini bug KETIGA di area yang sama: formula precheck
@@ -1993,7 +1673,7 @@ salah). Pola berulang ini adalah SINYAL bahwa masalahnya bukan "rumus
 mana yang benar" — masalahnya adalah PENDEKATAN "coba tebak formula
 geometris" itu sendiri: blend fillet 3 arah di 1 vertex (atau bahkan
 fillet 1 tepi) bukan geometri sederhana yang bisa diringkas 1 rumus
-tertutup akurat untuk segala kasus; OCCT-lah yang tahu persis batasnya.
+tertutup akurat untuk segala kasus; kernel-lah yang tahu persis batasnya.
 
 Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
 
@@ -2001,9 +1681,8 @@ Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
   (fungsi `max_fillet_radius`/`max_vertex_fillet_radius`/
   `max_edge_fillet_radius` semua dihapus) dari `fillet_edges`/
   `fillet_vertex`/`chamfer_edges`/`fillet_all`/`chamfer_all` — sumber
-  kebenaran SEKARANG murni `Shape::fillet_edges`/`chamfer_edges`
-  (`IsDone()`/`Err` dari OCCT langsung, SUDAH aman dari crash sejak fix
-  `StdFail_NotDone`). Alasan lengkap didokumentasikan di doc-comment
+  kebenaran SEKARANG murni operasi fillet/chamfer kernel (`Err` dari
+  kernel langsung, SUDAH aman dari crash sejak fix crash di atas). Alasan lengkap didokumentasikan di doc-comment
   `fillet_vertex`.
 - `ducad-app::round_gizmo_preview_shape`: signature berubah, `radius`
   jadi PARAMETER eksplisit (bukan dibaca langsung dari
@@ -2014,15 +1693,15 @@ Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
   `new_radius` lalu meng-clamp dgn formula, sekarang menghitung
   `candidate_radius` dari delta mouse lalu MENCOBA LANGSUNG
   `round_gizmo_preview_shape(kind, candidate_radius)` (yang ujungnya
-  memanggil `fillet_vertex`/`fillet_edges` OCCT sungguhan) — radius
+  memanggil `fillet_vertex`/`fillet_edges` kernel sungguhan) — radius
   cuma DITERIMA (`self.vertex_gizmo_radius = candidate_radius`) kalau
   trial itu SUKSES. Kalau gagal, radius tetap di nilai valid TERAKHIR.
   Efeknya: `self.vertex_gizmo_radius`/`edge_gizmo_radius` SELALU berupa
-  radius yang PROVEN bisa dibangun OCCT (bukan perkiraan) — pill dan
+  radius yang PROVEN bisa dibangun kernel (bukan perkiraan) — pill dan
   visual render otomatis sinkron (render pass memanggil fungsi yang sama
   dgn radius yang sama, dijamin sukses), DAN commit saat drag dilepas
   otomatis sukses (radius yg dikirim sudah kadung ter-validasi).
-- Trade-off yang disadari: drag TERUS-MENERUS memanggil operasi OCCT
+- Trade-off yang disadari: drag TERUS-MENERUS memanggil operasi kernel
   penuh (deep_clone + fillet build) — SEKALI utk validasi kandidat di
   drag handler, SEKALI LAGI utk mesh preview di render pass — 2x lipat
   dari sebelumnya. Diterima utk model sederhana (target DUCAD saat ini);
@@ -2037,7 +1716,7 @@ Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
 yang HANYA membuktikan radius mendekati tepi tetap sukses TANPA precheck
 manual (tidak menghardcode ambang mana pun milik DUCAD) — test
 "exceeding" dihapus karena tidak ada lagi ambang DUCAD utk diuji;
-batasnya sekarang murni keputusan OCCT.
+batasnya sekarang murni keputusan kernel.
 
 `cargo build --workspace` bersih, `cargo test --workspace --
 --test-threads=1` 153 test hijau (69 ducad-kernel, neto -2 dari
@@ -2146,40 +1825,26 @@ pesan/backtrace apa pun di terminal, log debug hanya berhenti tiba-tiba
 tepat setelah face pick sukses) saat extrude wajah yang tepi/sudut
 TETANGGANYA sudah di-rounding (fillet).
 
-Root cause: `Shape::union`/`subtract` (`vendor/opencascade-0.2.0/src/
-primitives/shape.rs`) dan `AdHocShape::union`/`subtract`/`intersect`
-(`vendor/opencascade-0.2.0/src/adhoc.rs`) — dipanggil `ducad-kernel::
+Root cause: boolean kernel (fuse/cut/common) — dipanggil `ducad-kernel::
 union`/`subtract`/`intersect`/`extrude_face` (jalur planar extrude fuse/cut
-prism baru ke shape lewat boolean OCCT) — memanggil `BRepAlgoAPI_Fuse`/
-`Cut`/`Common` MENTAH tanpa `IsDone()`/try-catch. Fuse/cut prism baru ke
-solid yang tepinya sudah di-fillet adalah kasus OCCT yang bisa gagal
-(`StdFail_NotDone`) di titik tangent dgn blend surface fillet. `StdFail_
-NotDone` turunan `Standard_Failure`, BUKAN `std::exception` — lolos lewat
-cxx dan memicu `std::terminate` (abort SELURUH proses), bukan `Result::
-Err`. Kelas bug yang SAMA PERSIS sudah pernah diperbaiki utk fillet/chamfer
-(lihat `vendor/README.md` "Perubahan #8"/"#3" — user drag radius rounding
-sampai batas ujung objek) tapi belum pernah diterapkan ke boolean
-union/subtract/intersect, satu-satunya celah yang tersisa.
+prism baru ke shape) — dijalankan tanpa pemeriksaan sukses. Fuse/cut prism
+baru ke solid yang tepinya sudah di-fillet bisa gagal di titik tangent dgn
+blend surface fillet, dan kegagalan itu tidak tersalurkan sebagai
+`Result::Err` — abort SELURUH proses. Kelas bug yang SAMA PERSIS sudah
+pernah diperbaiki utk fillet/chamfer (lihat "Crash Gizmo Rounding di Batas
+Ujung Objek" — user drag radius rounding sampai batas ujung objek) tapi
+belum pernah diterapkan ke boolean union/subtract/intersect, satu-satunya
+celah yang tersisa.
 
-Fix (lihat `vendor/README.md` "Perubahan #9" untuk `opencascade-0.2.0` &
-"Perubahan #4" untuk `opencascade-sys-0.2.0`, detail lengkap di sana):
-- `opencascade-sys`: 6 binding baru (`BRepAlgoAPI_Fuse/Cut/Common_ctor_
-  checked`/`_shape_checked`) — try/catch(Standard_Failure) di
-  `wrapper.hxx`, BEDA dari fillet/chamfer: bukan cuma `.Shape()`, ctor
-  2-argumen kelas ini jalan eager (langsung Build() algoritma BOP), jadi
-  ctor-nya JUGA dibungkus (ditulis manual, bukan lewat `construct_unique`
-  generik cxx yang tidak bisa di-try/catch).
-- `opencascade-0.2.0`: `Error::BooleanOpFailed(String)` baru;
-  `Shape::union`/`subtract` & `AdHocShape::union`/`subtract`/`intersect`
-  sekarang balikin `Result<..., Error>` (dulu tanpa jaminan sukses),
-  lewat binding checked di atas.
+Fix:
 - `ducad-kernel`: `union`/`subtract`/`intersect`/`extrude_face`
-  `.context(...)?`-kan `Result` baru itu (tanda tangan publiknya sendiri
-  sudah `Result<KernelShape>` dari awal, jadi TIDAK ada perubahan API yang
+  menyalurkan kegagalan boolean kernel sebagai `Result` lewat
+  `.context(...)?` (tanda tangan publiknya sendiri sudah
+  `Result<KernelShape>` dari awal, jadi TIDAK ada perubahan API yang
   terlihat pemanggil).
 - `ducad-app`: NOL perubahan — semua titik panggil `ducad_kernel::union/
   subtract/intersect/extrude_face` sudah pakai `match`/`if let Ok`/`.ok()?`
-  dari awal, jadi begitu native exception-nya ketangkep jadi `Err`, alur
+  dari awal, jadi begitu kegagalannya ketangkep jadi `Err`, alur
   error-handling yang sudah ada otomatis kepakai.
 
 Regresi dibuktikan test baru `extrude_face_adjacent_to_fillet_does_not_
@@ -2243,9 +1908,8 @@ plane` yang sama).
 Keterbatasan yang diketahui & didokumentasikan di kode:
 - Jalur two-finger tap ditulis & diuji SECARA LOGIS (5 test baru di
   `plane_activation_tests`, ray buatan tangan gaya `plane.rs`), tapi belum
-  bisa diverifikasi end-to-end di iPad fisik — Fase 6 (build iOS) masih
-  blocked di level linking OCCT utk aarch64-apple-ios (lihat status Fase 6
-  di atas), jadi tidak ada device/simulator utk smoke-test gesture-nya.
+  bisa diverifikasi end-to-end di iPad fisik (belum ada smoke-test
+  gesture di device/simulator).
 - Deteksi tap tidak membedakan pinch-zoom-di-tempat (centroid nyaris diam
   tapi jari-jari bergerak menjauh/mendekat) dari tap murni — kalau user
   pinch cepat lalu lepas dlm <0.3s persis di area bidang non-aktif, bisa
@@ -2325,11 +1989,8 @@ perbandingan dgn CAD standar):
       auto-muncul saat tool Pilih aktif & ada seleksi sketch (tanpa body
       terpilih), lewat widget `CanvasHud::render_draggable_double_arrow_handle`
       yang sudah ada (pola vertex/edge fillet gizmo).
-- [x] **`ducad_kernel::translate_shape(shape, dx, dy, dz)`** — TIDAK
-      butuh binding OCCT baru: `opencascade-0.2.0` vendor sudah punya
-      `Shape::set_global_translation` sejak awal, tinggal dibungkus
-      fungsional (`deep_clone` + set translation) pola sama `fillet_all`/
-      `chamfer_all`, jauh lebih murah (cuma `Location`, B-rep tak disentuh).
+- [x] **`ducad_kernel::translate_shape(shape, dx, dy, dz)`** — fungsional
+      (`deep_clone` + translasi) pola sama `fillet_all`/`chamfer_all`.
 - [x] **Gizmo drag axis X/Y/Z body 3D** — 3 panah dunia murni di pusat
       bounding-box, auto-muncul saat tool Pilih aktif & PERSIS satu body
       terpilih (pola sama `active_face`/`active_vertex`/`active_edge`).
@@ -2778,15 +2439,10 @@ scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
       di-resize lewat `ResizeRectangle` (anchor Center) supaya sisi
       lain ikut konsisten, bukan cuma geser 1 endpoint. Ellipse SENGAJA
       tetap pill statis (2 angka Rx/Ry sekaligus, popup 1-angka tidak pas).
-- [x] **Resize body 3D (bounding-box X/Y/Z)** — `Shape::scale(pivot,
-      factor)` baru di `vendor/opencascade-0.2.0` (Perubahan #10, lihat
-      `vendor/README.md`) pakai `gp_Trsf::SetScale` + `BRepBuilderAPI_
-      Transform_ctor`, KEDUANYA binding `opencascade-sys` yang SUDAH ADA
-      — nol perubahan FFI. **Sengaja dibatasi scale UNIFORM saja**: non-
-      uniform per-sumbu butuh `gp_GTrsf`/`BRepBuilderAPI_GTransform`,
-      kelas C++ berbeda yang BELUM dibind di vendor ini (root-caused,
-      bukan dikerjakan blind) — dicatat sbg keterbatasan diketahui, mirip
-      pola sweep/iOS occt-sys yang lain di dokumen ini.
+- [x] **Resize body 3D (bounding-box X/Y/Z)** — scale `(pivot, factor)`
+      baru di kernel. **Sengaja dibatasi scale UNIFORM saja**: non-uniform
+      per-sumbu belum didukung kernel — dicatat sbg keterbatasan
+      diketahui.
       `DuCADApp::scale_selected_body` (`input/sketch.rs`, mirror persis
       `translate_selected_body`/`rotate_selected_body`) menghitung faktor
       dari X/Y/Z yang diminta user vs bbox sekarang; kalau tidak
@@ -2954,7 +2610,7 @@ Jalur konversi kurva vektor bergaya menjadi solid 3D B-rep parametrik (`ducad-en
 
 Rencana: `P16-P20-simulasi-dan-fitur-industri.md` (akar repo).
 
-- [x] **Kernel.** `KernelShape::mass_properties` (volume, pusat massa, tensor inersia eksak `BRepGProp`) + `principal_axes` (Jacobi 3×3) dan teorema sumbu sejajar di `ducad-kernel/src/mass.rs`. Tanpa binding cxx baru: tensor disusun dari `MomentOfInertia` pada enam sumbu, jadi OCCT tidak dibangun ulang.
+- [x] **Kernel.** `KernelShape::mass_properties` (volume, pusat massa, tensor inersia eksak) + `principal_axes` (Jacobi 3×3) dan teorema sumbu sejajar di `ducad-kernel/src/mass.rs`.
 - [x] **Core.** `ducad-core/src/material.rs`: `MechanicalProperties`, pustaka 13 bahan, `MaterialSource`; `Body.mechanical` dan `Document.material_library` (`#[serde(default)]`, berkas lama tetap terbaca).
 - [x] **Engine.** `Op::SetMaterial`, `inspect` (pusat massa, `inertia_com`/`inertia_origin`, momen & sumbu utama, radius girasi, `mechanical`, `assembly`), checks `center_of_mass` dan `moment_of_inertia`; `Check::Mass` memakai densitas material mekanik.
 - [x] **CLI/MCP/skill.** `ducad-cli inspect --mass`; `inspect` MCP membawa field baru (jumlah tool tetap); contoh `mass_bracket`.
@@ -3006,7 +2662,7 @@ Rencana: `P16-P20-simulasi-dan-fitur-industri.md` (akar repo).
 
 ## Status Fase P20 — Assembly industri (sebagian)
 
-- [x] **Ulir fisik.** `ducad-kernel/src/thread.rs` (`cut_iso_thread`, profil dasar ISO 68-1) + op `thread` (kosmetik secara bawaan). Pemotong dibuat per 2 putaran karena satu sapuan helix panjang menghasilkan solid rusak di OCCT. M10×1,5 sepanjang 20 mm: volume alur ±2 % dari rumus, solid valid.
+- [x] **Ulir fisik.** `ducad-kernel/src/thread.rs` (`cut_iso_thread`, profil dasar ISO 68-1) + op `thread` (kosmetik secara bawaan). Pemotong dibuat per 2 putaran karena satu sapuan helix panjang menghasilkan solid rusak di kernel. M10×1,5 sepanjang 20 mm: volume alur ±2 % dari rumus, solid valid.
 - [x] **Toolbox.** `ducad-core/src/standard_parts.rs` + op `standard_part`: ISO 4762, 4014, 4032, 7089 (M3–M12), pin ISO 2338, bearing 608/60xx/62xx. Semua 45 entri diuji valid dengan dimensi dan volume analitik; sebutan standar masuk `inspect` dan kolom baru `standard` di BOM CSV.
 - [x] **Mate lanjutan (sebagian).** `ducad-core/src/coupling.rs`: kopling kinematik `Gear { ratio }`, `Screw { pitch }`, `RackPinion { pitch_radius }` di `AssemblyTree::couplings`, dievaluasi setelah solver (`solve_assembly_with_couplings`, juga di `evaluate_motion`). Disimpan terpisah dari `MateKind` supaya 38 `match` di GUI tidak ikut berubah.
 - [x] **Exploded view (data + balon).** `AssemblyTree::explode_steps` (langkah berurutan, translasi + rotasi) melengkapi `explode_offset`; `DrawingSheet::set_bom_with_balloons` membuat satu balon per baris BOM, PDF deterministik.
@@ -3026,16 +2682,9 @@ Rencana: `P16-P20-simulasi-dan-fitur-industri.md` (akar repo).
 # App desktop (viewport 3D)
 cargo run -p ducad-app
 
-# Smoke test kernel OCCT (setelah build pertama selesai)
+# Smoke test kernel
 cargo run -p ducad-kernel --bin smoke
 
 # Unit test
 cargo test --workspace
 ```
-
-Catatan build: `.cargo/config.toml` di root workspace mengatur
-`CMAKE_POLICY_VERSION_MINIMUM=3.5` supaya `occt-sys` (dependensi
-`ducad-kernel`) tetap bisa dikonfigurasi CMake di mesin dengan CMake ≥
-4.0 (CMakeLists.txt bawaan OCCT pakai `cmake_minimum_required` versi
-lama). Build OCCT dari source pertama kali makan waktu beberapa menit,
-setelahnya di-cache di `target/`.

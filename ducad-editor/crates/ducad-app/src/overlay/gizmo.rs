@@ -199,7 +199,7 @@ impl DuCADApp {
             &format!("Memotong solid 3D sedalam {:.1} mm", distance.abs()),
         );
         self.record_extrude_feature(distance, true);
-        self.round_history.remove(&target_id);
+        self.archive_round_history(target_id);
         true
     }
 

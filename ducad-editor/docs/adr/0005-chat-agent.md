@@ -74,13 +74,13 @@ mengubah part lewat percakapan, dan cakupan operasi yang setara dengan GUI.
 ## Temuan saat implementasi
 
 - **Bug helix di kernel**: spine dari rangkaian segmen garis membuat
-  `MakePipe` menghasilkan solid ber-volume ≈ 0 (2,4 mm³ untuk pegas yang
+  sweep menghasilkan solid ber-volume ≈ 0 (2,4 mm³ untuk pegas yang
   seharusnya ±593 mm³). Tes kernel lama hanya memeriksa mesh. Spine kini
   satu kurva B-spline interpolasi; tes `helix_spring_has_real_volume`
   menjaga volumenya. Fitur Helix di GUI ikut diperbaiki.
-- **Mirror bidang** tidak ada di binding OCCT (hanya mirror sumbu =
-  rotasi 180°). Disusun dari skala −1 lalu rotasi 180° mengelilingi normal
-  (I − 2nnᵀ); tes memverifikasi bbox dan volume.
+- **Mirror bidang** memakai refleksi Householder terhadap bidang
+  (I − 2nnᵀ, `ducad-kernel` `mirror_shape`); tes memverifikasi bbox dan
+  volume.
 - **Privasi tidak pernah bisa diubah** sebelum ini: `AiPrivacy` tidak punya
   UI, sehingga Agent Bridge selalu terblokir. Sakelar kini ada di ⚙ panel
   Chat AI dan tersimpan.

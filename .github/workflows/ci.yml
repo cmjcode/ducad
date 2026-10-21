@@ -219,8 +219,8 @@ jobs:
         continue-on-error: ${{ runner.os == 'Windows' }}
         run: cargo test --workspace
 
-      # Gate kernel: replay korpus contoh terhadap golden yang direkam dengan
-      # OCCT sebelum migrasi (tests/goldens/occt, referensi beku). Perbedaan
+      # Gate kernel: replay korpus contoh terhadap golden referensi beku
+      # (tests/goldens/occt). Perbedaan
       # yang diterima (beserta alasannya) ada di
       # `tests/goldens/known_failures.truck.txt`; perbedaan lain = gagal.
       - name: golden

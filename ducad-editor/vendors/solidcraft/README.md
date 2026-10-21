@@ -62,7 +62,7 @@ rsync -a --delete --exclude target /tmp/sc/crates/geom/   vendors/solidcraft/cra
 #  - pasang lagi perubahan DUCAD 1–4 di atas (Cargo.toml eksplisit, ducad_ext.rs, baris lib.rs)
 #  - samakan versi dependensi di Cargo.toml dengan workspace SolidCraft yang baru
 #  - perbarui SHA di tabel atas
-cargo test -p ducad-kernel --no-default-features --features kernel-truck
-cargo run -p ducad-cli --features kernel-truck -- golden check --against tests/goldens/occt \
+cargo test -p ducad-kernel
+cargo run -p ducad-cli -- golden check --against tests/goldens/occt \
   --ops sketch,primitive,extrude,revolve,boolean,transform,scale,delete,set_material,study
 ```

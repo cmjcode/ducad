@@ -186,7 +186,7 @@ impl DuCADApp {
                     };
                     self.record_shell_feature(thickness, &open_rays, open_direction, depth);
                 }
-                self.round_history.remove(&id);
+                self.archive_round_history(id);
                 self.selected_faces.clear();
                 self.active_face = None;
                 // Tool Shell tetap dalam mode pilih-face supaya body berikutnya

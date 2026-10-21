@@ -258,7 +258,7 @@ impl DuCADApp {
         let body = self.body_label(id);
         let msg = ducad_i18n::t!("direct-done", tool = label, body = body.as_str());
         self.execute_model_command(Box::new(ReplaceGeometryCommand::new(label, id, geo)), &msg);
-        self.round_history.remove(&id);
+        self.archive_round_history(id);
         self.active_face = None;
         self.selected_faces.clear();
         self.model_status = Some(msg);
@@ -308,7 +308,7 @@ impl DuCADApp {
             Ok(true) => {
                 let body = self.body_label(id);
                 let msg = ducad_i18n::t!("direct-done", tool = label, body = body.as_str());
-                self.round_history.remove(&id);
+                self.archive_round_history(id);
                 self.active_face = None;
                 self.selected_faces.clear();
                 self.model_status = Some(msg);

@@ -1,21 +1,21 @@
 # Analisis Komparatif Mendalam: AutoCAD vs Shapr3D vs DuCAD
 ## Studi Arsitektur Geometri, Solver, Pipeline GPU, Inventaris Fitur, dan Rencana Fase Pengembangan
 
-Dokumen ini menyajikan analisis komparatif teknis tingkat dalam (*deep-dive comparative analysis*) antara **AutoCAD** (Autodesk), **Shapr3D** (Siemens Parasolid), dan **DuCAD** (OpenCASCADE + Rust). Analisis ini disusun berdasarkan audit menyeluruh terhadap arsitektur kode sumber, fungsi matematika, algoritma topologi B-Rep, pipeline shader GPU, sistem manipulasi langsung (*direct modeling*), serta modul I/O yang telah diimplementasikan di dalam workspace DuCAD.
+Dokumen ini menyajikan analisis komparatif teknis tingkat dalam (*deep-dive comparative analysis*) antara **AutoCAD** (Autodesk), **Shapr3D** (Siemens Parasolid), dan **DuCAD** (SolidCraft/truck, Rust murni). Analisis ini disusun berdasarkan audit menyeluruh terhadap arsitektur kode sumber, fungsi matematika, algoritma topologi B-Rep, pipeline shader GPU, sistem manipulasi langsung (*direct modeling*), serta modul I/O yang telah diimplementasikan di dalam workspace DuCAD.
 
 ---
 
 ## 1. Matriks Komparasi Teknis Komprehensif
 
-| Kategori & Dimensi Teknis | AutoCAD (Autodesk) | Shapr3D (Siemens Parasolid) | DuCAD (OpenCASCADE + Rust) | Status & Implikasi Kompetitif |
+| Kategori & Dimensi Teknis | AutoCAD (Autodesk) | Shapr3D (Siemens Parasolid) | DuCAD (SolidCraft/truck, Rust murni) | Status & Implikasi Kompetitif |
 | :--- | :--- | :--- | :--- | :--- |
-| **Kernel Geometri Solid (B-Rep Engine)** | **Autodesk ShapeManager (ASM)** (turunan ACIS C++). History CSG legacy + direct editing terbatas. | **Siemens Parasolid**. Proprietary C++. Standar emas industri dirgantara/otomotif untuk solid modeling presisi. | **OpenCASCADE Technology (OCCT)** via FFI wrapper Rust [`ducad-kernel`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel). B-Rep state diisolasi penuh dalam [`KernelShape`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/shape.rs) dengan perlindungan thread-safe [`lock_kernel()`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/lib.rs). | **Setara Shapr3D**: OCCT dan Parasolid adalah kernel B-Rep sejati (bukan mesh polygon seperti Blender). DuCAD memiliki kapabilitas STEP/fillet/boolean industri tanpa biaya lisensi jutaan dolar. |
+| **Kernel Geometri Solid (B-Rep Engine)** | **Autodesk ShapeManager (ASM)** (turunan ACIS C++). History CSG legacy + direct editing terbatas. | **Siemens Parasolid**. Proprietary C++. Standar emas industri dirgantara/otomotif untuk solid modeling presisi. | **SolidCraft** di atas `truck` (Rust murni, di-vendor di `vendors/solidcraft`) lewat [`ducad-kernel`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel). B-Rep state diisolasi penuh dalam [`KernelShape`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/shape.rs) yang `Send + Sync` tanpa kunci global. | **Setara Shapr3D**: SolidCraft dan Parasolid adalah kernel B-Rep sejati (bukan mesh polygon seperti Blender). DuCAD memiliki kapabilitas STEP/fillet/boolean industri tanpa biaya lisensi jutaan dolar. |
 | **Solver Kendala Sketsa 2D (Constraint Solver)** | **Autodesk 2D Parametric Engine**. Kendala geometris/dimensional berbasis Ribbon AutoCAD. | **Siemens D-Cubed 2D DCM**. Solver komersial kelas industri. | **Custom Levenberg-Marquardt Solver** ([`ducad_sketch::constraint::solve`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-sketch/src/constraint/solver.rs)). Solver mandiri berbasis kuadrat terkecil non-linier dengan redaman Levenberg murni ($\lambda I$). Mendukung 12 jenis kendala (Coincident, Fixed, Horizontal, Vertical, Parallel, Perpendicular, EqualLength, EqualRadius, Distance, Radius, Angle, Tangent, Symmetric). | **Unggul & Independen**: DuCAD tidak bergantung pada lisensi D-Cubed. Redaman Levenberg murni mencegah matriks singular pada sistem *under-constrained*. |
-| **Kurva Organik 2D & Spline** | NURBS Spline (Fit Points & Control Vertices $C^2/C^3$). | NURBS B-Spline dengan kontrol titik fit interaktif. | **Catmull-Rom $C^1$ Spline** ([`Entity::Spline`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-sketch/src/entity.rs)) dengan konversi analitik **Bi-Arc** ([`convert_spline_to_smooth_segments`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/profile.rs)) ke wire OCCT untuk menjamin permukaan 3D bebas lipatan (*crease-free*). | **Optimal untuk Desain Industri**: Menghasilkan profil lengkung ergonomis untuk produk konsumen (mouse, botol, handle) yang dapat di-extrude dan di-sweep dengan mulus. |
+| **Kurva Organik 2D & Spline** | NURBS Spline (Fit Points & Control Vertices $C^2/C^3$). | NURBS B-Spline dengan kontrol titik fit interaktif. | **Catmull-Rom $C^1$ Spline** ([`Entity::Spline`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-sketch/src/entity.rs)) dengan konversi analitik **Bi-Arc** ([`convert_spline_to_smooth_segments`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/profile.rs)) ke wire kernel untuk menjamin permukaan 3D bebas lipatan (*crease-free*). | **Optimal untuk Desain Industri**: Menghasilkan profil lengkung ergonomis untuk produk konsumen (mouse, botol, handle) yang dapat di-extrude dan di-sweep dengan mulus. |
 | **Deteksi Profil Tertutup (Closed Loops)** | Perintah `REGION`, `BOUNDARY`, atau Hatch Boundary detection manual. | **Live Planar Closed Loop Detection**. Region diarsir otomatis saat loop tertutup; siap di-tap & di-pull. | **Live Closed Region Engine** ([`ducad_sketch::region::ClosedRegion`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-sketch/src/region.rs)). Deteksi loop tertutup otomatis via graph traversal, point-in-polygon ray casting, triangulasi *ear-clipping* instan, dan kalkulasi titik berat (*centroid*). | **Setara Shapr3D**: Memberikan pengalaman pengguna (*UX*) modern di mana pengguna tidak perlu repot menggabungkan polyline secara manual. |
 | **Fillet & Chamfer Sketsa 2D** | Perintah `FILLET` / `CHAMFER` berbasis klik 2 garis terpisah. | Drag interaktif langsung pada titik sudut (vertex) sketsa. | **Algoritma Fillet 2D Tangensial & Corner Gizmo** ([`compute_fillet_2d`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-sketch/src/ops.rs), [`find_all_corners`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-sketch/src/ops.rs)). Deteksi otomatis sudut pertemuan dan handle gizmo busur interaktif di kanvas. | **Unggul dari AutoCAD**: Membulatkan sudut profil sketsa secara langsung sebelum di-extrude ke 3D. |
 | **Direct Modeling & Smart Extrude/Cut** | Perintah `PRESSPULL` atau `EXTRUDE` terpisah dari perintah boolean `SUBTRACT`. | **Adaptive Push/Pull**. Menarik profil menjauh = New Body / Join; mendorong menembus bodi = Auto Cut. | **Smart Boolean Cut Detection** ([`update_gizmo_boolean_detection`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-app/src/overlay/gizmo.rs)). Deteksi *bounding box overlap* dan uji irisan B-Rep ([`ducad_kernel::intersect`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/csg.rs)) secara real-time saat gizmo ditarik untuk otomatis beralih ke mode potong (*subtract*). | **Setara Shapr3D**: Mengeliminasi friksi pemilihan perintah boolean secara manual. |
-| **Picking 3D & Invarian Topologi** | Pemilihan objek 3D klasik berbasis nama sub-entitas AutoCAD. | Direct face/edge hit-testing terintegrasi pada kernel Parasolid. | **Ray-Based Picking Invariance** ([`PickRay`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/picking/ray.rs), [`resolve_edge_along_ray`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/picking/edge.rs), [`resolve_face_along_ray`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/picking/face.rs)). Menyimpan seleksi sebagai sinar 3D di ruang dunia, kebal terhadap pergeseran indeks B-Rep pasca modifikasi dan Undo/Redo. | **Solusi Inovatif**: Memecahkan masalah klasik *topological naming* pada kernel C++ tanpa overhead data yang rumit. |
+| **Picking 3D & Invarian Topologi** | Pemilihan objek 3D klasik berbasis nama sub-entitas AutoCAD. | Direct face/edge hit-testing terintegrasi pada kernel Parasolid. | **Ray-Based Picking Invariance** ([`PickRay`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/picking/ray.rs), [`resolve_edge_along_ray`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/picking/edge.rs), [`resolve_face_along_ray`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/picking/face.rs)). Menyimpan seleksi sebagai sinar 3D di ruang dunia, kebal terhadap pergeseran indeks B-Rep pasca modifikasi dan Undo/Redo. | **Solusi Inovatif**: Memecahkan masalah klasik *topological naming* pada kernel B-Rep tanpa overhead data yang rumit. |
 | **Fillet, Chamfer & Shell 3D Lanjutan** | `FILLETEDGE`, `CHAMFEREDGE`, `SHELL` solid body via property panel. | Pemilihan face/edge langsung di kanvas dengan panah drag radius adaptif. | **Selective B-Rep Modifiers** ([`fillet_edges`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs), [`fillet_vertex`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs), [`chamfer_edges`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs), [`shell_hollow_faces`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs), [`shell_variable_thickness`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs)). | **Sangat Kuat**: Mendukung fillet per-edge, fillet sudut bola (vertex fillet), dan penipisan dinding wadah multi-face. |
 | **Fitur Desain Manufaktur Industri (DFM)** | Mengandalkan software eksternal (Autodesk Inventor / Moldflow). | Draft Angle tool, Split Body / Split Face, Shell. | **Native Industrial DFM Tools** ([`draft_angle`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs), [`split_body_with_tool`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs), [`split_face`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs), [`create_rib_solid`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/modify.rs)). | **Krusial untuk Casing Plastik & Die-Cast**: Membagi part atas-bawah (*parting line*), memberi kemiringan lepas cetakan, dan menambahkan rusuk penguat (*ribs*). |
 | **Inspeksi Kualitas Permukaan (Surface Quality)** | Zebra Analysis & Curvature Display (hanya di AutoCAD Mechanical/Inventor). | Zebra Stripes Reflection Shader, Curvature Map, Draft Angle Analysis. | **GPU WGSL Custom Shaders** ([`shader.wgsl`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-render/src/shader.wgsl)):<br>• **Zebra Reflection Shader** (Validasi kontinuitas tangensial $G^1$ dan kurvatur $G^2$).<br>• **Draft Angle Heatmap Inspector** (Pewarnaan sudut lepas cetakan: Hijau $\ge \theta_{\text{safe}}$, Kuning kritis, Merah *undercut*). | **Setara Shapr3D / Fusion 360**: Analisis visual instan di GPU tanpa membebani thread pemodelan utama. |
@@ -46,7 +46,7 @@ graph TD
 
     subgraph Kernel_Boundary ["Lapisan Kernel Geometri (ducad-kernel)"]
         G --> H[Ray-Based Picking Invariance]
-        H --> I[OpenCASCADE B-Rep Engine]
+        H --> I[SolidCraft/truck B-Rep Engine]
         I --> J[HLR Orthogonal Projection]
     end
 
@@ -59,9 +59,9 @@ graph TD
 ---
 
 ### A. Arsitektur Kernel Geometri B-Rep (`ducad-kernel`)
-DuCAD mengadopsi kernel **OpenCASCADE Technology (OCCT)** yang merupakan salah satu kernel B-Rep open-source paling matang di dunia industri.
-* **Isolasi Mutlak C++/Rust**: Crate `ducad-kernel` membungkus seluruh tipe pointer mentah OCCT di balik [`KernelShape`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/shape.rs). Crate lain (`ducad-app`, `ducad-ui`) tidak pernah menyentuh tipe FFI langsung.
-* **Thread Serialization (`KERNEL_LOCK`)**: Karena transfer STEP pada OCCT memiliki *global state* non-thread-safe pada level C++, DuCAD menerapkan penguncian mutex global [`lock_kernel()`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/lib.rs) di setiap operasi publik kernel. Ini menjamin kestabilan mutlak tanpa resiko *concurrency race condition*.
+DuCAD memakai kernel **SolidCraft** di atas `truck` — kernel B-Rep Rust murni yang di-vendor di `vendors/solidcraft` (backend di `ducad-kernel/src/backend/truck/`).
+* **Isolasi Backend**: Crate `ducad-kernel` membungkus seluruh tipe SolidCraft/truck di balik [`KernelShape`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/shape.rs); tipe backend tidak pernah `pub`. Crate lain (`ducad-app`, `ducad-ui`) tidak pernah menyentuh tipe kernel pihak ketiga langsung.
+* **Konkurensi Tanpa Kunci Global**: `KernelShape` bersifat `Send + Sync` (`ducad_kernel::THREAD_SAFE`) sehingga boleh dipakai dari banyak thread sekaligus. Setiap panggilan ke SolidCraft dibungkus `solidcraft_kernel::guard` sehingga panik di kernel menjadi `Err`, bukan crash; operasi yang belum diporting mengembalikan error `Unsupported`.
 * **Solusi Invarian Topologi (Ray-Based Picking)**:
   Dalam pemodelan langsung (*direct modeling*), mengidentifikasi edge/face via nomor indeks array sangat rentan pecah setelah operasi Boolean atau Fillet. DuCAD memecahkan ini secara matematis melalui [`PickRay`](file:///Users/jayuda/Documents/PROJECT/DUCAD/crates/ducad-kernel/src/picking/ray.rs):
   $$\text{Ray}(t) = \mathbf{O} + t \cdot \mathbf{D}$$
@@ -201,7 +201,7 @@ graph TD
   - Algoritma `extend_segment` pada `ducad-sketch` yang memperpanjang garis sampai menyentuh batas kurva terdekat.
   - Perluasan fungsi `offset_entity` agar mendukung kurva Ellipse dan Spline menggunakan pendekatan multi-arc tangensial.
 - [ ] **10.4 Variable Radius Fillet (Fillet Radius Berubah)**:
-  - Integrasi API OpenCASCADE `BRepFilletAPI_MakeFillet` dengan parameter radius variabel di titik awal dan titik akhir ($R_{\text{start}} \ne R_{\text{end}}$).
+  - Fillet edge dengan parameter radius variabel di titik awal dan titik akhir ($R_{\text{start}} \ne R_{\text{end}}$) lewat `fillet_edges_variable` di `ducad-kernel` (SolidCraft `fillet_variable`).
 
 ---
 
@@ -209,7 +209,7 @@ graph TD
 **Tujuan**: Menghasilkan gambar teknik potongan berstandar industri dan format presentasi 3D web/AR.
 
 - [ ] **11.1 Section View A-A (Tampak Potongan Melintang)**:
-  - Ekstraksi irisan solid 3D pada bidang potong menggunakan `BRepAlgoAPI_Section`.
+  - Ekstraksi irisan solid 3D pada bidang potong menggunakan operasi section kernel.
   - Generator pola arsiran (*Hatch pattern*) garis miring 45° standar ISO/ANSI pada area potongan solid.
   - Indikator garis potong panah `A ─── A` pada tampak acuan.
 - [ ] **11.2 Detail View (Lingkaran Pembesar Skala Detail)**:
@@ -280,7 +280,7 @@ Perbandingan ini dipakai sebagai dasar ADR 0009.
 
 | Aspek | CADCraft | DUCAD (`ducad-editor`) | Kesimpulan |
 |---|---|---|---|
-| Domain | Drafting 2D (AutoCAD parity) | Sketch 2D presisi + solid B-rep 3D (OCCT) + FEA + paket desain | Tidak saling menggantikan; CADCraft tak punya kernel 3D |
+| Domain | Drafting 2D (AutoCAD parity) | Sketch 2D presisi + solid B-rep 3D (SolidCraft/truck) + FEA + paket desain | Tidak saling menggantikan; CADCraft tak punya kernel 3D |
 | Model perintah | *Everything is a command*: satu `CommandSpec` (id, label, menu, alias, params JSON, prompt interaktif) dipakai menu, toolbar, command line, skrip, CLI, kanal kontrol, MCP | Oplog deklaratif (`Op` + skema JSON), selector geometri, diagnosis + fix terverifikasi, `replace_op`/`remove_op` replay; GUI = adapter di atas `compute` | Kontrak DUCAD lebih kuat untuk agent (deterministik, bisa di-diff/replay); CADCraft lebih kuat untuk interaksi manusia bergaya keyboard |
 | Kendali agent | MCP (headless atau bridged ke app via TCP `--control PORT`), `command_line`, `execute`, `inspect_drawing`, `render`, `screenshot`, `ui_click` | MCP 37 tool + 6 live (`--attach`, soket Unix), `propose_ops` dengan persetujuan pengguna, pagar `accept_proposal`/`approve_package` | DUCAD lebih ketat soal persetujuan; CADCraft lebih bebas (klik UI sintetis) |
 | **Never crash** | Aturan #1: tanpa `unwrap`/`expect`/`panic`, `unsafe_code = forbid`, `catch_unwind` di `Session::execute` dan tiap langkah command, tes `hostile_*_never_panic`, lint `deny(clippy::unwrap_used…)` di tiap crate | Sebelumnya hanya aturan tertulis; satu panik menjatuhkan GUI/MCP/CLI | **Diadopsi** (ADR 0009) |
@@ -311,18 +311,15 @@ Perbandingan ini dipakai sebagai dasar ADR 0009.
    menghapus; start berikutnya memulihkan bila berkas tersisa).
 6. `ducad-core/tests/layering.rs`: tabel dependensi = peta crate `CONTRIBUTING.md` (dulu `CLAUDE.md`).
 7. Batas jangkauan sebelum kernel (1e-6..1e6 mm untuk panjang, ±1e9 untuk
-   angka apa pun) setelah tes hostil menemukan dua exception C++ OCCT yang
-   meng-abort proses.
+   angka apa pun) setelah tes hostil menemukan input ekstrem yang
+   meng-abort proses di kernel.
 
 Bug nyata yang ditemukan tes hostil selama penerapan: overflow `i64` di indeks
 grid `ducad-sketch` (`region.rs`, `faces.rs`) untuk koordinat ekstrem, abort
-OCCT pada lubang Ø1e308 dan box 1e-300, dan alokasi tak terbatas dari header
+kernel pada lubang Ø1e308 dan box 1e-300, dan alokasi tak terbatas dari header
 STL biner.
 
 ### 5.3 Pekerjaan lanjutan yang disarankan
 
-- Bungkus pembuat shape primitif dan boolean di binding OCCT yang di-vendor
-  dengan `try/catch Standard_Failure` (pola `b_rep_adaptor.hxx`), supaya input
-  yang lolos validasi tetapi ditolak OCCT menjadi error, bukan abort.
 - Opsi "hormati *reduce motion*" untuk animasi panel Liquid Glass (bukan bagian
   ADR 0009).

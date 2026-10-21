@@ -887,9 +887,61 @@ impl From<ducad_io::native::NativeRoundFeature> for RoundFeature {
     }
 }
 
+/// Edit lain yang dilakukan pada body SESUDAH fillet/chamfer gizmo. Disimpan
+/// supaya rounding tetap bisa diedit: edit rounding memutar ulang
+/// `base → rounding → edit susulan` berurutan, bukan membuang riwayat.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RoundPostOp {
+    /// Tarik/potong sisi (push/pull) lewat `ducad_kernel::extrude_face`.
+    ExtrudeFace { ray: PickRay, distance: f64 },
+}
+
+/// [`RoundPostOp`] beserta posisinya: dijalankan sesudah `after` fitur
+/// rounding pertama.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RoundPostStep {
+    pub after: usize,
+    pub op: RoundPostOp,
+}
+
 pub struct RoundHistory {
     pub base: ducad_kernel::KernelShape,
     pub features: Vec<RoundFeature>,
+    pub post_ops: Vec<RoundPostStep>,
+    /// `mesh_fingerprint` geometri yang dihasilkan riwayat ini. Beda dengan
+    /// geometri body sekarang (undo/redo, edit lain) = riwayat basi.
+    pub result_fingerprint: u64,
+}
+
+impl From<&RoundPostStep> for ducad_io::native::NativeRoundPostStep {
+    fn from(s: &RoundPostStep) -> Self {
+        match s.op {
+            RoundPostOp::ExtrudeFace { ray, distance } => ducad_io::native::NativeRoundPostStep {
+                after: s.after,
+                op: ducad_io::native::NativeRoundPostOp::ExtrudeFace {
+                    ray_origin: ray.origin,
+                    ray_dir: ray.dir,
+                    distance,
+                },
+            },
+        }
+    }
+}
+
+impl From<ducad_io::native::NativeRoundPostStep> for RoundPostStep {
+    fn from(s: ducad_io::native::NativeRoundPostStep) -> Self {
+        match s.op {
+            ducad_io::native::NativeRoundPostOp::ExtrudeFace { ray_origin, ray_dir, distance } => {
+                RoundPostStep {
+                    after: s.after,
+                    op: RoundPostOp::ExtrudeFace {
+                        ray: PickRay { origin: ray_origin, dir: ray_dir },
+                        distance,
+                    },
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

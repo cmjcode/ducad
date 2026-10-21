@@ -116,7 +116,31 @@ pub struct NativeRoundFeature {
 pub struct NativeRoundHistory {
     pub base_step: String,
     pub features: Vec<NativeRoundFeature>,
+    /// Edit susulan sesudah rounding (push/pull sisi). Berkas lama tanpa
+    /// field ini tetap terbaca (kosong).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub post_ops: Vec<NativeRoundPostStep>,
 }
+
+/// Edit susulan pada body berounding, dijalankan sesudah `after` fitur.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeRoundPostStep {
+    pub after: usize,
+    pub op: NativeRoundPostOp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NativeRoundPostOp {
+    ExtrudeFace {
+        ray_origin: (f64, f64, f64),
+        ray_dir: (f64, f64, f64),
+        distance: f64,
+    },
+}
+
+/// Riwayat rounding satu body: shape dasar, fitur, edit susulan.
+pub type RoundHistoryParts<'a> = (&'a KernelShape, Vec<NativeRoundFeature>, Vec<NativeRoundPostStep>);
 
 /// Cache B-rep native non-otoritatif (format v4). Boleh dibuang kapan saja:
 /// geometri selalu bisa dibangun ulang dari oplog `design`.
@@ -269,7 +293,7 @@ pub struct ExportBody<'a> {
     /// Material mekanik (P16), bila sudah dipilih.
     pub mechanical: Option<ducad_core::MaterialSource>,
     pub shape: &'a KernelShape,
-    pub round_history: Option<(&'a KernelShape, Vec<NativeRoundFeature>)>,
+    pub round_history: Option<RoundHistoryParts<'a>>,
     /// `true` = geometri body ini hasil replay oplog `design` yang ikut
     /// disimpan: STEP tidak ditulis, hanya cache `brep` (format v4).
     /// Hanya `Session::save` di `ducad-engine` yang boleh memakai `true`.
@@ -404,7 +428,7 @@ pub struct LoadedBody {
     /// `None` = body turunan oplog tanpa cache yang cocok: pemanggil wajib
     /// membangunnya ulang lewat replay `design` (`ducad_engine::Session`).
     pub shape: Option<KernelShape>,
-    pub round_history: Option<(KernelShape, Vec<NativeRoundFeature>)>,
+    pub round_history: Option<(KernelShape, Vec<NativeRoundFeature>, Vec<NativeRoundPostStep>)>,
 }
 
 /// Hasil `load`: sketch lengkap dari ketiga bidang (Top, Front, Right) + semua body dengan geometri kernel hidup.
@@ -476,12 +500,13 @@ pub fn serialize_full_to_json(
     let bodies = bodies
         .iter()
         .map(|b| {
-            let round_history = if let Some((base, feats)) = &b.round_history {
+            let round_history = if let Some((base, feats, post_ops)) = &b.round_history {
                 Some(NativeRoundHistory {
                     base_step: base
                         .to_step_string()
                         .with_context(|| format!("gagal serialize base shape body '{}'", b.name))?,
                     features: feats.clone(),
+                    post_ops: post_ops.clone(),
                 })
             } else {
                 None
@@ -589,7 +614,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
             };
             let round_history = if let Some(rh) = b.round_history {
                 match KernelShape::from_step_string(&rh.base_step) {
-                    Ok(base_shape) => Some((base_shape, rh.features)),
+                    Ok(base_shape) => Some((base_shape, rh.features, rh.post_ops)),
                     Err(e) => {
                         eprintln!("gagal baca base shape round history body '{}': {e}", b.name);
                         None
@@ -1135,7 +1160,18 @@ mod tests {
             material: ducad_core::Material::default(),
             mechanical: None,
             shape: &filleted_shape,
-            round_history: Some((&base_shape, vec![feature])),
+            round_history: Some((
+                &base_shape,
+                vec![feature],
+                vec![NativeRoundPostStep {
+                    after: 1,
+                    op: NativeRoundPostOp::ExtrudeFace {
+                        ray_origin: (5.0, 5.0, 50.0),
+                        ray_dir: (0.0, 0.0, -1.0),
+                        distance: 7.5,
+                    },
+                }],
+            )),
             derived: false,
         };
 
@@ -1153,6 +1189,11 @@ mod tests {
         assert_eq!(rh.1[0].style, NativeRoundStyle::Fillet);
         assert_eq!(rh.1[0].radius, 10.0);
         assert_eq!(rh.1[0].anchor, (20.0, 10.0, 5.0));
+        assert_eq!(rh.2.len(), 1);
+        assert_eq!(rh.2[0].after, 1);
+        let NativeRoundPostOp::ExtrudeFace { distance, ray_dir, .. } = rh.2[0].op;
+        assert_eq!(distance, 7.5);
+        assert_eq!(ray_dir, (0.0, 0.0, -1.0));
     }
 
     fn derived<'a>(shape: &'a KernelShape) -> ExportBody<'a> {

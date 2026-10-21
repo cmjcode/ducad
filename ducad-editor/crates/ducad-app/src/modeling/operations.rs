@@ -688,8 +688,8 @@ impl DuCADApp {
         match self.boolean_via_oplog(a_id, b_id, kind) {
             Ok(()) => {
                 self.selected_bodies.clear();
-                self.round_history.remove(&a_id);
-                self.round_history.remove(&b_id);
+                self.archive_round_history(a_id);
+                self.archive_round_history(b_id);
                 self.model_status = None;
             }
             Err(e) => {
@@ -781,7 +781,7 @@ impl DuCADApp {
     ) {
         match self.round_via_oplog(id, kind, rays, Self::EDGE_REAPPLY_TOLERANCE_MM) {
             Ok(robustness) => {
-                self.round_history.remove(&id);
+                self.archive_round_history(id);
                 self.selected_edges.clear();
                 self.picking_mode = PickMode::None;
                 self.model_status = match robustness {
@@ -976,7 +976,7 @@ impl DuCADApp {
                     Box::new(ReplaceGeometryCommand::new("Shell Variable", id, new_geo)),
                     &format!("Membuat shell berongga dinding tebal {:.1} mm pada '{}'", thickness, orig_name),
                 );
-                self.round_history.remove(&id);
+                self.archive_round_history(id);
                 self.selected_faces.clear();
                 self.shell_variable_faces.clear();
                 self.active_face = None;
@@ -1124,7 +1124,7 @@ impl DuCADApp {
                     Box::new(ReplaceGeometryCommand::new("Add Rib", id, new_geo)),
                     &format!("Menambahkan tulang penguat (Rib t={:.1} mm) pada '{}'", thickness, orig_name),
                 );
-                self.round_history.remove(&id);
+                self.archive_round_history(id);
                 self.rib_start_pt = None;
                 self.rib_end_pt = None;
                 self.active_face = None;
@@ -1150,9 +1150,11 @@ impl DuCADApp {
             return;
         };
 
+        let old_fingerprint = target_geo.mesh_fingerprint;
         match ducad_kernel::extrude_face(&target_geo.shape, ray, distance) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
+                let new_fingerprint = new_geo.mesh_fingerprint;
                 let (label, desc) = if distance >= 0.0 {
                     ("Extrude Face", format!("Menarik sisi solid sejauh {:.1} mm", distance))
                 } else {
@@ -1162,7 +1164,14 @@ impl DuCADApp {
                     Box::new(ReplaceGeometryCommand::new(label, target_id, new_geo)),
                     &desc,
                 );
-                self.round_history.remove(&target_id);
+                // Rounding sebelumnya tetap bisa diedit: push/pull dicatat
+                // sebagai edit susulan di riwayatnya, bukan menghapusnya.
+                self.record_round_post_op(
+                    target_id,
+                    crate::types::RoundPostOp::ExtrudeFace { ray, distance },
+                    old_fingerprint,
+                    new_fingerprint,
+                );
                 self.active_face = None;
                 self.model_status = Some(format!("Extrude face {:.1} mm sukses", distance));
             }
@@ -1204,7 +1213,7 @@ impl DuCADApp {
                     Box::new(ReplaceGeometryCommand::new("Revolve Face", target_id, new_geo)),
                     &format!("Memutar sisi solid {} mengelilingi sumbu", deg_label),
                 );
-                self.round_history.remove(&target_id);
+                self.archive_round_history(target_id);
                 self.active_face = None;
                 self.model_status = Some(format!("Revolve face {} sukses", deg_label));
                 true
@@ -1302,7 +1311,7 @@ impl DuCADApp {
                 Box::new(DeleteBodyCommand::new(id)),
                 &format!("Menghapus objek solid '{}' dari dokumen", body_name),
             );
-            self.round_history.remove(&id);
+            self.archive_round_history(id);
         }
         self.body_move_armed = false;
         self.body_move_target = None;
@@ -1345,7 +1354,7 @@ impl DuCADApp {
         // face terbawah searah tarik.
         match self.draft_via_oplog(target_id, &rays, angle_deg, pull_dir) {
             Ok(true) => {
-                self.round_history.remove(&target_id);
+                self.archive_round_history(target_id);
                 self.selected_faces.clear();
                 self.active_face = None;
                 self.picking_mode = crate::types::PickMode::None;
@@ -1389,7 +1398,7 @@ impl DuCADApp {
                         angle_deg, pull_dir
                     ),
                 );
-                self.round_history.remove(&target_id);
+                self.archive_round_history(target_id);
                 self.selected_faces.clear();
                 self.active_face = None;
                 self.picking_mode = crate::types::PickMode::None;
@@ -1495,7 +1504,7 @@ impl DuCADApp {
                             &format!("Memotong body '{}' menjadi {} bagian terpisah", orig_name, total),
                         );
 
-                        self.round_history.remove(&target_id);
+                        self.archive_round_history(target_id);
                         self.selected_bodies.clear();
                         self.active_face = None;
                         self.selected_faces.clear();
@@ -1531,7 +1540,7 @@ impl DuCADApp {
                             &format!("Membagi face pada body '{}'", orig_name),
                         );
 
-                        self.round_history.remove(&target_id);
+                        self.archive_round_history(target_id);
                         self.active_face = None;
                         self.selected_faces.clear();
                         self.picking_mode = crate::types::PickMode::None;

@@ -34,7 +34,7 @@ const DEFAULT_CORPUS: &[&str] = &[
 ];
 
 /// Backend kernel yang sedang dikompilasi (`truck`). Golden baseline di
-/// `tests/goldens/occt` bertanda `occt` (direkam 0.5.x, referensi beku).
+/// `tests/goldens/occt` direkam 0.5.x (referensi beku).
 const BACKEND: &str = ducad_kernel::BACKEND;
 
 #[derive(clap::Args)]

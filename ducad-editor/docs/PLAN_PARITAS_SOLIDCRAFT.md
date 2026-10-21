@@ -27,7 +27,7 @@ Singkatan file:
 |---|---|
 | SPEC | `crates/ducad-engine/src/ops/spec.rs` (enum `Op`) |
 | COMP | `crates/ducad-engine/src/compute/` (eksekusi op) |
-| KRN | `crates/ducad-kernel/src/` (wrapper OCCT, satu-satunya yang boleh memanggil OCCT) |
+| KRN | `crates/ducad-kernel/src/` (wrapper SolidCraft/truck, satu-satunya yang boleh memanggil kernel) |
 | OPS | `crates/ducad-app/src/modeling/operations.rs` |
 | T | `crates/ducad-app/src/types.rs` (`ToolKind`, `PaletteAction`, `FileOp`) |
 | LT | `crates/ducad-ui/src/left_toolbar.rs` |
@@ -147,20 +147,19 @@ DUCAD mengklaim "Shapr3D-style direct modeling"; tiga op face di bawah adalah in
 
 | # | Fungsi | Pekerjaan | Status |
 |---|---|---|---|
-| 2.1 | Offset Face | `Op::OffsetFace{faces, distance}`; KRN: `BRepOffsetAPI_MakeOffsetShape` per face / `BRepFeat`; gizmo tarik face = press-pull untuk face non-planar | [x] |
-| 2.2 | Delete Face | `Op::DeleteFace{faces}`; KRN: `BRepAlgoAPI_Defeaturing`; `CB::DeleteFace` | [x] |
-| 2.3 | Replace Face | `Op::ReplaceFace{face, with: surface_ref}`; KRN: `BRepFeat` / rebuild lewat defeaturing + extend | [x] |
-| 2.4 | Pattern on Path | `PatternSpec::Path{edge/sketch, count, align}`; sample kurva di KRN (`GCPnts_UniformAbscissa`) | [x] |
+| 2.1 | Offset Face | `Op::OffsetFace{faces, distance}`; KRN: offset per face (`direct::offset_faces_by_index`); gizmo tarik face = press-pull untuk face non-planar | [x] |
+| 2.2 | Delete Face | `Op::DeleteFace{faces}`; KRN: defeaturing (`direct::delete_faces_by_index`); `CB::DeleteFace` | [x] |
+| 2.3 | Replace Face | `Op::ReplaceFace{face, with: surface_ref}`; KRN: rebuild lewat defeaturing + extend (`direct::replace_face_with_plane`) | [x] |
+| 2.4 | Pattern on Path | `PatternSpec::Path{edge/sketch, count, align}`; sample kurva berjarak seragam di KRN | [x] |
 | 2.5 | Pipe | Gula di atas `Op::Sweep` dengan profil lingkaran (r, wall) | [x] |
 | 2.6 | Web | Seperti Rib (OPS:958) tetapi multi-garis dan tebal simetris | [x] |
 | 2.7 | Torus | Tambah ke `Op::Primitive` | [x] |
 | 2.8 | Emboss dari sketsa | Generalisasi `apply_emboss_deboss` OPS:1842 agar menerima region sketsa, bukan hanya teks | [x] |
 | 2.9 | Align | `Op::Align{body, from_face, to_face}` = transform yang membuat dua face coplanar/konsentris | [x] |
-| 2.10 | Boundary Fill, Bounding Solid | Boundary fill: `BOPAlgo_CellsBuilder`; bounding solid: box/cylinder dari bbox/OBB | [x] |
+| 2.10 | Boundary Fill, Bounding Solid | Boundary fill: sel dari boolean antar tool (`direct::boundary_fill`); bounding solid: box/cylinder dari bbox/OBB | [x] |
 | 2.11 | Split Face by sketch/plane | Perluas `CB::SplitFace` agar menerima plane datum dan kurva sketsa | [x] |
 
-Catatan pengerjaan Fase 2 (2026-10-19). Kernel kini SolidCraft/truck (bukan OCCT); kolom KRN di
-atas ditulis sebelum migrasi:
+Catatan pengerjaan Fase 2 (2026-10-19):
 
 - Kernel: `ducad-kernel/src/backend/truck/direct.rs` (offset/delete/replace/split face, boundary
   fill, bounding solid, torus, `point_inside`) + `tests/direct_edit.rs`. Topologi logis tidak lagi
@@ -196,7 +195,7 @@ atas ditulis sebelum migrasi:
 | 3.8 | Backup `.bak` + atomic save | Tulis ke temp lalu rename; simpan `.ducad.bak` sebelumnya; tes kill-mid-save | [x] |
 | 3.9 | Export 3MF | IO `threemf.rs` (zip + XML model, unit mm, warna material) dari mesh yang sama dengan STL | [x] |
 | 3.10 | Import 3MF / OBJ / glTF sebagai mesh | Perluas `import_worker.rs:94` (sekarang STL saja) | [x] |
-| 3.11 | Export/Import IGES | KRN: `IGESControl_Writer/Reader` sudah ada di OCCT; `FileOp::ExportIges`/`ImportIges` | [x] |
+| 3.11 | Export/Import IGES | KRN: `iges::write_iges`/`read_iges`; `FileOp::ExportIges`/`ImportIges` | [x] |
 | 3.12 | Installed Slicers | Deteksi PrusaSlicer/Bambu/Cura/OrcaSlicer di path standar per OS; "Buka di slicer" = export 3MF ke temp lalu `open` | [x] |
 | 3.13 | Named Views | Simpan kamera (pos/target/up/zoom) di document; save/apply/rename/delete di HUD ViewCube | [x] |
 | 3.14 | Crash report + replay | `catch_unwind` per aksi GUI → tulis `crash-<ts>.json` (oplog + aksi terakhir) ke app-data; menu Help → Crash Reports; `ducad-cli replay` sudah ada | [x] |
@@ -231,7 +230,7 @@ Catatan pengerjaan Fase 3 (2026-10-19):
 | # | Fungsi | Pekerjaan | Status |
 |---|---|---|---|
 | 4.1 | Joint Revolute/Slider/Cylindrical/Planar/Ball | `JointKind` sudah ada di core (`assembly.rs:91`); tambah ke mate spec level `Op`, solver (DoF per joint), UI `HUD MateHudAction` | [x] |
-| 4.2 | Pin-slot, Cam | Cam = kontak kurva–titik; pakai `BRepExtrema` di KRN | [x] |
+| 4.2 | Pin-slot, Cam | Cam = kontak kurva–titik; pakai jarak minimum B-rep di KRN | [x] |
 | 4.3 | As-Built Joint | Joint dari posisi sekarang tanpa memindahkan part | [x] |
 | 4.4 | Joint Origin | Datum point/axis (Fase 1) sebagai acuan joint | [x] |
 | 4.5 | Rename / Activate component | `ASM::RenameInstance`, mode "aktif" yang membatasi edit ke satu komponen | [x] |
@@ -267,10 +266,10 @@ Catatan pengerjaan Fase 4 (2026-10-20):
 
 | # | Fungsi | Pekerjaan | Status |
 |---|---|---|---|
-| 5.1 | Clearance | Jarak minimum antar dua body (`BRepExtrema_DistShapeShape`); check `Clearance` sudah ada, tinggal UI | [x] |
+| 5.1 | Clearance | Jarak minimum antar dua body (`interference::check_clearance`); check `Clearance` sudah ada, tinggal UI | [x] |
 | 5.2 | Minimum Radius, Curvature map/comb | Shader warna kurvatur (`shader.wgsl` sudah punya zebra/draft); comb untuk kurva sketsa | [x] |
-| 5.3 | Continuity (G0–G2) antar face | `GeomLProp` / `BRepLProp` di KRN; label di edge | [x] |
-| 5.4 | Silhouette, Isocurve, Accessibility | Silhouette dari HLR; isocurve dari `BRepAdaptor_Surface`; accessibility = ray cast arah tool | [x] |
+| 5.3 | Continuity (G0–G2) antar face | Properti lokal permukaan di KRN (`direct::seam_continuity`); label di edge | [x] |
+| 5.4 | Silhouette, Isocurve, Accessibility | Silhouette dari HLR; isocurve dari parameterisasi face; accessibility = ray cast arah tool | [x] |
 | 5.5 | List Threads | Daftar `Op::Thread`/hole tapped di dokumen | [x] |
 
 Catatan pengerjaan Fase 5 (2026-10-20): jendela **Inspeksi** (`ducad-app/src/inspect_tools.rs`,
@@ -293,17 +292,17 @@ palette grup Analisis) + overlay viewport.
 
 ### 6A. Surfaces (±6 minggu) — prioritas jika target product/enclosure designer
 
-Semua tersedia di OCCT; ini keunggulan DUCAD dibanding SolidCraft yang harus menulis sendiri.
+Implementasi kernel: `ducad-kernel/src/backend/truck/surface.rs` (`ducad_kernel::surface`).
 
-| # | Fungsi | KRN (OCCT) | Status |
+| # | Fungsi | KRN (`surface::*`) | Status |
 |---|---|---|---|
-| 6.1 | Surface Extrude/Revolve/Sweep/Loft (open profile) | `BRepPrimAPI_MakePrism/MakeRevol`, `BRepOffsetAPI_MakePipeShell`, `ThruSections(false)` | [x] |
-| 6.2 | Patch (fill boundary), Boundary (Coons/Gordon) | `BRepFill_Filling`, `GeomFill_ConstrainedFilling` | [x] |
-| 6.3 | Ruled, Offset Surface, Extend | `BRepFill::Face`, `BRepOffsetAPI_MakeOffsetShape`, `GeomLib::ExtendSurfByLength` | [x] |
-| 6.4 | Trim / Untrim / Stitch / Unstitch | `BRepAlgoAPI_Splitter`, `BRep_Tool::Surface` + rebuild face, `BRepBuilderAPI_Sewing` | [x] |
-| 6.5 | Thicken (surface → solid) | `BRepOffsetAPI_MakeThickSolid` | [x] |
-| 6.6 | Blend / Match / Fair | `GeomFill`, `GeomPlate`, `FairCurve` | [x] |
-| 6.7 | Reverse Normal | `Reverse()` + flag di document | [x] |
+| 6.1 | Surface Extrude/Revolve/Sweep/Loft (open profile) | `extrude_sheet`, `revolve_sheet`, `sweep_sheet`, `loft_sheet` | [x] |
+| 6.2 | Patch (fill boundary), Boundary (Coons/Gordon) | `patch`, `boundary` | [x] |
+| 6.3 | Ruled, Offset Surface, Extend | `ruled`, `offset_surface`, `extend` | [x] |
+| 6.4 | Trim / Untrim / Stitch / Unstitch | `trim_by_plane`, `untrim`, `stitch`, `unstitch` | [x] |
+| 6.5 | Thicken (surface → solid) | `thicken` | [x] |
+| 6.6 | Blend / Match / Fair | `blend`, `match_to`, `fair` | [x] |
+| 6.7 | Reverse Normal | `reverse_normals` + flag di document | [x] |
 | 6.8 | Workspace "Surface" di LT | Grup tool terpisah, body tipe `Shell` di document dan selector `[kind=shell]` | [~] |
 
 Catatan pengerjaan 6A (2026-10-20): `ducad_kernel::surface` + op `surface` (MCP/CLI) dengan
@@ -362,7 +361,7 @@ Catatan pengerjaan 6C (2026-10-20, 6.14–6.17 selesai; 6.18–6.19 berikutnya):
 |---|---|---|---|
 | 6.20 | Canvas (gambar referensi di sketsa) + kalibrasi | Tekstur di plane sketsa; dua titik → skala; opacity; generalisasi `import_pdf` | [ ] |
 | 6.21 | Decal | Tekstur pada face (render saja, masuk GLB) | [ ] |
-| 6.22 | Mesh → B-rep | Deteksi face planar/silinder dari mesh (`ShapeFix`, `BRepBuilderAPI_MakePolygon`); batasi ke part prismatis | [ ] |
+| 6.22 | Mesh → B-rep | Deteksi face planar/silinder dari mesh lalu bangun face B-rep; batasi ke part prismatis | [ ] |
 | 6.23 | Design library lokal, parts.resize | Folder `.ducad` template; resize = ganti ukuran `Op::StandardPart` | [ ] |
 
 ---

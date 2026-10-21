@@ -6,8 +6,6 @@
 //! ```bash
 //! cargo bench -p ducad-kernel --bench ops -- --save-baseline truck
 //! ```
-//!
-//! Hasil dicatat di `docs/perf/occt-baseline.md`.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ducad_kernel::{
