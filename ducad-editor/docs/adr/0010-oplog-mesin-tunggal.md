@@ -107,7 +107,10 @@ regenerasi setelah edit dimensi awal, dan tidak lagi dicatat ke DAG.
 | Urutan 3: fillet/chamfer GUI | ✅ `ducad-app/src/oplog_gui.rs` (`round_via_oplog`), dipakai `fillet_selected_body`/`chamfer_selected_body`; termasuk fillet variabel, nama body kembar dibuat unik dalam langkah undo yang sama, fix terverifikasi dari op tampil di kartu error. Jalur gizmo-drag di `modeling/rounding.rs` belum dialihkan. |
 | Urutan 1–2: sketsa + extrude | ✅ `extrude_via_oplog` + `sync_bound_sketches` (`ducad-app/src/oplog_gui.rs`), penerjemah `ducad-engine/src/ops/from_sketch.rs`, ikatan slot `SessionMeta::live_sketches`. Bidang Top/Front/Right; datum/face dan mode Vektor masih jalur lama. Tes `gui_sketch_extrude_fillet_then_edit_sketch_updates_downstream` menjalankan T1–T2 lewat GUI. |
 | Urutan 4: hole wizard | ✅ `hole_via_oplog`: lubang baru dan edit lubang hasil op; spec yang tidak bisa dinyatakan op (counterbore custom) dan lubang lama tetap jalur lama |
-| Urutan 5–10 | ☐ |
+| Urutan 5: boolean, pattern 3D | ✅ `boolean_via_oplog`, `pattern_via_oplog` (satu batch per aksi); seleksi body berurutan (`IndexSet`) sehingga subtract = pertama − kedua |
+| Dimensi sketsa terikat param | ✅ `Sketch::dim_exprs` → `Num::Expr` di op `sketch`; replay karena param memperbarui slot GUI terikat (`adopt_replayed_session`), snapshot slot ikut di command undo oplog |
+| Urutan 6: revolve | ✅ `revolve_via_oplog` lewat `run_feature_on_sketch` (helper bersama extrude); bidang sebenarnya, bukan selalu XY. Loft, sweep, shell, draft, emboss belum |
+| Urutan 6 (sisa) – 10 | ☐ |
 | Buka berkas memulihkan oplog + ikatan sketsa | ✅ `restore_oplog_from_design` (`oplog_gui.rs`), dipanggil `open_native_path`; hanya bila geometri replay cocok (toleransi `same_geometry`) |
 
 ## Rancangan urutan 1–2: slot sketsa GUI yang terikat ke op

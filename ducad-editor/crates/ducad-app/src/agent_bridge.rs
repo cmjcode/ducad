@@ -669,9 +669,7 @@ impl DuCADApp {
             error: None,
             checks: Some(checks.results),
         })?;
-        let meta = session.meta().clone();
-        let model = session.into_model();
-        self.adopt_agent_model(model, meta, "set_params");
+        self.adopt_replayed_session(session, "set_params");
         Ok(ToolOut::ok(report))
     }
 
@@ -724,8 +722,7 @@ impl DuCADApp {
             return Ok(ToolOut::ok(ducad_engine::tooling::to_value(report)?));
         }
         report.committed = true;
-        let meta = preview.session.meta().clone();
-        self.adopt_agent_model(preview.session.into_model(), meta, method);
+        self.adopt_replayed_session(preview.session, method);
         Ok(ToolOut::ok(ducad_engine::tooling::to_value(report)?))
     }
 
@@ -737,6 +734,42 @@ impl DuCADApp {
         what: &str,
     ) {
         let mark = self.begin_oplog_step();
+        self.adopt_agent_model_marked(model, meta, what, mark);
+    }
+
+    /// Ganti model GUI dengan hasil replay `session` (satu langkah undo);
+    /// slot sketsa GUI yang terikat ikut diperbarui dari hasil replay
+    /// (dimensi yang digerakkan param, ADR 0010 / Step 2).
+    pub(crate) fn adopt_replayed_session(&mut self, session: ducad_engine::Session, what: &str) {
+        let mark = self.begin_oplog_step();
+        self.update_live_slots_from(&session);
+        let mut meta = session.meta().clone();
+        // Op `sketch` terikat ditulis ulang dari slot GUI yang baru
+        // diperbarui, agar keduanya tetap identik (tanpa langkah "perbarui
+        // sketsa" palsu saat keluar dari mode sketsa).
+        let live: Vec<(String, ducad_sketch::SketchId)> = self
+            .agent_meta
+            .live_sketches
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        for (id, sid) in live {
+            if let Some(fresh) = self.sketch_op_for_slot(sid, &id) {
+                if let Some(op) = meta.design.oplog.iter_mut().find(|o| o.id() == id) {
+                    *op = fresh;
+                }
+            }
+        }
+        self.adopt_agent_model_marked(session.into_model(), meta, what, mark);
+    }
+
+    fn adopt_agent_model_marked(
+        &mut self,
+        model: ducad_engine::model::ModelDoc,
+        meta: ducad_engine::SessionMeta,
+        what: &str,
+        mark: crate::oplog_undo::OplogMark,
+    ) {
         self.model_undo.execute(
             Box::new(crate::modeling::SwapModelCommand::new(model)),
             &mut self.model,

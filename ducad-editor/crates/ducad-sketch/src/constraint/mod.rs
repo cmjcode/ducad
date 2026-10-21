@@ -10,4 +10,4 @@ pub use solver::{
     analyze_dof, constraint_is_resolvable, measured_value, refresh_driven_values, sketch_status,
     solve, ConstraintState, DofReport, SketchStatus, SolveResult,
 };
-pub use types::{point_ref_position, Constraint, PointRef};
+pub use types::{dim_key, point_ref_position, Constraint, PointRef};

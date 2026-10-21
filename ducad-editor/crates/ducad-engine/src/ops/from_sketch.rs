@@ -186,6 +186,10 @@ fn constraint_spec(
 ) -> Option<ConstraintSpec> {
     let e = |id: &EntityId| names.get(id).cloned();
     let pt = |r: &PointRef| point_name(sketch, names, r);
+    // Dimensi terikat parameter (`Sketch::dim_exprs`) ditulis sebagai
+    // ekspresi agar op `sketch` mengikuti perubahan param.
+    let expr: Option<String> =
+        ducad_sketch::constraint::dim_key(c).and_then(|k| sketch.dim_exprs.get(&k).cloned());
     Some(match c {
         Constraint::Coincident { a, b } => ConstraintSpec::Coincident([pt(a)?, pt(b)?]),
         Constraint::Horizontal { line } => ConstraintSpec::Horizontal(e(line)?),
@@ -206,7 +210,7 @@ fn constraint_spec(
         } => ConstraintSpec::Distance {
             a: pt(a)?,
             b: pt(b)?,
-            value: Num::Value(*value),
+            value: expr.clone().map_or(Num::Value(*value), Num::Expr),
             driven: *driven,
         },
         Constraint::Radius {
@@ -215,7 +219,7 @@ fn constraint_spec(
             driven,
         } => ConstraintSpec::Radius {
             entity: e(entity)?,
-            value: Num::Value(*value),
+            value: expr.clone().map_or(Num::Value(*value), Num::Expr),
             driven: *driven,
         },
         Constraint::Angle {
@@ -226,7 +230,9 @@ fn constraint_spec(
         } => ConstraintSpec::Angle {
             a: e(a)?,
             b: e(b)?,
-            deg: Num::Value(value.to_degrees()),
+            deg: expr
+                .clone()
+                .map_or(Num::Value(value.to_degrees()), Num::Expr),
             driven: *driven,
         },
         Constraint::Tangent { a, b } => ConstraintSpec::Tangent([e(a)?, e(b)?]),
@@ -425,6 +431,35 @@ mod tests {
         assert!(json.contains("\"hole\""), "{json}");
         let back = roundtrip(&s);
         assert_same_geometry(&s, &back);
+    }
+
+    #[test]
+    fn param_bound_dimension_becomes_expression_and_follows_params() {
+        let mut s = l_profile();
+        let dist = s
+            .constraints
+            .iter()
+            .find(|c| matches!(c, Constraint::Distance { .. }))
+            .cloned()
+            .unwrap();
+        let key = ducad_sketch::constraint::dim_key(&dist).unwrap();
+        s.dim_exprs.insert(key, "$base".into());
+        let specs = sketch_to_specs(&s);
+        let json = serde_json::to_string(&specs.constraints).unwrap();
+        assert!(json.contains("\"$base\""), "{json}");
+        let mut params = Params::new();
+        params.insert("base".into(), 55.0);
+        let built = build_sketch(&specs.entities, &specs.constraints, &params).unwrap();
+        let ids = built.names.clone();
+        let first =
+            &built.sketch.entities[ids[&entity_spec_name(&s, s.entities.keys().next().unwrap())]];
+        let Entity::Line { start, end, .. } = first else {
+            panic!("garis");
+        };
+        assert!(
+            ((*end - *start).length() - 55.0).abs() < 1e-6,
+            "dimensi mengikuti $base"
+        );
     }
 
     #[test]

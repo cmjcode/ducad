@@ -200,7 +200,7 @@ fn plane_spec(plane: ducad_sketch::PlaneRef) -> Option<&'static str> {
 
 impl DuCADApp {
     /// Op `sketch` dari isi slot GUI `sid` (spec bernama, ADR 0010).
-    fn sketch_op_for_slot(&self, sid: ducad_sketch::SketchId, id: &str) -> Option<Op> {
+    pub(crate) fn sketch_op_for_slot(&self, sid: ducad_sketch::SketchId, id: &str) -> Option<Op> {
         let slot = self.sketch_set.get(sid)?;
         let plane = plane_spec(slot.plane)?;
         let specs = ducad_engine::ops::from_sketch::sketch_to_specs(&slot.sketch);
@@ -249,8 +249,7 @@ impl DuCADApp {
             fingerprint: String::new(),
             ..design
         })?;
-        let meta = session.meta().clone();
-        self.adopt_agent_model(session.into_model(), meta, what);
+        self.adopt_replayed_session(session, what);
         self.clear_redo_except(crate::types::UndoTarget::Model);
         Ok(())
     }
@@ -338,10 +337,28 @@ impl DuCADApp {
             .map_err(|e| OpError::invalid(format!("op extrude GUI tidak valid: {e}")))?;
         let details = format!("Extrude {:.1} mm dari {sketch_id}", distance.abs());
 
+        self.run_feature_on_sketch(sid, bound, sketch_id, sketch_op, extrude, "Extrude", &details)
+    }
+
+    /// Jalankan op fitur `feature` yang merujuk op `sketch` slot `sid`:
+    /// sketsa belum terikat → batch `[sketch, feature]` + ikat slot; sudah
+    /// terikat dan sama → `[feature]`; sudah terikat tapi berubah → ganti op
+    /// `sketch` + tambah fitur dengan replay penuh. Satu langkah undo.
+    #[allow(clippy::result_large_err, clippy::too_many_arguments)]
+    fn run_feature_on_sketch(
+        &mut self,
+        sid: ducad_sketch::SketchId,
+        bound: Option<String>,
+        sketch_id: String,
+        sketch_op: Op,
+        feature: Op,
+        title: &str,
+        details: &str,
+    ) -> Result<(), OpError> {
         match bound {
             None => {
                 self.agent_meta.live_sketches.insert(sketch_id.clone(), sid);
-                let r = self.run_gui_ops(vec![sketch_op, extrude], "Extrude", &details);
+                let r = self.run_gui_ops(vec![sketch_op, feature], title, details);
                 if r.is_err() {
                     self.agent_meta.live_sketches.remove(&sketch_id);
                 }
@@ -350,14 +367,62 @@ impl DuCADApp {
             Some(id) => {
                 let current = self.agent_meta.design.oplog.iter().find(|o| o.id() == id);
                 if current == Some(&sketch_op) {
-                    self.run_gui_ops(vec![extrude], "Extrude", &details)
-                        .map(|_| ())
+                    self.run_gui_ops(vec![feature], title, details).map(|_| ())
                 } else {
                     let replace = vec![ducad_engine::ReplaceOp { id, op: sketch_op }];
-                    self.edit_oplog_via_replay(replace, vec![extrude], "Extrude")
+                    self.edit_oplog_via_replay(replace, vec![feature], title)
                 }
             }
         }
+    }
+
+    /// Revolve entitas terpilih di sketsa aktif sebagai op oplog; sumbu
+    /// dalam koordinat bidang sketsa. `Ok(false)` = belum didukung jalur
+    /// oplog (bidang datum) → jalur lama.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn revolve_via_oplog(
+        &mut self,
+        axis_origin: (f64, f64),
+        axis_dir: (f64, f64),
+        angle_deg: Option<f64>,
+    ) -> Result<bool, OpError> {
+        let sid = self.active_sketch_id();
+        let Some(slot) = self.sketch_set.get(sid) else {
+            return Ok(false);
+        };
+        if plane_spec(slot.plane).is_none() || self.selected.is_empty() {
+            return Ok(false);
+        }
+        let names: Vec<String> = self
+            .selected
+            .iter()
+            .filter(|id| slot.sketch.entities.contains_key(**id))
+            .map(|id| ducad_engine::ops::from_sketch::entity_spec_name(&slot.sketch, *id))
+            .collect();
+        if names.is_empty() {
+            return Ok(false);
+        }
+        self.sync_agent_meta();
+        let bound = self.bound_sketch_id(sid);
+        let sketch_id = bound.clone().unwrap_or_else(|| self.unique_op_id("sketch"));
+        let sketch_op = self
+            .sketch_op_for_slot(sid, &sketch_id)
+            .ok_or_else(|| OpError::invalid("sketsa aktif tidak bisa diterjemahkan ke op"))?;
+        let mut v = serde_json::json!({
+            "op": "revolve",
+            "id": self.unique_op_id("revolve"),
+            "sketch": sketch_id,
+            "profile": { "names": names },
+            "axis": { "origin": [axis_origin.0, axis_origin.1], "dir": [axis_dir.0, axis_dir.1] },
+        });
+        if let Some(a) = angle_deg {
+            v["angle_deg"] = serde_json::json!(a);
+        }
+        let feature: Op = serde_json::from_value(v)
+            .map_err(|e| OpError::invalid(format!("op revolve GUI tidak valid: {e}")))?;
+        let details = format!("Revolve {:.0} deg dari {sketch_id}", angle_deg.unwrap_or(360.0));
+        self.run_feature_on_sketch(sid, bound, sketch_id, sketch_op, feature, "Revolve", &details)
+            .map(|()| true)
     }
 
     /// Sketsa terikat yang isinya berubah sejak op-nya dicatat → ganti op
@@ -452,8 +517,7 @@ impl DuCADApp {
         });
         match result {
             Ok(session) => {
-                let meta = session.meta().clone();
-                self.adopt_agent_model(session.into_model(), meta, "Suppress fitur");
+                self.adopt_replayed_session(session, "Suppress fitur");
                 self.clear_redo_except(crate::types::UndoTarget::Model);
             }
             Err(e) => self.report_tree_error("Suppress fitur", &e),
@@ -473,8 +537,7 @@ impl DuCADApp {
                 });
         match result {
             Ok(session) => {
-                let meta = session.meta().clone();
-                self.adopt_agent_model(session.into_model(), meta, "Hapus fitur");
+                self.adopt_replayed_session(session, "Hapus fitur");
                 self.clear_redo_except(crate::types::UndoTarget::Model);
             }
             Err(e) => self.report_tree_error("Hapus fitur", &e),
@@ -539,6 +602,243 @@ impl DuCADApp {
         meta.analysis_results = std::mem::take(&mut self.agent_meta.analysis_results);
         self.agent_meta = meta;
         self.sync_design_after_agent();
+    }
+}
+
+impl DuCADApp {
+    /// Nama-nama body (dibuat unik dulu) untuk dirujuk op. Command rename
+    /// yang sudah diterapkan dikembalikan untuk dititipkan ke transaksi op.
+    fn unique_body_names(
+        &mut self,
+        ids: &[BodyId],
+    ) -> Option<(Vec<String>, Vec<RenameBodyCommand>)> {
+        let mut renames = Vec::new();
+        let mut names = Vec::new();
+        for id in ids {
+            if let Some(cmd) = self.make_body_name_unique(*id) {
+                renames.push(*cmd);
+            }
+            names.push(self.model.doc.bodies.get(*id)?.name.clone());
+        }
+        Some((names, renames))
+    }
+
+    /// Jalankan `op` sebagai aksi GUI, dengan rename body yang menyertainya
+    /// ikut satu langkah undo (atau dibatalkan bila op gagal).
+    #[allow(clippy::result_large_err)]
+    fn run_with_renames(
+        &mut self,
+        op: serde_json::Value,
+        renames: Vec<RenameBodyCommand>,
+        title: &str,
+        details: &str,
+    ) -> Result<(), OpError> {
+        let result = serde_json::from_value::<Op>(op)
+            .map_err(|e| OpError::invalid(format!("op GUI tidak valid: {e}")))
+            .and_then(|op| self.run_gui_ops(vec![op], title, details).map(|_| ()));
+        for mut cmd in renames.into_iter().rev() {
+            if result.is_ok() {
+                self.model_undo.attach_to_top(Box::new(cmd));
+            } else {
+                ducad_core::Command::revert(&mut cmd, &mut self.model);
+            }
+        }
+        result
+    }
+
+    /// Boolean dua body sebagai op oplog. `a` = sasaran (dipilih pertama),
+    /// `b` = alat/pemotong. Hasilnya body baru bernama id op.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn boolean_via_oplog(
+        &mut self,
+        a: BodyId,
+        b: BodyId,
+        kind: ducad_engine::model::BooleanKind,
+    ) -> Result<(), OpError> {
+        use ducad_engine::model::BooleanKind;
+        self.sync_agent_meta();
+        let (names, renames) = self
+            .unique_body_names(&[a, b])
+            .ok_or_else(|| OpError::invalid("body terpilih tidak ada lagi"))?;
+        let (kind_s, title) = match kind {
+            BooleanKind::Union => ("union", "Boolean Union"),
+            BooleanKind::Subtract => ("subtract", "Boolean Subtract"),
+            BooleanKind::Intersect => ("intersect", "Boolean Intersect"),
+        };
+        let id = self.unique_op_id(kind_s);
+        let op = serde_json::json!({
+            "op": "boolean", "id": id, "kind": kind_s, "a": names[0], "b": names[1]
+        });
+        let details = format!("{title}: {} dan {}", names[0], names[1]);
+        self.run_with_renames(op, renames, title, &details)
+    }
+
+    /// Pattern 3D body-body terpilih sebagai op oplog dalam SATU batch
+    /// (satu langkah undo); salinan baru bernama `<id op>.<n>`.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn pattern_via_oplog(
+        &mut self,
+        bodies: &[BodyId],
+        kind: serde_json::Value,
+    ) -> Result<(), OpError> {
+        self.sync_agent_meta();
+        let (names, renames) = self
+            .unique_body_names(bodies)
+            .ok_or_else(|| OpError::invalid("body terpilih tidak ada lagi"))?;
+        let mut ops = Vec::with_capacity(names.len());
+        let mut used: Vec<String> = Vec::new();
+        for name in &names {
+            let mut id = self.unique_op_id("pattern");
+            let mut n = 1;
+            while used.contains(&id) {
+                n += 1;
+                id = format!("{}_{n}", self.unique_op_id("pattern"));
+            }
+            used.push(id.clone());
+            let op = serde_json::json!({
+                "op": "pattern", "id": id, "body": name, "kind": kind.clone(), "merge": false
+            });
+            ops.push(
+                serde_json::from_value::<Op>(op)
+                    .map_err(|e| OpError::invalid(format!("op pattern GUI tidak valid: {e}")))?,
+            );
+        }
+        let details = format!("Pattern 3D dari {}", names.join(", "));
+        let result = self.run_gui_ops(ops, "Pattern 3D", &details).map(|_| ());
+        for mut cmd in renames.into_iter().rev() {
+            if result.is_ok() {
+                self.model_undo.attach_to_top(Box::new(cmd));
+            } else {
+                ducad_core::Command::revert(&mut cmd, &mut self.model);
+            }
+        }
+        result
+    }
+}
+
+/// Command sketsa: pasang/hapus ekspresi param sebuah dimensi
+/// (`Sketch::dim_exprs`), satu langkah undo bersama perubahan nilainya.
+pub struct SetDimExpr {
+    key: String,
+    pending: Option<String>,
+}
+
+impl ducad_core::Command<ducad_sketch::Sketch> for SetDimExpr {
+    fn name(&self) -> &str {
+        "Ikat dimensi ke parameter"
+    }
+    fn apply(&mut self, sk: &mut ducad_sketch::Sketch) {
+        self.swap(sk);
+    }
+    fn revert(&mut self, sk: &mut ducad_sketch::Sketch) {
+        self.swap(sk);
+    }
+}
+
+impl SetDimExpr {
+    fn swap(&mut self, sk: &mut ducad_sketch::Sketch) {
+        let prev = match self.pending.take() {
+            Some(e) => sk.dim_exprs.insert(self.key.clone(), e),
+            None => sk.dim_exprs.remove(&self.key),
+        };
+        self.pending = prev;
+    }
+}
+
+impl DuCADApp {
+    /// Nilai input dimensi: `$param`/ekspresi param dievaluasi terhadap
+    /// parameter dokumen (mm), selain itu angka/satuan biasa. `Ok((mm,
+    /// ekspresi))`; ekspresi `Some` berarti dimensi diikat ke param.
+    pub(crate) fn eval_dim_input(&self, text: &str) -> Result<(f64, Option<String>), String> {
+        let t = text.trim();
+        if !t.contains('$') {
+            return self.unit.parse_input_mm(t).map(|v| (v, None));
+        }
+        let params = self.agent_meta.design.effective_params();
+        ducad_engine::ops::eval(&ducad_engine::ops::Num::Expr(t.to_string()), &params)
+            .map(|v| (v, Some(t.to_string())))
+            .map_err(|e| e.message)
+    }
+
+    /// Perbarui dimensi `index` ke `new_constraint` dan pasang/hapus ikatan
+    /// param-nya dalam satu langkah undo sketsa.
+    pub(crate) fn update_dimension(
+        &mut self,
+        index: usize,
+        new_constraint: ducad_sketch::constraint::Constraint,
+        expr: Option<String>,
+    ) {
+        let Some(key) = ducad_sketch::constraint::dim_key(&new_constraint) else {
+            self.update_constraint(index, new_constraint);
+            return;
+        };
+        let sid = self.active_sketch_id();
+        self.sketch_set.set_active(sid);
+        self.sketch_set.active_mut().undo.begin("Dimensi");
+        self.constraint_status = None;
+        self.update_constraint(index, new_constraint);
+        // `update_constraint` mengisi `constraint_status` bila gagal.
+        let applied = self.constraint_status.is_none();
+        if applied && self.sketch().dim_exprs.get(&key) != expr.as_ref() {
+            self.execute_sketch_command(Box::new(SetDimExpr { key, pending: expr }));
+        }
+        self.sketch_set.active_mut().undo.commit();
+    }
+
+    /// Salin hasil replay ke slot GUI yang terikat: entitas dicocokkan lewat
+    /// nama spec (EntityId GUI tetap), nilai dimensi terikat param dihitung
+    /// ulang. Dipanggil di antara penanda awal/akhir langkah undo.
+    pub(crate) fn update_live_slots_from(&mut self, session: &ducad_engine::Session) {
+        let params = session.meta().design.effective_params();
+        let live: Vec<(String, ducad_sketch::SketchId)> = self
+            .agent_meta
+            .live_sketches
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        for (id, sid) in live {
+            let Ok((replayed, _)) = session.sketch(&id) else {
+                continue;
+            };
+            let Some(gui) = self.sketch_set.sketch(sid) else {
+                continue;
+            };
+            let by_name: std::collections::HashMap<&str, &ducad_sketch::Entity> = replayed
+                .entity_names
+                .iter()
+                .filter_map(|(rid, n)| Some((n.as_str(), replayed.entities.get(*rid)?)))
+                .collect();
+            let mut updated = gui.clone();
+            for (gid, ent) in updated.entities.iter_mut() {
+                let name = ducad_engine::ops::from_sketch::entity_spec_name(gui, gid);
+                if let Some(r) = by_name.get(name.as_str()) {
+                    let construction = ent.is_construction();
+                    *ent = (*r).clone().with_construction(construction);
+                }
+            }
+            for c in updated.constraints.iter_mut() {
+                use ducad_sketch::constraint::Constraint;
+                let Some(expr) = ducad_sketch::constraint::dim_key(c)
+                    .and_then(|k| gui.dim_exprs.get(&k).cloned())
+                else {
+                    continue;
+                };
+                let Ok(v) = ducad_engine::ops::eval(&ducad_engine::ops::Num::Expr(expr), &params)
+                else {
+                    continue;
+                };
+                match c {
+                    Constraint::Distance { value, .. } | Constraint::Radius { value, .. } => {
+                        *value = v
+                    }
+                    Constraint::Angle { value, .. } => *value = v.to_radians(),
+                    _ => {}
+                }
+            }
+            if let Some(slot) = self.sketch_set.sketch_mut(sid) {
+                *slot = updated;
+            }
+        }
     }
 }
 
@@ -1164,6 +1464,209 @@ mod tests {
             "{}",
             volume(&other)
         );
+    }
+
+    /// Subtract memakai urutan pilih: pertama = sasaran, kedua = pemotong.
+    #[test]
+    fn gui_subtract_respects_selection_order_and_is_an_op() {
+        for (first_big, expected) in [(true, 8000.0 - 2000.0), (false, 3000.0 - 2000.0)] {
+            let (mut app, big) = app_with_box("Big", [0.0; 3]);
+            let geo = compute::primitive(
+                &compute::PrimitiveShape::Box {
+                    size: [10.0, 10.0, 30.0],
+                    centered: false,
+                },
+                [5.0, 5.0, -5.0],
+            )
+            .unwrap();
+            let small = app.model.doc.add_body("Tool");
+            app.model.geometry.insert(small, geo);
+            app.selected_bodies.clear();
+            if first_big {
+                app.selected_bodies.insert(big);
+                app.selected_bodies.insert(small);
+            } else {
+                app.selected_bodies.insert(small);
+                app.selected_bodies.insert(big);
+            }
+            app.boolean_selected(
+                ducad_engine::model::BooleanKind::Subtract,
+                "Subtract",
+                "Subtract",
+            );
+            if first_big {
+                assert_eq!(oplog_kinds(&app), ["boolean"]);
+                let v = serde_json::to_value(&app.agent_meta.design.oplog[0]).unwrap();
+                assert_eq!(
+                    (v["a"].as_str(), v["b"].as_str()),
+                    (Some("Big"), Some("Tool"))
+                );
+                assert!(close(volume(&app), expected), "{}", volume(&app));
+            } else {
+                // Tool (10x10x30) dikurangi kubus: sisa dua ujung 10x10x5.
+                let total: f64 = app
+                    .model
+                    .geometry
+                    .values()
+                    .map(|g| g.shape.volume().abs())
+                    .sum();
+                assert!(close(total, expected), "{total}");
+            }
+        }
+    }
+
+    #[test]
+    fn gui_linear_pattern_becomes_op_and_replays() {
+        let (mut app, id) = app_with_box("Box", [0.0; 3]);
+        app.selected_bodies.insert(id);
+        app.pattern_kind = ducad_ui::PatternKind::Linear;
+        app.pattern_count_x = 3;
+        app.pattern_count_y = 1;
+        app.pattern_count_z = 1;
+        app.pattern_pitch_x = 30.0;
+        app.apply_pattern_3d();
+        assert_eq!(oplog_kinds(&app), ["pattern"]);
+        assert_eq!(app.model.doc.bodies.len(), 3, "asli + 2 salinan");
+        let s = ducad_engine::Session::replay(app.agent_meta.design.clone()).unwrap();
+        assert_eq!(s.summary().bodies.len(), 3);
+        app.undo_model();
+        assert_eq!(app.model.doc.bodies.len(), 1);
+        assert!(app.agent_meta.design.oplog.is_empty());
+    }
+
+    /// Step 2 butir 3: dimensi sketsa GUI diikat ke `$base`; mengubah param
+    /// menggerakkan body DAN garis sketsa GUI; undo memulihkan keduanya.
+    #[test]
+    fn gui_dimension_bound_to_param_drives_sketch_and_body() {
+        use ducad_sketch::constraint::{Constraint, PointRef};
+        use ducad_sketch::Entity;
+        let mut app = DuCADApp::new_for_test();
+        let row = |n: &str, v: &str| crate::design_tools::ParamRow {
+            name: n.into(),
+            orig_name: None,
+            value: v.into(),
+        };
+        app.apply_param_rows(&[row("base", "40")]).unwrap();
+        let ids = draw_l_profile(&mut app, 40.0);
+        {
+            let sk = app.sketch_mut();
+            for i in 0..6 {
+                sk.constraints.push(Constraint::Coincident {
+                    a: PointRef::LineEnd(ids[i]),
+                    b: PointRef::LineStart(ids[(i + 1) % 6]),
+                });
+            }
+            for i in [0, 2, 4] {
+                sk.constraints.push(Constraint::Horizontal { line: ids[i] });
+            }
+            for i in [1, 3, 5] {
+                sk.constraints.push(Constraint::Vertical { line: ids[i] });
+            }
+            sk.constraints.push(Constraint::Fixed {
+                point: PointRef::LineStart(ids[0]),
+                target: DVec2::ZERO,
+            });
+            sk.constraints.push(Constraint::Distance {
+                a: PointRef::LineStart(ids[0]),
+                b: PointRef::LineEnd(ids[0]),
+                value: 40.0,
+                driven: false,
+            });
+        }
+        let idx = app.sketch().constraints.len() - 1;
+        let (v, expr) = app.eval_dim_input("$base").unwrap();
+        assert_eq!((v, expr.as_deref()), (40.0, Some("$base")));
+        app.update_dimension(
+            idx,
+            Constraint::Distance {
+                a: PointRef::LineStart(ids[0]),
+                b: PointRef::LineEnd(ids[0]),
+                value: v,
+                driven: false,
+            },
+            expr,
+        );
+        assert_eq!(
+            app.sketch().dim_exprs.len(),
+            1,
+            "{:?}",
+            app.constraint_status
+        );
+
+        app.selected = ids.iter().copied().collect();
+        app.extrude_distance_input = "60".into();
+        app.extrude_selected();
+        app.exit_sketching();
+        let sketch_json = serde_json::to_string(&app.agent_meta.design.oplog[0]).unwrap();
+        assert!(sketch_json.contains("\"$base\""), "{sketch_json}");
+        assert!(close(volume(&app), l_volume(40.0, 0.0)));
+
+        let base_len = |app: &DuCADApp| {
+            let sid = app
+                .agent_meta
+                .live_sketches
+                .values()
+                .next()
+                .copied()
+                .unwrap();
+            match app.sketch_set.sketch(sid).unwrap().entities[ids[0]] {
+                Entity::Line { start, end, .. } => (end - start).length(),
+                _ => f64::NAN,
+            }
+        };
+        app.apply_param_rows(&[crate::design_tools::ParamRow {
+            name: "base".into(),
+            orig_name: Some("base".into()),
+            value: "55".into(),
+        }])
+        .unwrap();
+        assert!(close(volume(&app), l_volume(55.0, 0.0)), "{}", volume(&app));
+        assert!(
+            (base_len(&app) - 55.0).abs() < 1e-6,
+            "sketsa GUI ikut param"
+        );
+        app.sync_agent_meta();
+        assert!(!app.agent_meta.warnings.iter().any(|w| w == "oplog_stale"));
+        // Keluar dari mode sketsa tidak boleh "mengembalikan" sketsa lama.
+        app.enter_sketching();
+        app.exit_sketching();
+        assert!(close(volume(&app), l_volume(55.0, 0.0)));
+
+        app.undo_model();
+        assert!(close(volume(&app), l_volume(40.0, 0.0)), "{}", volume(&app));
+        assert!(
+            (base_len(&app) - 40.0).abs() < 1e-6,
+            "undo memulihkan sketsa GUI"
+        );
+    }
+
+    /// Revolve sketsa di bidang Front berputar di sumbu world Z (bukan
+    /// selalu XY seperti jalur lama) dan menjadi op oplog.
+    #[test]
+    fn gui_revolve_on_front_plane_uses_real_plane() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_sketch_plane(ducad_render::PlaneKind::Front);
+        app.enter_sketching();
+        let pts = [
+            DVec2::new(5.0, 0.0),
+            DVec2::new(15.0, 0.0),
+            DVec2::new(15.0, 20.0),
+            DVec2::new(5.0, 20.0),
+        ];
+        let ids: Vec<_> = (0..4)
+            .map(|i| {
+                app.sketch_mut()
+                    .entities
+                    .insert(ducad_sketch::Entity::line(pts[i], pts[(i + 1) % 4]))
+            })
+            .collect();
+        app.selected = ids.iter().copied().collect();
+        assert!(app.revolve_selected((0.0, 0.0), (0.0, 1.0), None));
+        assert_eq!(oplog_kinds(&app), ["sketch", "revolve"]);
+        let expected = std::f64::consts::PI * (15.0 * 15.0 - 5.0 * 5.0) * 20.0;
+        assert!(close(volume(&app), expected), "{}", volume(&app));
+        let bbox = app.model.geometry[only_body(&app)].mesh.bounding_box().unwrap();
+        assert!(bbox.0[2].abs() < 1e-3 && (bbox.1[2] - 20.0).abs() < 1e-3, "{bbox:?}");
     }
 
     #[test]

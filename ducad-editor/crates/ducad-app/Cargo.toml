@@ -27,6 +27,7 @@ local-gguf = ["ducad-assist/local-gguf"]
 memory = ["dep:mnemonic"]
 
 [dependencies]
+indexmap = "2.14"
 ducad-core = { workspace = true }
 ducad-ink = { workspace = true }
 ducad-sketch = { workspace = true }

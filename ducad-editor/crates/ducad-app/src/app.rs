@@ -94,7 +94,9 @@ pub struct DuCADApp {
     pub mode_last_tool: [Option<ToolKind>; 4],
     /// Cache render tinta (batch layer per revisi + coretan aktif inkremental).
     pub ink_render: crate::ink::canvas::InkRenderCache,
-    pub selected_bodies: HashSet<BodyId>,
+    /// Body terpilih, berurutan sesuai urutan klik: subtract memakai body
+    /// pertama sebagai sasaran dan yang kedua sebagai pemotong.
+    pub selected_bodies: indexmap::IndexSet<BodyId>,
     pub model_status: Option<String>,
     pub extrude_distance_input: String,
     pub fillet_radius_input: String,
@@ -610,7 +612,7 @@ impl DuCADApp {
             ink_state: crate::ink::tools::InkToolState::default(),
             mode_last_tool: [None; 4],
             ink_render: Default::default(),
-            selected_bodies: HashSet::new(),
+            selected_bodies: indexmap::IndexSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
             fillet_radius_input: "2".to_string(),
@@ -983,7 +985,7 @@ impl DuCADApp {
             ink_state: crate::ink::tools::InkToolState::default(),
             mode_last_tool: [None; 4],
             ink_render: Default::default(),
-            selected_bodies: HashSet::new(),
+            selected_bodies: indexmap::IndexSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
             fillet_radius_input: "2".to_string(),
@@ -2722,7 +2724,7 @@ impl eframe::App for DuCADApp {
                                             if b.visible { "ditampilkan" } else { "disembunyikan" }
                                         ));
                                         if !b.visible {
-                                            self.selected_bodies.remove(&id);
+                                            self.selected_bodies.shift_remove(&id);
                                             if let Some((active_id, _, _)) = self.active_face {
                                                 if active_id == id {
                                                     self.active_face = None;
@@ -2802,7 +2804,7 @@ impl eframe::App for DuCADApp {
                                         if !extend {
                                             self.selected_bodies.clear();
                                         }
-                                        if !self.selected_bodies.remove(&id) {
+                                        if !self.selected_bodies.shift_remove(&id) {
                                             self.selected_bodies.insert(id);
                                         }
                                         self.model_status = None;

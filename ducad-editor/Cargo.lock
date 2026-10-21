@@ -1669,6 +1669,7 @@ dependencies = [
  "env_logger",
  "glam",
  "image",
+ "indexmap",
  "kurbo",
  "log",
  "mnemonic",

@@ -221,9 +221,10 @@ sama atau laporan migrasi yang jelas.
 
 ### Step 2 — Poles alur utama sketch → solid → revisi
 
-> **Kemajuan 2026-10-21:** butir 2, 4, 5, 6 selesai; butir 1 dan 3 sebagian
-> (pengikatan dimensi sketsa GUI ke `$param` belum). Kriteria uji pengguna
-> menunggu sesi Bagian P. Rincian: `docs/BASELINE_DESIGNER_UX.md` §8b.
+> **Kemajuan 2026-10-21:** butir 2–6 selesai (termasuk dimensi sketsa yang
+> diikat ke `$param`); butir 1 sebagian (alur berjalan, urutan menu tidak
+> diubah). Kriteria uji pengguna menunggu sesi Bagian P. Rincian:
+> `docs/BASELINE_DESIGNER_UX.md` §8b.
 
 **Tujuan**
 

@@ -97,6 +97,12 @@ pub struct Sketch {
     /// diabaikan saat render.
     #[serde(default)]
     pub infinite_lines: HashSet<EntityId>,
+    /// Dimensi yang terikat ke parameter dokumen (Step 2
+    /// `PLAN_DESIGNER_UX`): kunci [`crate::constraint::dim_key`] → ekspresi,
+    /// mis. `"$t"` atau `"$base + 5"` (sudut dalam derajat). Dikunci lewat
+    /// alamat constraint, bukan indeks, agar tahan terhadap hapus/geser.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub dim_exprs: std::collections::BTreeMap<String, String>,
 
     /// Offset teks dimensi yang dipindah pengguna (Paritas 1.17), ruang
     /// sketch mm relatif terhadap posisi label bawaan.

@@ -151,8 +151,7 @@ impl DuCADApp {
         let oplog = rename_ops(&self.agent_meta.design.oplog, &renames)?;
         let design = DesignDoc { params, oplog, fingerprint: String::new(), ..self.agent_meta.design.clone() };
         let session = ducad_engine::Session::replay(design).map_err(|e| e.message.clone())?;
-        let meta = session.meta().clone();
-        self.adopt_agent_model(session.into_model(), meta, "parameters");
+        self.adopt_replayed_session(session, "parameters");
         Ok(())
     }
 

@@ -11,7 +11,7 @@ use ducad_kernel::ExtrudeExtent;
 
 use crate::app::DuCADApp;
 use crate::model::{
-    AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind, DeleteBodyCommand,
+    AddSolidCommand, BodyGeometry, BooleanKind, DeleteBodyCommand,
     ReplaceGeometryCommand,
 };
 use crate::types::{PickMode, ToolKind};
@@ -282,8 +282,25 @@ impl DuCADApp {
         axis_dir: (f64, f64),
         angle_deg: Option<f64>,
     ) -> bool {
-        // GUI lama selalu me-revolve di bidang XY apa pun bidang aktifnya;
-        // `PlaneFrame::top()` mempertahankan perilaku itu persis.
+        // Jalur oplog (ADR 0010): sketsa di bidang sebenarnya (bukan selalu
+        // XY seperti jalur lama), satu langkah undo, bisa di-replay.
+        match self.revolve_via_oplog(axis_origin, axis_dir, angle_deg) {
+            Ok(true) => {
+                self.model_status = Some(format!(
+                    "Revolve {:.0}° berhasil dibuat",
+                    angle_deg.unwrap_or(360.0)
+                ));
+                return true;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                self.model_status = Some(op_status("Revolve", &e));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                return false;
+            }
+        }
+        // Jalur lama (bidang datum): selalu bidang XY.
         let result = compute::revolve(
             self.sketch(),
             &ProfilePick::Entities(&self.selected),
@@ -618,7 +635,7 @@ impl DuCADApp {
     }
 
     /// Union/Subtract/Intersect dua body terpilih.
-    pub fn boolean_selected(&mut self, kind: BooleanKind, label: &'static str, result_name: &str) {
+    pub fn boolean_selected(&mut self, kind: BooleanKind, label: &'static str, _result_name: &str) {
         let ids: Vec<BodyId> = self.selected_bodies.iter().copied().collect();
         let [a, b] = ids.as_slice() else {
             self.model_status =
@@ -626,20 +643,20 @@ impl DuCADApp {
             return;
         };
         let (a_id, b_id) = (*a, *b);
-        let detail_desc = match kind {
-            BooleanKind::Union => "Menggabungkan 2 solid 3D menjadi satu",
-            BooleanKind::Subtract => "Memotong solid 3D utama dengan solid pemotong",
-            BooleanKind::Intersect => "Mengambil irisan perpotongan 2 solid 3D",
-        };
-        match BooleanCommand::try_new(&self.model, kind, label, result_name, a_id, b_id) {
-            Ok(cmd) => {
-                self.execute_model_command(Box::new(cmd), detail_desc);
+        // Jalur oplog (ADR 0010). Urutan pilih menentukan peran: body yang
+        // dipilih pertama adalah sasaran, yang kedua pemotong/alat.
+        match self.boolean_via_oplog(a_id, b_id, kind) {
+            Ok(()) => {
                 self.selected_bodies.clear();
                 self.round_history.remove(&a_id);
                 self.round_history.remove(&b_id);
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(format!("Boolean gagal: {e}")),
+            Err(e) => {
+                self.model_status = Some(op_status(label, &e));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+            }
         }
     }
 
@@ -1545,81 +1562,53 @@ impl DuCADApp {
         }
 
         let selected_ids: Vec<BodyId> = self.selected_bodies.iter().copied().collect();
-        let mut new_bodies = Vec::new();
-
-        for body_id in selected_ids {
-            let orig_name = self.model.doc.bodies.get(body_id).map(|b| b.name.clone()).unwrap_or_else(|| "Solid".to_string());
-            let Some(geo) = self.model.geometry.get(body_id) else {
-                continue;
-            };
-
-            let duplicated = match self.pattern_kind {
-                ducad_ui::PatternKind::Linear => compute::linear_pattern(
-                    &geo.shape,
-                    [self.pattern_count_x, self.pattern_count_y, self.pattern_count_z],
-                    [self.pattern_pitch_x, self.pattern_pitch_y, self.pattern_pitch_z],
-                ),
-                ducad_ui::PatternKind::Circular => {
-                    // Sumbu datum terpilih (Paritas 1.6) menggantikan preset
-                    // sumbu + pivot HUD.
-                    let (pivot, axis) = match self.pattern_datum_axis() {
-                        Some((o, d)) => ((o[0], o[1], o[2]), (d[0], d[1], d[2])),
-                        None => (
-                            self.pattern_custom_pivot_3d
-                                .map(|v| (v.x as f64, v.y as f64, v.z as f64))
-                                .unwrap_or((0.0, 0.0, 0.0)),
-                            self.pattern_circ_axis.to_dir(),
-                        ),
-                    };
-
-                    compute::circular_pattern(
-                        &geo.shape,
-                        [pivot.0, pivot.1, pivot.2],
-                        [axis.0, axis.1, axis.2],
-                        self.pattern_circ_count,
-                        self.pattern_circ_angle_deg,
-                    )
-                }
-            };
-
-            match duplicated {
-                Ok(geos) => {
-                    for (idx, geo) in geos.into_iter().enumerate() {
-                        let name = format!("{} (Array {})", orig_name, idx + 1);
-                        new_bodies.push((name, geo));
+        // Jalur oplog (ADR 0010): satu op `pattern` per body, satu batch.
+        let kind = match self.pattern_kind {
+            ducad_ui::PatternKind::Linear => serde_json::json!({ "linear": {
+                "count": [self.pattern_count_x, self.pattern_count_y, self.pattern_count_z],
+                "pitch": [self.pattern_pitch_x, self.pattern_pitch_y, self.pattern_pitch_z],
+            }}),
+            ducad_ui::PatternKind::Circular => {
+                // Sumbu datum terpilih (Paritas 1.6) menggantikan preset
+                // sumbu + pivot HUD; ditulis sebagai vektor eksplisit karena
+                // datum GUI belum menjadi op.
+                let (pivot, axis) = match self.pattern_datum_axis() {
+                    Some((o, d)) => ([o[0], o[1], o[2]], [d[0], d[1], d[2]]),
+                    None => {
+                        let p = self
+                            .pattern_custom_pivot_3d
+                            .map(|v| [v.x as f64, v.y as f64, v.z as f64])
+                            .unwrap_or([0.0, 0.0, 0.0]);
+                        let a = self.pattern_circ_axis.to_dir();
+                        (p, [a.0, a.1, a.2])
                     }
-                }
-                Err(e) => {
-                    self.model_status = Some(format!("Pattern 3D gagal: {}", e.message));
-                    return;
-                }
+                };
+                serde_json::json!({ "circular": {
+                    "pivot": pivot,
+                    "axis": axis,
+                    "count": self.pattern_circ_count,
+                    "angle_deg": self.pattern_circ_angle_deg,
+                }})
+            }
+        };
+        let before = self.model.doc.bodies.len();
+        match self.pattern_via_oplog(&selected_ids, kind) {
+            Ok(()) => {
+                let total_new = self.model.doc.bodies.len().saturating_sub(before);
+                self.selected_bodies.clear();
+                self.pattern_custom_pivot_2d = None;
+                self.pattern_custom_pivot_3d = None;
+                self.model_status = Some(format!(
+                    "{total_new} solid baru ditambahkan via Pattern 3D"
+                ));
+                self.set_tool(crate::types::ToolKind::Select);
+            }
+            Err(e) => {
+                self.model_status = Some(op_status("Pattern 3D", &e));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
             }
         }
-
-        if new_bodies.is_empty() {
-            self.model_status = Some("Pattern tidak menghasilkan duplikat baru (jumlah minimal 2)".to_string());
-            return;
-        }
-
-        let total_new = new_bodies.len();
-        let cmd = crate::model::AddMultipleSolidsCommand::new(
-            match self.pattern_kind {
-                ducad_ui::PatternKind::Linear => "Linear Pattern 3D",
-                ducad_ui::PatternKind::Circular => "Circular Pattern 3D",
-            },
-            new_bodies,
-        );
-
-        self.execute_model_command(
-            Box::new(cmd),
-            &format!("Membuat {} duplikat solid melalui Pattern", total_new),
-        );
-
-        self.selected_bodies.clear();
-        self.pattern_custom_pivot_2d = None;
-        self.pattern_custom_pivot_3d = None;
-        self.model_status = Some(format!("{} solid baru ditambahkan via Pattern 3D ✔", total_new));
-        self.set_tool(crate::types::ToolKind::Select);
     }
 
     /// Terapkan operasi pembuatan lubang (*Hole Wizard*) pada face bodi 3D yang aktif.

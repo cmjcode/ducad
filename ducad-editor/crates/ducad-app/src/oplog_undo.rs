@@ -22,15 +22,23 @@ use ducad_engine::SessionMeta;
 
 use crate::app::DuCADApp;
 
-/// Slot tempat command menaruh meta yang harus dipulihkan.
-pub type OplogSlot = Rc<RefCell<Option<SessionMeta>>>;
+/// Keadaan yang dipulihkan undo/redo: meta oplog + isi slot sketsa GUI yang
+/// terikat ke op `sketch` (berubah saat param menggerakkan dimensi).
+#[derive(Clone)]
+pub struct OplogRestore {
+    pub meta: SessionMeta,
+    pub sketches: Vec<(ducad_sketch::SketchId, ducad_sketch::Sketch)>,
+}
+
+/// Slot tempat command menaruh keadaan yang harus dipulihkan.
+pub type OplogSlot = Rc<RefCell<Option<OplogRestore>>>;
 
 /// Keadaan oplog sebelum/sesudah satu aksi, dititipkan di transaksi undo
 /// geometri.
 pub struct OplogStateCommand {
     label: String,
-    before: Box<SessionMeta>,
-    after: Box<SessionMeta>,
+    before: Box<OplogRestore>,
+    after: Box<OplogRestore>,
     slot: OplogSlot,
 }
 
@@ -48,7 +56,7 @@ impl Command<ModelDoc> for OplogStateCommand {
 
 /// Penanda awal aksi yang mungkin mengubah oplog.
 pub(crate) struct OplogMark {
-    before: SessionMeta,
+    before: OplogRestore,
     stamp: Option<u64>,
 }
 
@@ -66,31 +74,79 @@ fn snapshot(meta: &mut SessionMeta) -> SessionMeta {
 fn same_oplog_state(a: &SessionMeta, b: &SessionMeta) -> bool {
     a.design.params == b.design.params
         && a.design.oplog == b.design.oplog
+        && a.design.suppressed == b.design.suppressed
         && a.design.base_bodies.len() == b.design.base_bodies.len()
         && a.design.active_configuration == b.design.active_configuration
+        && a.live_sketches == b.live_sketches
+}
+
+fn same_sketches(
+    a: &[(ducad_sketch::SketchId, ducad_sketch::Sketch)],
+    b: &[(ducad_sketch::SketchId, ducad_sketch::Sketch)],
+) -> bool {
+    let text = |v: &[(ducad_sketch::SketchId, ducad_sketch::Sketch)]| {
+        v.iter()
+            .map(|(id, s)| format!("{id:?}{}", serde_json::to_string(s).unwrap_or_default()))
+            .collect::<Vec<_>>()
+    };
+    text(a) == text(b)
 }
 
 impl DuCADApp {
+    /// Isi slot sketsa GUI yang terikat ke op `sketch`.
+    fn bound_sketch_snapshot(&self) -> Vec<(ducad_sketch::SketchId, ducad_sketch::Sketch)> {
+        let mut ids: Vec<ducad_sketch::SketchId> =
+            self.agent_meta.live_sketches.values().copied().collect();
+        ids.sort_by_key(|id| format!("{id:?}"));
+        ids.dedup();
+        ids.into_iter()
+            .filter_map(|id| Some((id, self.sketch_set.sketch(id)?.clone())))
+            .collect()
+    }
+
+    fn restore_snapshot(&mut self) -> OplogRestore {
+        OplogRestore {
+            meta: snapshot(&mut self.agent_meta),
+            sketches: self.bound_sketch_snapshot(),
+        }
+    }
+
     /// Catat keadaan oplog sebelum aksi.
     pub(crate) fn begin_oplog_step(&mut self) -> OplogMark {
         OplogMark {
-            before: snapshot(&mut self.agent_meta),
+            before: self.restore_snapshot(),
             stamp: self.model_undo.top_undo_stamp(),
         }
     }
 
-    /// Selesaikan aksi: bila oplog berubah, titipkan keadaannya ke
-    /// transaksi geometri yang baru, atau buat langkah sendiri bila aksi
-    /// tidak mengubah geometri (mis. op `sketch` saja).
+    /// Selesaikan aksi: bila oplog (atau slot sketsa terikat) berubah,
+    /// titipkan keadaannya ke transaksi geometri yang baru, atau buat
+    /// langkah sendiri bila aksi tidak mengubah geometri (mis. op `sketch`).
     pub(crate) fn end_oplog_step(&mut self, mark: OplogMark, label: &str) {
-        let after = snapshot(&mut self.agent_meta);
-        if same_oplog_state(&mark.before, &after) {
+        let mut after = self.restore_snapshot();
+        // Slot yang baru terikat/lepas dalam aksi ini ikut tercatat di kedua sisi.
+        for (id, _) in &mark.before.sketches {
+            if !after.sketches.iter().any(|(a, _)| a == id) {
+                if let Some(sk) = self.sketch_set.sketch(*id) {
+                    after.sketches.push((*id, sk.clone()));
+                }
+            }
+        }
+        let mut before = mark.before;
+        for (id, sk) in &after.sketches {
+            if !before.sketches.iter().any(|(b, _)| b == id) {
+                before.sketches.push((*id, sk.clone()));
+            }
+        }
+        if same_oplog_state(&before.meta, &after.meta)
+            && same_sketches(&before.sketches, &after.sketches)
+        {
             return;
         }
         let new_geometry_step = self.model_undo.top_undo_stamp() != mark.stamp;
         let cmd = Box::new(OplogStateCommand {
             label: label.to_string(),
-            before: Box::new(mark.before),
+            before: Box::new(before),
             after: Box::new(after),
             slot: self.oplog_slot.clone(),
         });
@@ -104,14 +160,21 @@ impl DuCADApp {
         }
     }
 
-    /// Pulihkan oplog yang ditaruh command saat undo/redo geometri.
+    /// Pulihkan oplog (dan slot sketsa terikat) yang ditaruh command saat
+    /// undo/redo geometri.
     pub(crate) fn take_restored_oplog(&mut self) {
-        let Some(mut meta) = self.oplog_slot.borrow_mut().take() else {
+        let Some(restore) = self.oplog_slot.borrow_mut().take() else {
             return;
         };
+        let mut meta = restore.meta;
         meta.sim_results = std::mem::take(&mut self.agent_meta.sim_results);
         meta.analysis_results = std::mem::take(&mut self.agent_meta.analysis_results);
         self.agent_meta = meta;
+        for (id, sk) in restore.sketches {
+            if let Some(slot) = self.sketch_set.sketch_mut(id) {
+                *slot = sk;
+            }
+        }
         self.sync_design_after_agent();
     }
 

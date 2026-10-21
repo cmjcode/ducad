@@ -287,3 +287,22 @@ impl Constraint {
         }
     }
 }
+
+/// Alamat stabil sebuah dimensi (jenis + rujukan, tanpa nilai) untuk
+/// [`crate::Sketch::dim_exprs`]. `None` untuk constraint yang bukan dimensi.
+pub fn dim_key(c: &Constraint) -> Option<String> {
+    use slotmap::Key;
+    let e = |id: &EntityId| format!("{:x}", id.data().as_ffi());
+    let p = |r: &PointRef| match r {
+        PointRef::LineStart(id) => format!("s{}", e(id)),
+        PointRef::LineEnd(id) => format!("e{}", e(id)),
+        PointRef::Center(id) => format!("c{}", e(id)),
+        PointRef::PathNode { id, sub, node } => format!("n{}.{sub}.{node}", e(id)),
+    };
+    match c {
+        Constraint::Distance { a, b, .. } => Some(format!("distance:{}:{}", p(a), p(b))),
+        Constraint::Radius { entity, .. } => Some(format!("radius:{}", e(entity))),
+        Constraint::Angle { a, b, .. } => Some(format!("angle:{}:{}", e(a), e(b))),
+        _ => None,
+    }
+}

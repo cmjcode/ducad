@@ -652,7 +652,7 @@ impl DuCADApp {
 
         // 2b. Render dimensi constraint (misal Constraint::Distance pada titik/node path)
         let constraints = self.sketch().constraints.clone();
-        let mut constraint_commit: Option<(usize, ducad_sketch::constraint::Constraint)> = None;
+        let mut constraint_commit: Option<(usize, ducad_sketch::constraint::Constraint, Option<String>)> = None;
 
         let mut toggle_driven: Option<usize> = None;
         for (c_idx, c) in constraints.iter().enumerate() {
@@ -708,18 +708,25 @@ impl DuCADApp {
                                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                             self.editing_constraint_idx = None;
                                         } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                            if let Ok(new_val_mm) = self.unit.parse_input_mm(&self.editing_dimension_input) {
-                                                constraint_commit = Some((
-                                                    c_idx,
-                                                    ducad_sketch::constraint::Constraint::Distance {
-                                                        a: *a,
-                                                        b: *b,
-                                                        value: new_val_mm,
-                                                        driven: false,
-                                                    },
-                                                ));
+                                            // Angka/satuan, atau `$param` untuk mengikat
+                                            // dimensi ke parameter dokumen (Step 2).
+                                            match self.eval_dim_input(&self.editing_dimension_input) {
+                                                Ok((new_val_mm, expr)) => {
+                                                    constraint_commit = Some((
+                                                        c_idx,
+                                                        ducad_sketch::constraint::Constraint::Distance {
+                                                            a: *a,
+                                                            b: *b,
+                                                            value: new_val_mm,
+                                                            driven: false,
+                                                        },
+                                                        expr,
+                                                    ));
+                                                    self.editing_constraint_idx = None;
+                                                    self.dimension_input_error = None;
+                                                }
+                                                Err(e) => self.dimension_input_error = Some(e),
                                             }
-                                            self.editing_constraint_idx = None;
                                         } else if r.lost_focus() {
                                             self.editing_constraint_idx = None;
                                         }
@@ -731,8 +738,8 @@ impl DuCADApp {
             }
         }
 
-        if let Some((c_idx, new_c)) = constraint_commit {
-            self.update_constraint(c_idx, new_c);
+        if let Some((c_idx, new_c, expr)) = constraint_commit {
+            self.update_dimension(c_idx, new_c, expr);
             self.editing_constraint_idx = None;
         }
         if let Some(c_idx) = toggle_driven {
