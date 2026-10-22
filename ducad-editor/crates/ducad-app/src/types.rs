@@ -904,6 +904,28 @@ pub struct RoundPostStep {
     pub op: RoundPostOp,
 }
 
+/// Fillet/chamfer gizmo yang tercatat sebagai op oplog (`fillet`,
+/// `chamfer`, `round_vertex`). Radius/gaya dibaca dari op-nya; posisi
+/// disimpan dalam kerangka SAAT op dibuat dan diikutkan geser/putar/skala
+/// body sesudahnya (lihat `round_ops`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RoundMarker {
+    pub op_id: String,
+    /// `true` = rounding sudut (vertex), selain itu rusuk.
+    pub vertex: bool,
+    pub ray_origin: (f64, f64, f64),
+    pub ray_dir: (f64, f64, f64),
+    pub anchor: (f64, f64, f64),
+    #[serde(default)]
+    pub polyline: Vec<(f64, f64, f64)>,
+}
+
+impl RoundMarker {
+    pub fn ray(&self) -> PickRay {
+        PickRay { origin: self.ray_origin, dir: self.ray_dir }
+    }
+}
+
 pub struct RoundHistory {
     pub base: ducad_kernel::KernelShape,
     pub features: Vec<RoundFeature>,
@@ -957,6 +979,10 @@ pub struct HoleFeature {
 pub struct HoleHistory {
     pub base: ducad_kernel::KernelShape,
     pub features: Vec<HoleFeature>,
+    /// `mesh_fingerprint` geometri hasil riwayat ini. Beda dengan body
+    /// sekarang = body sudah diedit sesudahnya; membangun ulang dari `base`
+    /// akan MEMBUANG edit itu, jadi jalur lama tidak boleh dipakai.
+    pub result_fingerprint: u64,
 }
 
 /// Animasi transisi orientasi kamera (yaw/pitch) bergaya CAD (M3.4).

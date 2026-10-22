@@ -891,6 +891,9 @@ impl DuCADApp {
                 .collect(),
             views: self.datums.views.clone(),
             assembly: self.assembly_to_json(),
+            round_markers: (!self.round_markers.is_empty())
+                .then(|| serde_json::to_value(&self.round_markers).ok())
+                .flatten(),
         }
     }
 
@@ -898,6 +901,11 @@ impl DuCADApp {
     /// `datum_planes`. Entri rusak (NaN, arah nol) dilewati + dicatat.
     pub fn load_native_datums(&mut self, d: ducad_io::native::NativeDatums) {
         self.datums.clear_document();
+        self.round_markers = d
+            .round_markers
+            .as_ref()
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
         self.datums.views = d.views.iter().filter(|v| v.is_valid()).cloned().collect();
         let v = |a: [f64; 3]| Vec3::new(a[0] as f32, a[1] as f32, a[2] as f32);
         for p in d.planes {

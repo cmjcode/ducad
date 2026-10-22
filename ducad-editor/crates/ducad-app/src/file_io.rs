@@ -175,6 +175,7 @@ impl DuCADApp {
                 self.round_history.clear();
                 self.round_history_archive.clear();
                 self.editing_round = None;
+                self.editing_round_op = None;
                 self.active_vertex = None;
                 self.active_edge = None;
                 self.active_face = None;

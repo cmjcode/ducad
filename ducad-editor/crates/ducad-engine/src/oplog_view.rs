@@ -25,6 +25,37 @@ const MAIN_KEYS: &[&str] = &[
     "offset",
 ];
 
+/// Nilai utama khusus per jenis op (menimpa [`MAIN_KEYS`]).
+fn main_keys(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "resize_edge" => &["length"],
+        // Geometri beku: tidak ada nilai yang bisa diedit.
+        "adopt" => &[],
+        _ => MAIN_KEYS,
+    }
+}
+
+/// Teks pengganti string `brep` op `adopt` di tampilan oplog.
+fn brep_placeholder(brep: &str) -> String {
+    format!("<brep {} KB>", brep.len().div_ceil(1024))
+}
+
+/// JSON oplog untuk ditampilkan (MCP `get_oplog`, resource oplog): sama
+/// dengan serialisasi op, tetapi `brep` op `adopt` yang besar diringkas.
+pub fn oplog_display_json(ops: &[Op]) -> serde_json::Value {
+    serde_json::Value::Array(
+        ops.iter()
+            .map(|op| {
+                let mut v = serde_json::to_value(op).unwrap_or_default();
+                if let Op::Adopt { brep, .. } = op {
+                    v["brep"] = brep_placeholder(brep).into();
+                }
+                v
+            })
+            .collect(),
+    )
+}
+
 /// Satu baris Feature Tree dari oplog.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OpRow {
@@ -51,7 +82,7 @@ fn strings(v: &serde_json::Value, out: &mut Vec<String>) {
         serde_json::Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
         serde_json::Value::Object(m) => m
             .iter()
-            .filter(|(k, _)| k.as_str() != "id" && k.as_str() != "op")
+            .filter(|(k, _)| !matches!(k.as_str(), "id" | "op" | "brep"))
             .for_each(|(_, x)| strings(x, out)),
         _ => {}
     }
@@ -71,8 +102,8 @@ fn referenced_id<'a>(s: &'a str, known: &BTreeSet<&str>) -> Option<&'a str> {
     (suffix.chars().all(|c| c.is_ascii_digit()) && known.contains(base)).then_some(base)
 }
 
-fn main_value(v: &serde_json::Value) -> (Option<(String, f64)>, Option<String>) {
-    for key in MAIN_KEYS {
+fn main_value(kind: &str, v: &serde_json::Value) -> (Option<(String, f64)>, Option<String>) {
+    for key in main_keys(kind) {
         match v.get(*key) {
             Some(serde_json::Value::Number(n)) => {
                 if let Some(x) = n.as_f64() {
@@ -105,7 +136,20 @@ fn summary(
     let mut out = match (kind, &val) {
         ("fillet", Some(x)) => format!("R{x}"),
         ("chamfer", Some(x)) | ("extrude", Some(x)) | ("shell", Some(x)) => format!("{x} mm"),
-        ("revolve", Some(x)) => format!("{x} deg"),
+        ("revolve", Some(x)) | ("revolve_face", Some(x)) => format!("{x} deg"),
+        ("revolve_face", None) => "360 deg".to_string(),
+        ("round_vertex", Some(x)) => {
+            if v.get("chamfer").and_then(|c| c.as_bool()).unwrap_or(false) {
+                format!("C{x}")
+            } else {
+                format!("R{x}")
+            }
+        }
+        ("push_pull", Some(x))
+        | ("rib", Some(x))
+        | ("resize_edge", Some(x))
+        | ("shell_variable", Some(x)) => format!("{x} mm"),
+        ("adopt", _) => "Edit langsung (beku)".to_string(),
         ("hole", _) => v
             .get("spec")
             .map(|s| {
@@ -160,7 +204,7 @@ pub fn oplog_rows(design: &DesignDoc) -> Vec<OpRow> {
                 .push(op.id().to_string());
         }
         let kind = op.kind().to_string();
-        let (main, expr) = main_value(&v);
+        let (main, expr) = main_value(&kind, &v);
         rows.push(OpRow {
             id: op.id().to_string(),
             summary: summary(&kind, &v, &main, &expr),

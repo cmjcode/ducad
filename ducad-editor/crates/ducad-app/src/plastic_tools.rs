@@ -56,6 +56,25 @@ impl DuCADApp {
         Some((body, fi, DVec3::from(hit.hit_point), DVec3::from(hit.normal)))
     }
 
+    /// Fitur plastik sebagai op `plastic` (bisa diedit di Feature Tree).
+    /// `true` = ditangani (sukses atau error ditampilkan).
+    fn plastic_via_oplog(&mut self, label: &'static str, body: ducad_core::BodyId, make: serde_json::Value) -> bool {
+        let r = self.direct_op_via_oplog(body, label, |app, name| {
+            Some(serde_json::json!({
+                "op": "plastic", "id": app.unique_op_id("plastic"), "body": name, "make": make,
+            }))
+        });
+        match self.try_gui_op(label, r) {
+            Some(true) => {
+                let name = self.model.doc.bodies.get(body).map(|b| b.name.clone()).unwrap_or_default();
+                self.model_status = Some(ducad_i18n::t!("direct-done", tool = label, body = name.as_str()));
+                true
+            }
+            Some(false) => true,
+            None => false,
+        }
+    }
+
     fn plastic_apply(
         &mut self,
         label: &'static str,
@@ -88,9 +107,21 @@ impl DuCADApp {
 
     pub fn plastic_boss(&mut self) {
         let d = self.plastic_defaults();
-        let Some((body, _, p, n)) = self.plastic_target() else {
+        let Some((body, fi, p, n)) = self.plastic_target() else {
             return;
         };
+        if let Some(face) = self.face_selector(body, &[fi]) {
+            let st = &self.plastic_tools;
+            let hole = st.boss_hole.max(0.0);
+            let make = serde_json::json!({ "boss": {
+                "face": face, "at_world": [p.to_array()], "height": st.boss_height,
+                "hole_d": hole, "outer_d": d.boss_outer(hole), "draft_deg": d.draft_deg,
+                "fillet": d.min_radius,
+            }});
+            if self.plastic_via_oplog("Boss", body, make) {
+                return;
+            }
+        }
         let Some(g) = self.model.geometry.get(body) else {
             return;
         };
@@ -121,6 +152,16 @@ impl DuCADApp {
         let Some((body, fi, _, _)) = self.plastic_target() else {
             return;
         };
+        if let Some(face) = self.face_selector(body, &[fi]) {
+            let st = &self.plastic_tools;
+            let make = serde_json::json!({ "lip": {
+                "face": face, "height": st.lip_height, "width": d.min_wall,
+                "groove": groove, "clearance": st.clearance,
+            }});
+            if self.plastic_via_oplog(if groove { "Groove" } else { "Lip" }, body, make) {
+                return;
+            }
+        }
         let Some(g) = self.model.geometry.get(body) else {
             return;
         };
@@ -132,9 +173,20 @@ impl DuCADApp {
 
     pub fn plastic_snap(&mut self) {
         let d = self.plastic_defaults();
-        let Some((body, _, p, n)) = self.plastic_target() else {
+        let Some((body, fi, p, n)) = self.plastic_target() else {
             return;
         };
+        if let Some(face) = self.face_selector(body, &[fi]) {
+            let st = &self.plastic_tools;
+            let make = serde_json::json!({ "snap_fit": {
+                "face": face, "at_world": [p.to_array()], "length": st.snap_length,
+                "width": st.snap_width, "hook": st.snap_hook, "thickness": 1.5 * d.min_wall,
+                "angle_deg": 30.0, "direction": [1.0, 0.0, 0.0],
+            }});
+            if self.plastic_via_oplog("Snap Fit", body, make) {
+                return;
+            }
+        }
         let Some(g) = self.model.geometry.get(body) else {
             return;
         };
@@ -166,6 +218,16 @@ impl DuCADApp {
         let Some((body, _, p, n)) = self.plastic_target() else {
             return;
         };
+        {
+            let st = &self.plastic_tools;
+            let make = serde_json::json!({ "rest": {
+                "at": p.to_array(), "diameter": st.rest_d, "height": st.rest_h,
+                "direction": n.to_array(),
+            }});
+            if self.plastic_via_oplog("Rest", body, make) {
+                return;
+            }
+        }
         let Some(g) = self.model.geometry.get(body) else {
             return;
         };

@@ -628,6 +628,127 @@ impl SessionCore<'_> {
             }
             Op::Surface { id, make } => self.apply_surface(id, make, params, out)?,
             Op::Plastic { body, make, .. } => self.apply_plastic(body, make, params, out)?,
+            Op::PushPull {
+                body,
+                face,
+                distance,
+                ..
+            } => {
+                let d = eval(distance, params)?;
+                let geo = {
+                    let (_, g) = self.body(body)?;
+                    let fi = Self::one_face_index(&g.shape, body, face)?;
+                    direct::push_pull(&g.shape, fi, d)?
+                };
+                self.replace_body(body, "Push/Pull", geo, out)?;
+            }
+            Op::RevolveFace {
+                body,
+                face,
+                axis,
+                angle_deg,
+                ..
+            } => {
+                let origin = DVec3::from(eval_arr(&axis.origin, params)?);
+                let dir = DVec3::from(eval_arr(&axis.dir, params)?);
+                let angle = angle_deg.as_ref().map(|a| eval(a, params)).transpose()?;
+                let geo = {
+                    let (_, g) = self.body(body)?;
+                    let fi = Self::one_face_index(&g.shape, body, face)?;
+                    direct::revolve_face(&g.shape, fi, origin, dir, angle)?
+                };
+                self.replace_body(body, "Revolve Face", geo, out)?;
+            }
+            Op::RoundVertex {
+                body,
+                near,
+                radius,
+                chamfer,
+                ..
+            } => {
+                let near = DVec3::from(eval_arr(near, params)?);
+                let r = eval(radius, params)?;
+                let geo = {
+                    let (_, g) = self.body(body)?;
+                    direct::round_vertex(&g.shape, near, r, *chamfer)?
+                };
+                let label = if *chamfer { "Chamfer Vertex" } else { "Fillet Vertex" };
+                self.replace_body(body, label, geo, out)?;
+            }
+            Op::Rib {
+                body,
+                start,
+                end,
+                normal,
+                thickness,
+                depth,
+                draft_deg,
+                ..
+            } => {
+                let start = DVec3::from(eval_arr(start, params)?);
+                let end = DVec3::from(eval_arr(end, params)?);
+                let normal = DVec3::from(eval_arr(normal, params)?);
+                let draft = draft_deg.as_ref().map(|a| eval(a, params)).transpose()?;
+                let (t, d) = (eval(thickness, params)?, eval(depth, params)?);
+                let geo = {
+                    let (_, g) = self.body(body)?;
+                    direct::rib(&g.shape, start, end, normal, t, d, draft)?
+                };
+                self.replace_body(body, "Rib", geo, out)?;
+            }
+            Op::ResizeEdge {
+                body,
+                start,
+                end,
+                length,
+                ..
+            } => {
+                let start = DVec3::from(eval_arr(start, params)?);
+                let end = DVec3::from(eval_arr(end, params)?);
+                let len = eval(length, params)?;
+                let geo = {
+                    let (_, g) = self.body(body)?;
+                    direct::resize_edge(&g.shape, start, end, len)?
+                };
+                self.replace_body(body, "Resize Edge", geo, out)?;
+            }
+            Op::ShellVariable {
+                body,
+                thickness,
+                remove_faces,
+                custom,
+                ..
+            } => {
+                let t = eval(thickness, params)?;
+                let custom_t = custom
+                    .iter()
+                    .map(|c| eval(&c.thickness, params))
+                    .collect::<OpResult<Vec<_>>>()?;
+                let geo = {
+                    let (_, g) = self.body(body)?;
+                    let removed = match remove_faces {
+                        Some(sel) => crate::select::select_faces(&g.shape, sel)?,
+                        None => Vec::new(),
+                    };
+                    let mut per_face = Vec::new();
+                    for (c, ct) in custom.iter().zip(custom_t) {
+                        let idx = crate::select::select_faces(&g.shape, &c.faces)?;
+                        per_face.extend(idx.into_iter().map(|f| (f, ct)));
+                    }
+                    direct::shell_variable(&g.shape, t, &removed, &per_face)?
+                };
+                self.replace_body(body, "Shell Variable", geo, out)?;
+            }
+            Op::Adopt { body, brep, .. } => {
+                let geo = sheet_geo("Adopt", Ok(direct::decode_brep(brep)?))?;
+                if super::find_body(self.model, body).is_some() {
+                    self.replace_body(body, "Adopt", geo, out)?;
+                } else {
+                    // Body belum ada (atau sudah dilebur): buat baru dengan nama itu.
+                    self.meta.consumed.remove(body.as_str());
+                    self.add_body(body, "Adopt", geo, out);
+                }
+            }
             other => {
                 return Err(OpError::invalid(format!(
                     "op '{}' bukan op direct editing",

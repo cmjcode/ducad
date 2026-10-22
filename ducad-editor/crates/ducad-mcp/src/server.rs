@@ -326,7 +326,8 @@ fn read_resource(server: &Server, uri: &str) -> Result<Value, String> {
             let v = match what {
                 "oplog" => {
                     let d = part.session.design();
-                    json!({ "params": d.params, "ops": d.oplog })
+                    let ops = ducad_engine::oplog_view::oplog_display_json(&d.oplog);
+                    json!({ "params": d.params, "ops": ops })
                 }
                 "summary" => {
                     serde_json::to_value(part.session.summary()).map_err(|e| e.to_string())?

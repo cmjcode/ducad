@@ -179,14 +179,18 @@ impl DuCADApp {
     }
 
     pub fn create_primitive(&mut self, kind: PrimitiveKind, dims: [f64; 3], at: [f64; 3], centered: bool) {
-        match compute::primitive(&primitive_shape(kind, dims, centered), at) {
-            Ok(geo) => {
-                let name = kind.label();
-                let msg = ducad_i18n::t!("prim-created", name = name.as_str());
-                self.execute_model_command(Box::new(AddSolidCommand::new(name, geo)), &msg);
-                self.model_status = Some(msg);
-            }
-            Err(e) => self.model_status = Some(crate::modeling::operations::op_status("Primitif", &e)),
+        // Op `primitive`: ukurannya bisa diedit di Feature Tree.
+        let (prefix, shape) = match kind {
+            PrimitiveKind::Box => ("box", serde_json::json!({ "box": { "size": dims, "centered": centered } })),
+            PrimitiveKind::Cylinder => ("cylinder", serde_json::json!({ "cylinder": { "r": dims[0], "h": dims[1] } })),
+            PrimitiveKind::Sphere => ("sphere", serde_json::json!({ "sphere": { "r": dims[0] } })),
+            PrimitiveKind::Cone => ("cone", serde_json::json!({ "cone": { "r1": dims[0], "r2": dims[1], "h": dims[2] } })),
+            PrimitiveKind::Torus => ("torus", serde_json::json!({ "torus": { "major": dims[0], "minor": dims[1] } })),
+        };
+        let name = kind.label();
+        match self.primitive_via_oplog(prefix, shape, at, "Primitif") {
+            Ok(()) => self.model_status = Some(ducad_i18n::t!("prim-created", name = name.as_str())),
+            Err(e) => self.report_gui_op_error("Primitif", &e),
         }
     }
 
@@ -227,6 +231,16 @@ impl DuCADApp {
             self.model_status = Some(ducad_i18n::t!("mirror-body-no-plane"));
             return;
         };
+        // Op `mirror` (salinan baru atau ganti body asli).
+        let r = self.mirror_body_via_oplog(id, point, normal, keep_original);
+        if let Some(ok) = self.try_gui_op("Mirror", r) {
+            if ok {
+                self.archive_round_history(id);
+                self.hole_history.remove(&id);
+                self.model_status = Some(ducad_i18n::t!("mirror-body-done"));
+            }
+            return;
+        }
         let Some(geo) = self.model.geometry.get(id) else { return };
         match compute::advanced::mirror(&geo.shape, point, normal) {
             Ok(geo) => self.commit_body_result(id, geo, keep_original, "mirror-body-suffix", "Cermin Body", &ducad_i18n::t!("mirror-body-done")),
@@ -241,6 +255,19 @@ impl DuCADApp {
             return;
         }
         let pivot = if about_center { self.body_bbox_center(id).unwrap_or(DVec3::ZERO) } else { DVec3::ZERO };
+        // Op `transform` (putar), `copy` = salinan baru.
+        let r = self.transform_body_via_oplog(id, None, Some((pivot, DVec3::from(axis), angle_deg)), keep_original);
+        if let Some(ok) = self.try_gui_op("Rotate", r) {
+            if ok {
+                if !keep_original {
+                    self.archive_round_history(id);
+                    self.hole_history.remove(&id);
+                }
+                let angle = format!("{angle_deg:.1}");
+                self.model_status = Some(ducad_i18n::t!("rotate-body-done", angle = angle.as_str()));
+            }
+            return;
+        }
         let Some(geo) = self.model.geometry.get(id) else { return };
         match ducad_kernel::rotate_shape(
             &geo.shape,

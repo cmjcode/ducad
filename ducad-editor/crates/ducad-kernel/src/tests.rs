@@ -3334,3 +3334,55 @@ fn exact_sheet_detects_chamfer_and_fillet_in_section() {
     radii.sort();
     assert_eq!(radii, vec![18, 20]);
 }
+
+#[test]
+fn index_and_point_variants_match_ray_variants() {
+    let _guard = lock_test();
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+    let ray_top = PickRay {
+        origin: (15.0, 10.0, 100.0),
+        dir: (0.0, 0.0, -1.0),
+    };
+    let top = face_index_for_ray(&shape, ray_top).expect("face atas");
+    let vol = |s: &KernelShape| s.volume().abs();
+
+    // Extrude face: ray vs indeks.
+    let a = extrude_face(&shape, ray_top, 10.0).unwrap();
+    let b = extrude_face_by_index(&shape, top, 10.0).unwrap();
+    assert!((vol(&a) - vol(&b)).abs() < 1e-6);
+    assert!((vol(&b) - 30.0 * 20.0 * 25.0).abs() < 1e-3);
+    assert!(extrude_face_by_index(&shape, 99, 1.0).is_err());
+
+    // Revolve face: ray vs indeks.
+    let (o, d) = (dvec3(0.0, 0.0, 15.0), dvec3(0.0, 1.0, 0.0));
+    let a = revolve_face(&shape, ray_top, o, d, Some(90.0)).unwrap();
+    let b = revolve_face_by_index(&shape, top, o, d, Some(90.0)).unwrap();
+    assert!((vol(&a) - vol(&b)).abs() < 1e-6);
+
+    // Fillet / chamfer sudut: ray vs titik.
+    let ray_corner = PickRay {
+        origin: (40.0, 30.0, 25.0),
+        dir: (-10.0, -10.0, -10.0),
+    };
+    let corner = dvec3(30.0, 20.0, 15.0);
+    let a = fillet_vertex(&shape, 2.0, ray_corner, 1.0).unwrap();
+    let b = fillet_vertex_at(&shape, 2.0, corner + dvec3(0.5, 0.0, 0.0), 5.0).unwrap();
+    assert!((vol(&a) - vol(&b)).abs() < 1e-6);
+    let a = chamfer_vertex(&shape, 2.0, ray_corner, 1.0).unwrap();
+    let b = chamfer_vertex_at(&shape, 2.0, corner, 5.0).unwrap();
+    assert!((vol(&a) - vol(&b)).abs() < 1e-6);
+    assert!(fillet_vertex_at(&shape, 2.0, dvec3(15.0, 10.0, 7.5), 5.0).is_err());
+    assert_eq!(nearest_vertex(&shape, dvec3(29.0, 19.0, 14.0), 5.0), Some(corner));
+
+    // Shell variable: ray vs indeks.
+    let ray_bottom = PickRay {
+        origin: (15.0, 10.0, -100.0),
+        dir: (0.0, 0.0, 1.0),
+    };
+    let bottom = face_index_for_ray(&shape, ray_bottom).unwrap();
+    let a = shell_variable_thickness(&shape, 2.0, &[ray_top], &[(ray_bottom, 4.0)]).unwrap();
+    let b = shell_variable_by_index(&shape, 2.0, &[top], &[(bottom, 4.0)]).unwrap();
+    assert!((vol(&a) - vol(&b)).abs() < 1e-6);
+    let inner = 26.0 * 16.0 * 11.0;
+    assert!((vol(&b) - (30.0 * 20.0 * 15.0 - inner)).abs() < 1e-3);
+}

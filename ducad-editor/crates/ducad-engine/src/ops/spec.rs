@@ -210,6 +210,9 @@ pub enum Op {
         /// `{"pivot":[x,y,z],"axis":[0,0,1],"angle_deg":90}`.
         #[serde(default)]
         rotate: Option<RotateSpec>,
+        /// Keep `body` unchanged and create the moved copy as a new body named `id`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        copy: bool,
     },
     /// Delete a body from the model (e.g. a helper body or cutting tool).
     Delete {
@@ -320,6 +323,9 @@ pub enum Op {
         /// Fixed point of the scale; default origin.
         #[serde(default)]
         pivot: [Num; 3],
+        /// Keep `body` unchanged and create the scaled copy as a new body named `id`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        copy: bool,
     },
     /// Cut a body with a plane. `keep: "both"` (default): the original body keeps the side along
     /// `normal`, new body `id` keeps the other side.
@@ -737,6 +743,122 @@ pub enum Op {
         /// One feature, e.g. `{"boss":{"face":">Z","at":[[0,0]],"height":10,"hole_d":3}}`.
         make: PlasticSpec,
     },
+    // --- Alat langsung GUI sebagai op oplog (ADR 0010). ---
+    /// Push/pull one face along its outward normal (body modified in place): `distance > 0` adds
+    /// a prism on a planar face (or grows a curved face), `< 0` cuts into the body.
+    PushPull {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Selector of exactly 1 face, e.g. `">Z"`.
+        face: String,
+        /// Signed distance (mm, non-zero).
+        distance: Num,
+    },
+    /// Revolve one planar face around an axis lying in its plane; the swept solid is unioned into
+    /// `body` (in place).
+    RevolveFace {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Selector of exactly 1 planar face.
+        face: String,
+        /// `{"origin":[x,y,z],"dir":[dx,dy,dz]}`; the direction must lie in the face plane.
+        axis: AxisLine,
+        /// Sweep angle; omitted = 360°.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        angle_deg: Option<Num>,
+    },
+    /// Fillet (or chamfer) every edge meeting at the body corner nearest `near` (in place). The
+    /// corner must lie within 5 mm of `near`.
+    RoundVertex {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// World point at (or near) the corner [x,y,z].
+        near: [Num; 3],
+        /// Fillet radius / chamfer distance (> 0).
+        radius: Num,
+        /// Chamfer instead of fillet.
+        #[serde(default)]
+        chamfer: bool,
+    },
+    /// Stiffening rib from `start` to `end`, `thickness` wide (centered on the line) and `depth`
+    /// tall along `normal`, unioned into `body` (in place).
+    Rib {
+        id: String,
+        /// Name of the body that receives the rib.
+        body: String,
+        /// Start point of the rib line [x,y,z].
+        start: [Num; 3],
+        /// End point of the rib line [x,y,z].
+        end: [Num; 3],
+        /// Direction the rib grows in (its height).
+        normal: [Num; 3],
+        /// Rib thickness (> 0).
+        thickness: Num,
+        /// Rib height along `normal` (> 0).
+        depth: Num,
+        /// Draft of both long sides in degrees (narrower at the top); omitted = none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        draft_deg: Option<Num>,
+    },
+    /// Resize the body along an edge from `start` to `end` to the new `length` (in place): the
+    /// planar end face perpendicular to the edge moves; otherwise the body scales uniformly.
+    ResizeEdge {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Edge start point [x,y,z].
+        start: [Num; 3],
+        /// Edge end point [x,y,z] (this end moves).
+        end: [Num; 3],
+        /// New edge length (> 0).
+        length: Num,
+    },
+    /// Shell with per-face wall thickness (in place). Convex bodies with planar faces only.
+    ShellVariable {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Default wall thickness (> 0).
+        thickness: Num,
+        /// Selector of the faces to open (may match several); omitted = closed hollow body.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remove_faces: Option<String>,
+        /// Faces with their own wall thickness, e.g. `[{"faces":"<Z","thickness":4}]`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        custom: Vec<FaceThickness>,
+    },
+    /// Frozen geometry from an edit that has no parametric op: sets the geometry of `body` to the
+    /// stored shape (creates body `body` when it does not exist). Written by the GUI; not editable.
+    Adopt {
+        id: String,
+        /// Name of the body that receives the geometry.
+        body: String,
+        /// Encoded B-rep (native cache `"<producer>:<base64>"` or STEP text).
+        brep: String,
+    },
+}
+
+/// Axis line in world space.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AxisLine {
+    /// Point on the axis [x,y,z].
+    pub origin: [Num; 3],
+    /// Axis direction [dx,dy,dz] (non-zero).
+    pub dir: [Num; 3],
+}
+
+/// Per-face wall thickness for `shell_variable`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FaceThickness {
+    /// Face selector (may match several faces).
+    pub faces: String,
+    /// Wall thickness of those faces (> 0).
+    pub thickness: Num,
 }
 
 impl Op {
@@ -788,7 +910,14 @@ impl Op {
             | Op::BoundingSolid { id, .. }
             | Op::SplitFace { id, .. }
             | Op::Surface { id, .. }
-            | Op::Plastic { id, .. } => id,
+            | Op::Plastic { id, .. }
+            | Op::PushPull { id, .. }
+            | Op::RevolveFace { id, .. }
+            | Op::RoundVertex { id, .. }
+            | Op::Rib { id, .. }
+            | Op::ResizeEdge { id, .. }
+            | Op::ShellVariable { id, .. }
+            | Op::Adopt { id, .. } => id,
         }
     }
 
@@ -842,6 +971,13 @@ impl Op {
             Op::SplitFace { .. } => "split_face",
             Op::Surface { .. } => "surface",
             Op::Plastic { .. } => "plastic",
+            Op::PushPull { .. } => "push_pull",
+            Op::RevolveFace { .. } => "revolve_face",
+            Op::RoundVertex { .. } => "round_vertex",
+            Op::Rib { .. } => "rib",
+            Op::ResizeEdge { .. } => "resize_edge",
+            Op::ShellVariable { .. } => "shell_variable",
+            Op::Adopt { .. } => "adopt",
         }
     }
 }

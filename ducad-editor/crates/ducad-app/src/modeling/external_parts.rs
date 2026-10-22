@@ -125,6 +125,7 @@ impl DuCADApp {
         for (body, geo) in doc.bodies.iter().zip(shapes.into_iter().flatten()) {
             let body_id = self.model.doc.add_body_with_material(&body.name, body.material);
             self.model.geometry.insert(body_id, geo);
+            self.record_raw_geometry_change(&[body_id]);
 
             let inst_id = self
                 .assembly_tree

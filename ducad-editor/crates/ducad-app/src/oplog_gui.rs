@@ -47,7 +47,7 @@ impl DuCADApp {
     /// Pastikan nama body `id` unik (op merujuk body lewat nama). Nama
     /// kembar diganti `"<nama> <n>"`; command rename yang SUDAH diterapkan
     /// dikembalikan agar pemanggil menitipkannya ke transaksi op.
-    fn make_body_name_unique(&mut self, id: BodyId) -> Option<Box<RenameBodyCommand>> {
+    pub(crate) fn make_body_name_unique(&mut self, id: BodyId) -> Option<Box<RenameBodyCommand>> {
         let name = self.model.doc.bodies.get(id)?.name.clone();
         let clash = self
             .model
@@ -294,6 +294,8 @@ impl DuCADApp {
         })?;
         self.adopt_replayed_session(session, what);
         self.clear_redo_except(crate::types::UndoTarget::Model);
+        let ids: Vec<String> = replace.iter().map(|r| r.id.clone()).collect();
+        self.warn_if_frozen(&ids);
         Ok(())
     }
 
@@ -420,6 +422,54 @@ impl DuCADApp {
                 }
             }
         }
+    }
+
+    /// Dinding web dari SEMUA garis sketsa aktif sebagai op `web` (sketsa
+    /// terikat). Sebagian garis terpilih belum bisa dinyatakan op →
+    /// `Ok(false)` (jalur lama).
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn web_via_oplog(
+        &mut self,
+        body: BodyId,
+        thickness: f64,
+        depth: f64,
+        reverse: bool,
+    ) -> Result<bool, OpError> {
+        let sid = self.active_sketch_id();
+        let Some(slot) = self.sketch_set.get(sid) else {
+            return Ok(false);
+        };
+        if !self.selected.is_empty()
+            || self.plane_json_for(slot.plane).is_none()
+            || !self.model.doc.bodies.contains_key(body)
+        {
+            return Ok(false);
+        }
+        self.sync_agent_meta();
+        let rename = self.make_body_name_unique(body);
+        let body_name = self.model.doc.bodies[body].name.clone();
+        let bound = self.bound_sketch_id(sid);
+        let sketch_id = bound.clone().unwrap_or_else(|| self.unique_op_id("sketch"));
+        let result = (|| {
+            let sketch_op = self
+                .sketch_op_for_slot(sid, &sketch_id)
+                .ok_or_else(|| OpError::invalid("sketsa aktif tidak bisa diterjemahkan ke op"))?;
+            let feature: Op = serde_json::from_value(serde_json::json!({
+                "op": "web", "id": self.unique_op_id("web"), "body": body_name, "sketch": sketch_id,
+                "thickness": thickness, "depth": depth, "reverse": reverse,
+            }))
+            .map_err(|e| OpError::invalid(format!("op web GUI tidak valid: {e}")))?;
+            let details = format!("Web {thickness:.1} mm pada {body_name}");
+            self.run_feature_on_sketch(sid, bound.clone(), sketch_id.clone(), sketch_op, feature, "Web", &details)
+        })();
+        if let Some(mut cmd) = rename {
+            if result.is_ok() {
+                self.model_undo.attach_to_top(cmd);
+            } else {
+                ducad_core::Command::revert(cmd.as_mut(), &mut self.model);
+            }
+        }
+        result.map(|()| true)
     }
 
     /// Emboss/deboss profil sketsa aktif ke `body` sebagai op oplog (sketsa
@@ -754,7 +804,7 @@ impl DuCADApp {
 impl DuCADApp {
     /// Nama-nama body (dibuat unik dulu) untuk dirujuk op. Command rename
     /// yang sudah diterapkan dikembalikan untuk dititipkan ke transaksi op.
-    fn unique_body_names(
+    pub(crate) fn unique_body_names(
         &mut self,
         ids: &[BodyId],
     ) -> Option<(Vec<String>, Vec<RenameBodyCommand>)> {
@@ -772,7 +822,7 @@ impl DuCADApp {
     /// Jalankan `op` sebagai aksi GUI, dengan rename body yang menyertainya
     /// ikut satu langkah undo (atau dibatalkan bila op gagal).
     #[allow(clippy::result_large_err)]
-    fn run_with_renames(
+    pub(crate) fn run_with_renames(
         &mut self,
         op: serde_json::Value,
         renames: Vec<RenameBodyCommand>,
@@ -1292,11 +1342,12 @@ impl DuCADApp {
         let Some(spec_json) = hole_spec_json(spec) else {
             return Ok(false);
         };
+        let current_fp = self.model.geometry.get(body_id).map(|g| g.mesh_fingerprint);
         if edit
             && self
                 .hole_history
                 .get(&body_id)
-                .is_some_and(|h| !h.features.is_empty())
+                .is_some_and(|h| !h.features.is_empty() && Some(h.result_fingerprint) == current_fp)
         {
             // Lubang lama (jalur kernel langsung) diedit di jalur lama.
             return Ok(false);

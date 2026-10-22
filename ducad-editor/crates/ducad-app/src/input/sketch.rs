@@ -855,6 +855,30 @@ impl DuCADApp {
         let Some((target_id, _)) = self.selected_single_body_center() else {
             return;
         };
+        // Jalur oplog: geser/salin tercatat sebagai op `transform`.
+        let copy = self.body_copy_mode;
+        let old_fp = self.model.geometry.get(target_id).map_or(0, |g| g.mesh_fingerprint);
+        let r = self.transform_body_via_oplog(target_id, Some(delta.as_dvec3()), None, copy);
+        if let Some(ok) = self.try_gui_op("Geser Body", r) {
+            if ok {
+                let (dx, dy, dz) = (delta.x, delta.y, delta.z);
+                if copy {
+                    self.model_status =
+                        Some(format!("Body diduplikasi & digeser ({dx:.1}, {dy:.1}, {dz:.1}) mm"));
+                } else {
+                    let new_fp = self.model.geometry.get(target_id).map_or(0, |g| g.mesh_fingerprint);
+                    self.transform_round_history(
+                        target_id,
+                        crate::modeling::rounding::RoundTransform::Translate(delta.as_dvec3()),
+                        old_fp,
+                        new_fp,
+                    );
+                    self.after_body_moved(target_id, delta);
+                    self.model_status = Some(format!("Body digeser ({dx:.1}, {dy:.1}, {dz:.1}) mm"));
+                }
+            }
+            return;
+        }
         let Some(target_geo) = self.model.geometry.get(target_id) else {
             return;
         };
@@ -919,6 +943,38 @@ impl DuCADApp {
         let pivot = (center.x as f64, center.y as f64, center.z as f64);
         let axis_tup = (axis.x as f64, axis.y as f64, axis.z as f64);
         let old_fingerprint = target_geo.mesh_fingerprint;
+        // Jalur oplog: putar/salin tercatat sebagai op `transform`.
+        let copy = self.body_copy_mode;
+        let r = self.transform_body_via_oplog(
+            target_id,
+            None,
+            Some((center.as_dvec3(), axis.as_dvec3(), angle_deg)),
+            copy,
+        );
+        if let Some(ok) = self.try_gui_op("Putar Body", r) {
+            if ok {
+                if copy {
+                    self.model_status = Some(format!("Body diduplikasi & diputar {:.1}°", angle_deg));
+                } else {
+                    let new_fp = self.model.geometry.get(target_id).map_or(0, |g| g.mesh_fingerprint);
+                    self.transform_round_history(
+                        target_id,
+                        crate::modeling::rounding::RoundTransform::Rotate {
+                            pivot: center.as_dvec3(),
+                            axis: axis.as_dvec3(),
+                            angle_rad,
+                        },
+                        old_fingerprint,
+                        new_fp,
+                    );
+                    self.model_status = Some(format!("Body diputar {:.1}°", angle_deg));
+                }
+            }
+            return;
+        }
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            return;
+        };
         match ducad_kernel::rotate_shape(&target_geo.shape, pivot, axis_tup, angle_rad) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
@@ -990,6 +1046,33 @@ impl DuCADApp {
 
         let pivot = (center.x as f64, center.y as f64, center.z as f64);
         let old_fingerprint = target_geo.mesh_fingerprint;
+        // Jalur oplog: skala/salin tercatat sebagai op `scale`.
+        let copy = self.body_copy_mode;
+        let r = self.scale_body_via_oplog(target_id, factor, center.as_dvec3(), copy);
+        if let Some(ok) = self.try_gui_op("Resize Body", r) {
+            if ok {
+                if copy {
+                    self.model_status =
+                        Some(format!("Body diduplikasi & diresize {:.0}%", factor * 100.0));
+                } else {
+                    let new_fp = self.model.geometry.get(target_id).map_or(0, |g| g.mesh_fingerprint);
+                    self.transform_round_history(
+                        target_id,
+                        crate::modeling::rounding::RoundTransform::Scale {
+                            pivot: center.as_dvec3(),
+                            factor,
+                        },
+                        old_fingerprint,
+                        new_fp,
+                    );
+                    self.model_status = Some(format!("Body diresize {:.0}%", factor * 100.0));
+                }
+            }
+            return;
+        }
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            return;
+        };
         match ducad_kernel::scale_shape(&target_geo.shape, pivot, factor) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
@@ -1051,6 +1134,23 @@ impl DuCADApp {
         if (new_length_mm - old_len).abs() < 1e-4 {
             return;
         }
+        // Jalur oplog: ubah panjang rusuk tercatat sebagai op `resize_edge`
+        // (salinan tetap jalur lama; pengaman mencatatnya sebagai `adopt`).
+        if !self.body_copy_mode {
+            let a = |p: (f64, f64, f64)| [p.0, p.1, p.2];
+            let r = self.resize_edge_via_oplog(body_id, a(start), a(end), new_length_mm);
+            if let Some(ok) = self.try_gui_op("Ubah Ukuran Rusuk", r) {
+                if ok {
+                    self.archive_round_history(body_id);
+                    self.model_status =
+                        Some(format!("Ukuran rusuk diubah ke {:.2} mm", new_length_mm));
+                }
+                return;
+            }
+        }
+        let Some(target_geo) = self.model.geometry.get(body_id) else {
+            return;
+        };
 
         match ducad_kernel::resize_shape_along_edge(&target_geo.shape, start, end, new_length_mm) {
             Ok(new_shape) => {
@@ -1205,6 +1305,7 @@ impl DuCADApp {
                     self.active_vertex = None;
                     self.active_edge = None;
                     self.editing_round = None;
+                        self.editing_round_op = None;
                 } else if !self.pending_points.is_empty()
                     || !self.pending_point_refs.is_empty()
                     || self.offset_source.is_some()
@@ -1541,6 +1642,7 @@ impl DuCADApp {
                         self.active_vertex = None;
                         self.active_edge = None;
                         self.editing_round = None;
+                        self.editing_round_op = None;
                         self.body_move_target = None;
                         self.active_sketch_corner = Some((id1, id2, corner));
                         self.sketch_corner_gizmo_radius = 5.0;
@@ -1569,6 +1671,7 @@ impl DuCADApp {
                             self.active_vertex = None;
                             self.active_edge = None;
                             self.editing_round = None;
+                        self.editing_round_op = None;
                             self.body_move_target = None;
                             self.last_body_select_click = None;
 
@@ -1610,7 +1713,18 @@ impl DuCADApp {
                         None
                     };
 
-                    let round_edit = if vertex_pick_3d.is_none()
+                    // Rounding berbasis op (Feature Tree) diutamakan.
+                    let round_op_edit = if vertex_pick_3d.is_none()
+                        && edge_pick_3d.is_none()
+                        && !self.is_sketching
+                        && !shift
+                    {
+                        click_pos.and_then(|pos| self.find_round_op_at(rect, pos, face_pick_3d.as_ref()))
+                    } else {
+                        None
+                    };
+                    let round_edit = if round_op_edit.is_none()
+                        && vertex_pick_3d.is_none()
                         && edge_pick_3d.is_none()
                         && !self.is_sketching
                         && !shift
@@ -1645,7 +1759,12 @@ impl DuCADApp {
                         }))
                     );
 
-                    if let Some((b_id, idx)) = round_edit {
+                    let round_op_started = round_op_edit
+                        .as_deref()
+                        .is_some_and(|id| self.begin_round_op_edit(id));
+                    if round_op_started {
+                        // Gizmo rounding sudah dibuka untuk op tersebut.
+                    } else if let Some((b_id, idx)) = round_edit {
                         let feature = self.round_history[&b_id].features[idx].clone();
                         eprintln!(
                             "[FILLET-CHAMFER][CLICK_REEDIT] >>> [FUNCTION: DuCADApp::handle_3d_viewport_input] \
@@ -1708,6 +1827,7 @@ impl DuCADApp {
                         self.active_face = None;
                         self.active_edge = None;
                         self.editing_round = None;
+                        self.editing_round_op = None;
                         self.round_preview_cache = None;
                         self.last_body_select_click = None;
                         self.vertex_gizmo_radius = 0.0;
@@ -1734,6 +1854,7 @@ impl DuCADApp {
                         self.active_face = None;
                         self.active_vertex = None;
                         self.editing_round = None;
+                        self.editing_round_op = None;
                         self.round_preview_cache = None;
                         self.last_body_select_click = None;
                         self.edge_gizmo_radius = 0.0;
@@ -1752,6 +1873,7 @@ impl DuCADApp {
                             self.active_vertex = None;
                             self.active_edge = None;
                             self.editing_round = None;
+                        self.editing_round_op = None;
                             self.staged_mate_targets.clear();
                             self.selected_faces.clear();
                             self.body_move_target = Some(b_id);
@@ -1820,6 +1942,7 @@ impl DuCADApp {
                             self.active_vertex = None;
                             self.active_edge = None;
                             self.editing_round = None;
+                        self.editing_round_op = None;
                             self.body_move_target = None;
                             self.face_gizmo_distance = 0.0;
                             self.face_gizmo_edit_input = "0".to_string();
@@ -1839,6 +1962,7 @@ impl DuCADApp {
                         self.active_vertex = None;
                         self.active_edge = None;
                         self.editing_round = None;
+                        self.editing_round_op = None;
                         let multi_hit = click_pos.and_then(|pos| self.hit_test_click_multi_plane(rect, pos, tol));
                         let target = multi_hit.or_else(|| self.hovered_plane_idx.zip(self.hovered));
                         if let Some((plane_idx, ent_id)) = target {
@@ -1891,6 +2015,7 @@ impl DuCADApp {
                         self.active_vertex = None;
                         self.active_edge = None;
                         self.editing_round = None;
+                        self.editing_round_op = None;
 
                         // Periksa apakah region ini bagian dari grup teks atau grup entitas
                         let target_ids: Vec<EntityId> = reg

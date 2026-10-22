@@ -446,6 +446,30 @@ impl DuCADApp {
             return;
         };
         let id = from.body;
+        // Jalur oplog: op `align` (asosiatif ke face body sasaran).
+        let (from_sel, to_sel) = (
+            self.face_selector(from.body, &[from.index]),
+            self.face_selector(to.body, &[to.index]),
+        );
+        if let (Some(from_sel), Some(to_sel)) = (from_sel, to_sel) {
+            self.sync_agent_meta();
+            if let Some((names, renames)) = self.unique_body_names(&[from.body, to.body]) {
+                let op = serde_json::json!({
+                    "op": "align", "id": self.unique_op_id("align"), "body": names[0],
+                    "from": from_sel, "to": { "body": names[1], "face": to_sel },
+                    "flip": flip, "offset": gap,
+                });
+                match self.run_with_renames(op, renames, "Align", "Align") {
+                    Ok(()) => {
+                        let body = names[0].clone();
+                        self.model_status =
+                            Some(ducad_i18n::t!("direct-done", tool = "Align", body = body.as_str()));
+                    }
+                    Err(e) => self.report_gui_op_error("Align", &e),
+                }
+                return;
+            }
+        }
         let Some(g) = self.model.geometry.get(id) else {
             return;
         };
@@ -477,10 +501,45 @@ impl DuCADApp {
         )])
     }
 
+    /// Titik jalur tepi terpilih untuk op (`{"points":[…]}`).
+    fn path_points_json(path: &[PathSegment]) -> Option<serde_json::Value> {
+        match path.first()? {
+            PathSegment::Polyline(pts) => Some(serde_json::json!({ "points": pts })),
+            _ => None,
+        }
+    }
+
+    /// Jalankan op GUI tanpa body sasaran (body baru); `true` = ditangani.
+    fn run_new_body_op(&mut self, label: &'static str, op: serde_json::Value) -> bool {
+        self.sync_agent_meta();
+        let r = self.run_with_renames(op, Vec::new(), label, label);
+        match r {
+            Ok(()) => {
+                self.model_status = Some(ducad_i18n::t!("direct-done", tool = label, body = label));
+                true
+            }
+            Err(e) => {
+                self.report_gui_op_error(label, &e);
+                true
+            }
+        }
+    }
+
     pub fn direct_pipe(&mut self, r: f64, wall: Option<f64>) {
         let Some(path) = self.selected_edge_path() else {
             return;
         };
+        if let Some(points) = Self::path_points_json(&path) {
+            let mut op = serde_json::json!({
+                "op": "pipe", "id": self.unique_op_id("pipe"), "path": points, "r": r,
+            });
+            if let Some(w) = wall {
+                op["wall"] = serde_json::json!(w);
+            }
+            if self.run_new_body_op("Pipe", op) {
+                return;
+            }
+        }
         match direct::pipe(&path, r, wall) {
             Ok(geo) => self.add_body("Pipe".into(), geo),
             Err(e) => self.status_err("Pipe", &e),
@@ -494,6 +553,16 @@ impl DuCADApp {
         let Some(id) = self.first_selected_body() else {
             return;
         };
+        if let Some(points) = Self::path_points_json(&path) {
+            if self.direct_via_oplog(id, "Pattern on Path", |app, body| {
+                Some(serde_json::json!({
+                    "op": "pattern", "id": app.unique_op_id("pattern"), "body": body,
+                    "kind": { "path": { "path": points, "count": count, "align": follow } },
+                }))
+            }) {
+                return;
+            }
+        }
         let Some(g) = self.model.geometry.get(id) else {
             return;
         };
@@ -531,6 +600,15 @@ impl DuCADApp {
             self.model_status = Some(ducad_i18n::t!("body-tool-need-body"));
             return;
         };
+        // Jalur oplog: op `web` terikat ke sketsa aktif.
+        let r = self.web_via_oplog(id, thickness, depth, reverse);
+        if let Some(ok) = self.try_gui_op("Web", r) {
+            if ok {
+                let body = self.body_label(id);
+                self.model_status = Some(ducad_i18n::t!("direct-done", tool = "Web", body = body.as_str()));
+            }
+            return;
+        }
         let plane = self.active_plane;
         let to3 = |p: glam::DVec2| DVec3::from(plane.to_world_f64((p.x, p.y), 0.0));
         let lines: Vec<(DVec3, DVec3)> = self
@@ -571,6 +649,18 @@ impl DuCADApp {
             self.model_status = Some(ducad_i18n::t!("body-tool-need-body"));
             return;
         }
+        self.sync_agent_meta();
+        if let Some((names, renames)) = self.unique_body_names(&ids) {
+            let op = serde_json::json!({
+                "op": "boundary_fill", "id": self.unique_op_id("fill"),
+                "bodies": names, "points": [point],
+            });
+            match self.run_with_renames(op, renames, "Boundary Fill", "Boundary Fill") {
+                Ok(()) => self.model_status = Some(ducad_i18n::t!("direct-done", tool = "Boundary Fill", body = "")),
+                Err(e) => self.report_gui_op_error("Boundary Fill", &e),
+            }
+            return;
+        }
         let shapes: Vec<&ducad_kernel::KernelShape> = ids
             .iter()
             .filter_map(|b| self.model.geometry.get(*b).map(|g| &g.shape))
@@ -585,6 +675,14 @@ impl DuCADApp {
         let Some(id) = self.first_selected_body() else {
             return;
         };
+        if self.direct_via_oplog(id, "Bounding Solid", |app, body| {
+            Some(serde_json::json!({
+                "op": "bounding_solid", "id": app.unique_op_id("bounding"), "body": body,
+                "shape": if cylinder { "cylinder" } else { "box" }, "margin": margin,
+            }))
+        }) {
+            return;
+        }
         let Some(g) = self.model.geometry.get(id) else {
             return;
         };

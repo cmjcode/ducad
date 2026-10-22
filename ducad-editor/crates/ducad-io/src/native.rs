@@ -382,6 +382,10 @@ pub struct NativeDatums {
     /// Paritas Fase 4). Body dirujuk lewat UUID-nya.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assembly: Option<serde_json::Value>,
+    /// Penanda fillet/chamfer gizmo yang tercatat sebagai op oplog (klik
+    /// sudutnya untuk mengedit). Berkas lama tanpa field ini tetap terbaca.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_markers: Option<serde_json::Value>,
 }
 
 impl NativeDatums {
@@ -391,6 +395,7 @@ impl NativeDatums {
             && self.points.is_empty()
             && self.views.is_empty()
             && self.assembly.is_none()
+            && self.round_markers.is_none()
     }
 }
 
@@ -936,6 +941,7 @@ mod tests {
                 distance: 120.0,
             }],
             assembly: None,
+            round_markers: None,
         };
         let json = serialize_full_to_json(&[], &[], None, None, Some(&datums)).unwrap();
         let loaded = deserialize_from_json(&json).unwrap();

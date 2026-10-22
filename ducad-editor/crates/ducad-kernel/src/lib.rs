@@ -124,11 +124,13 @@ pub use interference::{
 pub use mass::{principal_axes, shift_from_centroid, shift_to_centroid, MassProperties};
 pub use mesh::KernelMesh;
 pub use modify::{
-    chamfer_all, chamfer_edges, chamfer_vertex, circular_pattern_shape, create_rib,
-    create_rib_from_curve, create_rib_solid, draft_angle, edges_for_rays, extrude_face, fillet_all,
-    fillet_edges, fillet_edges_by_index, chamfer_edges_by_index, shell_faces_by_index, fillet_edges_variable, fillet_vertex, linear_pattern_shape, make_filleted_box,
-    resize_shape_along_edge, revolve_face, shell_hollow, shell_hollow_faces, shell_open,
-    shell_variable_thickness, split_body, split_body_with_tool, split_face, Direction,
+    chamfer_all, chamfer_edges, chamfer_vertex, chamfer_vertex_at, circular_pattern_shape,
+    create_rib, create_rib_from_curve, create_rib_solid, draft_angle, edges_for_rays,
+    extrude_face, extrude_face_by_index, fillet_all, fillet_edges, fillet_edges_by_index,
+    chamfer_edges_by_index, shell_faces_by_index, fillet_edges_variable, fillet_vertex,
+    fillet_vertex_at, linear_pattern_shape, make_filleted_box, nearest_vertex,
+    resize_shape_along_edge, revolve_face, revolve_face_by_index, shell_hollow,
+    shell_hollow_faces, shell_open, shell_variable_by_index, shell_variable_thickness, split_body, split_body_with_tool, split_face, Direction,
     ShellDepthTooDeep, ShellOpening,
 };
 pub use picking::{

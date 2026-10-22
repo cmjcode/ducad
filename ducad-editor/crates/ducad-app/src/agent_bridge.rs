@@ -393,6 +393,13 @@ impl DuCADApp {
     /// peringatan `"oplog_stale"` ditambahkan.
     pub(crate) fn sync_agent_meta(&mut self) {
         let fp = ducad_engine::session::fingerprint(&self.model);
+        // Perubahan di luar command sudah dicatat sebagai op (lihat
+        // `note_rigid_move`/`record_raw_geometry_change`): oplog sah.
+        if std::mem::take(&mut self.oplog_fp_dirty) {
+            self.agent_meta.design.fingerprint = fp;
+            self.design = serde_json::to_value(&self.agent_meta.design).ok();
+            return;
+        }
         if self.agent_meta.design.fingerprint == fp {
             return;
         }

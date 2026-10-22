@@ -624,6 +624,15 @@ impl DuCADApp {
     /// status diset per fitur (tidak ada "tandai semua valid"). Mengembalikan
     /// `Err` berisi seluruh pesan bila ada fitur yang gagal.
     pub fn regenerate_parametric_model(&mut self) -> Result<(), String> {
+        let before = self.body_fingerprints();
+        let result = self.regenerate_parametric_model_inner();
+        // Geometri diganti langsung (bukan command): catat ke oplog supaya
+        // Feature Tree tidak dianggap basi lalu dibuang.
+        self.record_changed_since(&before);
+        result
+    }
+
+    fn regenerate_parametric_model_inner(&mut self) -> Result<(), String> {
         let order = self.parametric_dag.topological_order()?;
         let mut ctx = RegenCtx {
             existing_bodies: self.model.doc.bodies.iter().map(|(id, _)| id).collect(),

@@ -645,6 +645,8 @@ impl DuCADApp {
             kind
         );
         self.editing_round = None;
+        self.editing_round_op = None;
+        self.round_op_base = None;
         self.round_preview_cache = None;
         match kind {
             RoundKind::Vertex => {
@@ -693,6 +695,21 @@ impl DuCADApp {
             COMMIT rounding feature permanently | body_id={:?}, kind={:?}, style={:?}, magnitude={:.2}mm, is_sharp={}",
             body_id, kind, style, magnitude, sharp
         );
+        // Rounding berbasis op (Feature Tree): edit op yang ada, atau buat
+        // op baru. Riwayat lama (`round_history`) dipindahkan ke oplog dulu.
+        if let Some(op_id) = self.editing_round_op.clone() {
+            self.commit_round_op_edit(kind, &op_id, radius);
+            return;
+        }
+        if self.editing_round.is_none() && !sharp {
+            let legacy = self.fresh_round_history(body_id).is_some();
+            if (!legacy || self.migrate_legacy_rounds(body_id))
+                && self.commit_new_round_op(kind, body_id, ray, anchor, radius).is_some()
+            {
+                self.clear_round_gizmo(kind);
+                return;
+            }
+        }
         let Some(geo) = self.model.geometry.get(body_id) else {
             self.model_status = Some("Body terpilih tidak ditemukan".to_string());
             return;
@@ -895,6 +912,9 @@ impl DuCADApp {
         kind: RoundKind,
         radius: f64,
     ) -> Option<(BodyId, KernelShape)> {
+        if self.editing_round_op.is_some() {
+            return self.round_op_preview_shape(radius);
+        }
         let (body_id, ray, anchor) = match kind {
             RoundKind::Vertex => self.active_vertex?,
             RoundKind::Edge   => self.active_edge?,
@@ -951,6 +971,15 @@ impl DuCADApp {
     }
 }
 
+#[cfg(test)]
+impl RoundPostStep {
+    fn op_ray_origin_x(&self) -> f64 {
+        match self.op {
+            RoundPostOp::ExtrudeFace { ray, .. } => ray.origin.0,
+        }
+    }
+}
+
 /// Transformasi utuh body yang ikut diterapkan ke riwayat rounding.
 #[derive(Clone, Copy, Debug)]
 pub enum RoundTransform {
@@ -962,7 +991,7 @@ pub enum RoundTransform {
 }
 
 impl RoundTransform {
-    fn apply_shape(self, shape: &KernelShape) -> anyhow::Result<KernelShape> {
+    pub(crate) fn apply_shape(self, shape: &KernelShape) -> anyhow::Result<KernelShape> {
         let t = |v: glam::DVec3| (v.x, v.y, v.z);
         match self {
             Self::Translate(d) => ducad_kernel::translate_shape(shape, d.x, d.y, d.z),
@@ -977,7 +1006,7 @@ impl RoundTransform {
         glam::DVec3::new(p.0, p.1, p.2)
     }
 
-    fn point(self, p: (f64, f64, f64)) -> (f64, f64, f64) {
+    pub(crate) fn point(self, p: (f64, f64, f64)) -> (f64, f64, f64) {
         let v = Self::vec3(p);
         let r = match self {
             Self::Translate(d) => v + d,
@@ -989,7 +1018,7 @@ impl RoundTransform {
         (r.x, r.y, r.z)
     }
 
-    fn ray(self, ray: PickRay) -> PickRay {
+    pub(crate) fn ray(self, ray: PickRay) -> PickRay {
         let dir = match self {
             Self::Rotate { axis, angle_rad, .. } => {
                 let d = glam::DQuat::from_axis_angle(axis.normalize_or_zero(), angle_rad)
@@ -1001,7 +1030,7 @@ impl RoundTransform {
         PickRay { origin: self.point(ray.origin), dir }
     }
 
-    fn length_factor(self) -> f64 {
+    pub(crate) fn length_factor(self) -> f64 {
         match self {
             Self::Scale { factor, .. } => factor.abs(),
             _ => 1.0,
@@ -1284,103 +1313,115 @@ mod tests {
         assert!(app.round_preview_cache.is_some());
     }
 
-    /// Kotak 20 mm + fillet R3 pada rusuk vertikal x=y=0 lewat gizmo.
-    fn app_with_filleted_box() -> (DuCADApp, ducad_core::BodyId, PickRay) {
+
+    fn edge_ray() -> PickRay {
+        PickRay { origin: (-5.0, -5.0, 10.0), dir: (1.0, 1.0, 0.0) }
+    }
+
+    fn r3_feature() -> RoundFeature {
+        RoundFeature {
+            kind: RoundKind::Edge,
+            style: RoundStyle::Fillet,
+            ray: edge_ray(),
+            anchor: (0.0, 0.0, 10.0),
+            radius: 3.0,
+            radius_end: None,
+            polyline: vec![],
+        }
+    }
+
+    /// Kotak 20 mm dengan riwayat fillet LAMA (mis. dari berkas lama):
+    /// dasar + fillet R3, lalu tarik sisi atas 10 mm.
+    fn app_with_legacy_history() -> (DuCADApp, ducad_core::BodyId) {
         let mut app = DuCADApp::new_for_test();
-        let (shape, _) = make_test_box();
+        let (base, _) = make_test_box();
+        let post = vec![RoundPostStep {
+            after: 1,
+            op: RoundPostOp::ExtrudeFace {
+                ray: PickRay { origin: (15.0, 15.0, 80.0), dir: (0.0, 0.0, -1.0) },
+                distance: 10.0,
+            },
+        }];
+        let shape = DuCADApp::build_round_history_shape(&base, &[r3_feature()], &post).unwrap();
+        let geo = BodyGeometry::from_shape(shape);
+        let fp = geo.mesh_fingerprint;
         let id = app.model.doc.add_body_with_material("Box", ducad_core::Material::default());
-        app.model.geometry.insert(id, BodyGeometry::from_shape(shape));
-        let ray = PickRay { origin: (-5.0, -5.0, 10.0), dir: (1.0, 1.0, 0.0) };
-        app.active_edge = Some((id, ray, (0.0, 0.0, 10.0)));
-        app.edge_gizmo_radius = 3.0;
-        app.commit_round(RoundKind::Edge);
-        assert!(app.fresh_round_history(id).is_some(), "fillet harus punya riwayat");
-        (app, id, ray)
+        app.model.geometry.insert(id, geo);
+        app.round_history.insert(
+            id,
+            RoundHistory { base, features: vec![r3_feature()], post_ops: post, result_fingerprint: fp },
+        );
+        (app, id)
     }
 
     fn top_z(app: &DuCADApp, id: ducad_core::BodyId) -> f64 {
         app.model.geometry.get(id).unwrap().shape.bounding_box().unwrap().1[2]
     }
 
-    fn volume(app: &DuCADApp, id: ducad_core::BodyId) -> f64 {
-        app.model.geometry.get(id).unwrap().shape.volume()
+    /// Riwayat lama memutar ulang dasar → fillet → tarik sisi berurutan:
+    /// radius baru tidak menghapus tarikan sesudahnya.
+    #[test]
+    fn legacy_history_replays_rounds_then_push_pull_in_order() {
+        let (base, _) = make_test_box();
+        let post = [RoundPostStep {
+            after: 1,
+            op: RoundPostOp::ExtrudeFace {
+                ray: PickRay { origin: (15.0, 15.0, 80.0), dir: (0.0, 0.0, -1.0) },
+                distance: 10.0,
+            },
+        }];
+        let r3 = DuCADApp::build_round_history_shape(&base, &[r3_feature()], &post).unwrap();
+        let mut r6f = r3_feature();
+        r6f.radius = 6.0;
+        let r6 = DuCADApp::build_round_history_shape(&base, &[r6f], &post).unwrap();
+        assert!((r6.bounding_box().unwrap().1[2] - 30.0).abs() < 1e-3, "tarikan sisi hilang");
+        assert!(r6.volume() < r3.volume() - 1.0, "radius lebih besar harus membuang material");
     }
 
-    fn pull_top_face(app: &mut DuCADApp, id: ducad_core::BodyId, distance: f64) {
-        let face_ray = PickRay { origin: (15.0, 15.0, 80.0), dir: (0.0, 0.0, -1.0) };
-        let hit = ducad_kernel::pick_face_details(&app.model.geometry.get(id).unwrap().shape, face_ray)
-            .expect("sisi atas harus terpilih");
-        app.active_face = Some((id, face_ray, hit));
-        app.extrude_active_face(distance);
+    /// Body berriwayat lama yang dipindah: riwayatnya ikut berpindah.
+    #[test]
+    fn legacy_history_follows_body_transform() {
+        let (mut app, id) = app_with_legacy_history();
+        let old_fp = app.model.geometry.get(id).unwrap().mesh_fingerprint;
+        let moved = ducad_kernel::translate_shape(&app.model.geometry.get(id).unwrap().shape, 40.0, 0.0, 0.0)
+            .unwrap();
+        let geo = BodyGeometry::from_shape(moved);
+        let new_fp = geo.mesh_fingerprint;
+        app.model.geometry.insert(id, geo);
+        app.transform_round_history(id, RoundTransform::Translate(glam::DVec3::new(40.0, 0.0, 0.0)), old_fp, new_fp);
+        let h = app.fresh_round_history(id).expect("riwayat ikut berpindah");
+        assert!((h.features[0].anchor.0 - 40.0).abs() < 1e-9);
+        assert!((h.post_ops[0].op_ray_origin_x() - 55.0).abs() < 1e-9);
     }
 
-    fn edit_fillet(app: &mut DuCADApp, id: ducad_core::BodyId, ray: PickRay, radius: f64) {
-        app.editing_round = Some((id, 0));
-        app.active_edge = Some((id, ray, (0.0, 0.0, 10.0)));
-        app.edge_gizmo_radius = radius;
+    /// Rounding baru pada body berriwayat lama: riwayat lama dipindah ke
+    /// Feature Tree dulu (adopt dasar + fillet + tarik sisi), lalu semuanya
+    /// bisa diedit sebagai op.
+    #[test]
+    fn legacy_history_migrates_into_feature_tree_on_next_round() {
+        let (mut app, id) = app_with_legacy_history();
+        let ray = PickRay { origin: (25.0, -5.0, 10.0), dir: (-1.0, 1.0, 0.0) };
+        app.active_edge = Some((id, ray, (20.0, 0.0, 10.0)));
+        app.edge_gizmo_radius = 2.0;
         app.commit_round(RoundKind::Edge);
-    }
-
-    /// Laporan pengguna: fillet lalu push/pull sisi → fillet tidak bisa
-    /// diedit lagi (klik/drag permukaan lengkung malah jadi extrude).
-    #[test]
-    fn fillet_stays_editable_after_push_pull() {
-        let (mut app, id, ray) = app_with_filleted_box();
-        pull_top_face(&mut app, id, 10.0);
+        let kinds: Vec<String> = app
+            .agent_meta
+            .design
+            .oplog
+            .iter()
+            .map(|o| serde_json::to_value(o).unwrap()["op"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(kinds, ["adopt", "fillet", "push_pull", "fillet"]);
+        assert!(!app.round_history.contains_key(&id), "riwayat lama sudah dipindah");
+        assert_eq!(app.round_markers.len(), 2);
         assert!((top_z(&app, id) - 30.0).abs() < 1e-3);
-        let hist = app.fresh_round_history(id).expect("riwayat fillet tidak boleh hilang");
-        assert_eq!(hist.post_ops.len(), 1);
-
-        let v_r3 = volume(&app, id);
-        edit_fillet(&mut app, id, ray, 6.0);
-        let hist = app.fresh_round_history(id).expect("fillet tetap bisa diedit");
-        assert!((hist.features[0].radius - 6.0).abs() < 1e-9);
-        // Push/pull ikut diputar ulang sesudah fillet baru.
-        assert!((top_z(&app, id) - 30.0).abs() < 1e-3, "tarikan sisi hilang saat fillet diedit");
-        assert!(volume(&app, id) < v_r3 - 1.0, "radius lebih besar harus membuang material");
-    }
-
-    #[test]
-    fn fillet_history_follows_undo_and_redo() {
-        let (mut app, id, ray) = app_with_filleted_box();
-        pull_top_face(&mut app, id, 10.0);
-        edit_fillet(&mut app, id, ray, 6.0);
-
-        app.undo_model();
-        let hist = app.fresh_round_history(id).expect("undo edit fillet → riwayat R3 kembali");
-        assert!((hist.features[0].radius - 3.0).abs() < 1e-9);
-        assert_eq!(hist.post_ops.len(), 1);
-
-        app.undo_model();
-        let hist = app.fresh_round_history(id).expect("undo push/pull → riwayat tanpa tarikan");
-        assert!(hist.post_ops.is_empty());
-        assert!((top_z(&app, id) - 20.0).abs() < 1e-3);
-
-        app.redo_model();
-        app.redo_model();
-        let hist = app.fresh_round_history(id).expect("redo → riwayat R6 kembali");
-        assert!((hist.features[0].radius - 6.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn fillet_stays_editable_after_moving_body() {
-        let (mut app, id, _) = app_with_filleted_box();
-        app.tool = crate::types::ToolKind::Select;
-        app.selected_bodies.clear();
-        app.selected_bodies.insert(id);
-        app.translate_selected_body(Vec3::new(40.0, 0.0, 0.0));
-        let hist = app.fresh_round_history(id).expect("geser body tidak boleh membuang fillet");
-        assert!((hist.features[0].anchor.0 - 40.0).abs() < 1e-9);
-
-        let (moved_ray, moved_anchor) = (hist.features[0].ray, hist.features[0].anchor);
-        app.editing_round = Some((id, 0));
-        app.active_edge = Some((id, moved_ray, moved_anchor));
+        // Fillet lama kini bisa diedit sebagai op.
+        let old = app.round_markers[0].op_id.clone();
+        assert!(app.begin_round_op_edit(&old));
         app.edge_gizmo_radius = 5.0;
         app.commit_round(RoundKind::Edge);
-        let hist = app.fresh_round_history(id).expect("fillet di posisi baru tetap bisa diedit");
-        assert!((hist.features[0].radius - 5.0).abs() < 1e-9);
-        let min_x = app.model.geometry.get(id).unwrap().shape.bounding_box().unwrap().0[0];
-        assert!((min_x - 40.0).abs() < 1e-3, "body harus tetap di posisi barunya");
+        assert!((app.round_op_info(&old).unwrap().radius - 5.0).abs() < 1e-9);
+        assert!((top_z(&app, id) - 30.0).abs() < 1e-3);
     }
 
 }

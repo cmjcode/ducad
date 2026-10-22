@@ -424,6 +424,21 @@ pub struct DuCADApp {
     /// Riwayat rounding yang dilepas oleh edit lain; dipulihkan saat undo
     /// mengembalikan geometri yang cocok (lihat `sync_round_history`).
     pub round_history_archive: Vec<(BodyId, RoundHistory)>,
+    /// `true` selama pemanggil mencatat op-nya sendiri: pengaman edit
+    /// langsung (`begin_direct_edit_guard`) tidak menambah op `adopt`.
+    pub skip_direct_edit_guard: bool,
+    /// Oplog sudah dilengkapi op untuk perubahan geometri di luar command
+    /// (solver perakitan, part eksternal); sidik jarinya diperbarui malas di
+    /// `sync_agent_meta` (menghitungnya tiap frame terlalu mahal).
+    pub oplog_fp_dirty: bool,
+    /// Fillet/chamfer gizmo yang tercatat sebagai op oplog (lihat `round_ops`).
+    pub round_markers: Vec<crate::types::RoundMarker>,
+    /// Op rounding yang sedang diedit lewat gizmo (pengganti `editing_round`
+    /// untuk rounding berbasis op).
+    pub editing_round_op: Option<String>,
+    /// Shape body tepat SEBELUM op rounding yang sedang diedit (replay
+    /// sebagian) — dasar pratinjau cepat: `(op id, panjang oplog, shape)`.
+    pub round_op_base: Option<(String, usize, ducad_kernel::KernelShape)>,
     pub editing_round: Option<(BodyId, usize)>,
     pub round_gizmo_style: crate::types::RoundStyle,
     /// Cached preview mesh: (kind, radius, body_id, mesh, edge_lines). Recomputed only when radius changes.
@@ -835,6 +850,11 @@ impl DuCADApp {
 
             round_history: std::collections::HashMap::new(),
             round_history_archive: Vec::new(),
+            skip_direct_edit_guard: false,
+            oplog_fp_dirty: false,
+            round_markers: Vec::new(),
+            editing_round_op: None,
+            round_op_base: None,
             editing_round: None,
             round_gizmo_style: crate::types::RoundStyle::Fillet,
             round_preview_cache: None,
@@ -1210,6 +1230,11 @@ impl DuCADApp {
 
             round_history: std::collections::HashMap::new(),
             round_history_archive: Vec::new(),
+            skip_direct_edit_guard: false,
+            oplog_fp_dirty: false,
+            round_markers: Vec::new(),
+            editing_round_op: None,
+            round_op_base: None,
             editing_round: None,
             round_gizmo_style: crate::types::RoundStyle::Fillet,
             round_preview_cache: None,
@@ -1389,6 +1414,8 @@ impl DuCADApp {
         self.active_face = None;
         self.round_history.clear();
         self.round_history_archive.clear();
+        self.round_markers.clear();
+        self.editing_round_op = None;
         self.loft_staged_body_id = None;
         self.set_tool(ToolKind::Select);
 

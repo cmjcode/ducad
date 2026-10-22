@@ -51,6 +51,13 @@ pub fn diagnose(core: &mut SessionCore, op: &Op, err: OpError, batch: &[Op]) -> 
         | Op::BoundingSolid { .. }
         | Op::Surface { .. }
         | Op::Plastic { .. }
+        | Op::PushPull { .. }
+        | Op::RevolveFace { .. }
+        | Op::RoundVertex { .. }
+        | Op::Rib { .. }
+        | Op::ResizeEdge { .. }
+        | Op::ShellVariable { .. }
+        | Op::Adopt { .. }
         | Op::Perforate { .. }
         | Op::ConvertToSheet { .. } => direct::diagnose(op, err),
         _ => err,

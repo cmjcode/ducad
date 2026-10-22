@@ -85,7 +85,36 @@ fn vertex_edges(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Result<Vec
     let Some(v) = super::picking_vertex::pick_vertex(shape, ray, tolerance) else {
         bail!("sudut (vertex) terpilih tidak ditemukan lagi pada shape");
     };
-    let v = DVec3::new(v.0, v.1, v.2);
+    edges_at_vertex(shape, DVec3::new(v.0, v.1, v.2))
+}
+
+/// Vertex shape terdekat ke `point`, bila jaraknya ≤ `tolerance` mm.
+pub fn nearest_vertex(shape: &KernelShape, point: DVec3, tolerance: f64) -> Option<DVec3> {
+    shape
+        .topology()
+        .vertices
+        .iter()
+        .map(|&v| (v, (v - point).length()))
+        .filter(|(_, d)| *d <= tolerance)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(v, _)| v)
+}
+
+/// Edge logis yang berujung di vertex terdekat `point` (dalam `tolerance`).
+fn point_vertex_edges(shape: &KernelShape, point: DVec3, tolerance: f64) -> Result<Vec<usize>> {
+    let Some(v) = nearest_vertex(shape, point, tolerance) else {
+        bail!(
+            "tidak ada sudut (vertex) dalam {tolerance} mm dari titik ({:.3}, {:.3}, {:.3})",
+            point.x,
+            point.y,
+            point.z
+        );
+    };
+    edges_at_vertex(shape, v)
+}
+
+/// Edge logis (tanpa seam) yang salah satu ujungnya di `v`.
+fn edges_at_vertex(shape: &KernelShape, v: DVec3) -> Result<Vec<usize>> {
     let topo = shape.topology();
     const COINCIDENT_EPS: f64 = 1e-6;
     let edges: Vec<usize> = (0..topo.edges.len())
@@ -342,7 +371,25 @@ pub fn fillet_vertex(
         bail!("radius fillet harus > 0");
     }
     let edges = vertex_edges(shape, ray, tolerance)?;
-    fillet_points(shape, radius, &edge_points(shape, &edges)?).context(
+    fillet_vertex_edges(shape, radius, &edges)
+}
+
+/// Fillet SEMUA tepi yang bertemu di vertex terdekat `point` (≤ `tolerance` mm).
+pub fn fillet_vertex_at(
+    shape: &KernelShape,
+    radius: f64,
+    point: DVec3,
+    tolerance: f64,
+) -> Result<KernelShape> {
+    if radius <= 0.0 {
+        bail!("radius fillet harus > 0");
+    }
+    let edges = point_vertex_edges(shape, point, tolerance)?;
+    fillet_vertex_edges(shape, radius, &edges)
+}
+
+fn fillet_vertex_edges(shape: &KernelShape, radius: f64, edges: &[usize]) -> Result<KernelShape> {
+    fillet_points(shape, radius, &edge_points(shape, edges)?).context(
         "radius fillet terlalu besar untuk sudut terpilih (mis. melebihi batas ujung objek)",
     )
 }
@@ -358,7 +405,25 @@ pub fn chamfer_vertex(
         bail!("jarak chamfer harus > 0");
     }
     let edges = vertex_edges(shape, ray, tolerance)?;
-    chamfer_points(shape, distance, &edge_points(shape, &edges)?).context(
+    chamfer_vertex_edges(shape, distance, &edges)
+}
+
+/// Chamfer SEMUA tepi yang bertemu di vertex terdekat `point` (≤ `tolerance` mm).
+pub fn chamfer_vertex_at(
+    shape: &KernelShape,
+    distance: f64,
+    point: DVec3,
+    tolerance: f64,
+) -> Result<KernelShape> {
+    if distance <= 0.0 {
+        bail!("jarak chamfer harus > 0");
+    }
+    let edges = point_vertex_edges(shape, point, tolerance)?;
+    chamfer_vertex_edges(shape, distance, &edges)
+}
+
+fn chamfer_vertex_edges(shape: &KernelShape, distance: f64, edges: &[usize]) -> Result<KernelShape> {
+    chamfer_points(shape, distance, &edge_points(shape, edges)?).context(
         "jarak chamfer terlalu besar untuk sudut terpilih (mis. melebihi batas ujung objek)",
     )
 }
@@ -548,13 +613,44 @@ pub fn shell_variable_thickness(
     if let Some((_, t)) = variable_thickness.iter().find(|(_, t)| *t <= 0.0) {
         bail!("tebal khusus (variable thickness) harus > 0; diberikan {t:.3} mm");
     }
-    let body = shape.require_body("Shell")?;
+    shape.require_body("Shell")?;
     let removed = ray_faces(shape, remove_face_rays, "wajah yang akan dihilangkan")?;
     let mut custom: Vec<(usize, f64)> = Vec::with_capacity(variable_thickness.len());
     for (ray, t) in variable_thickness {
         let f = ray_faces(shape, std::slice::from_ref(ray), "wajah dengan tebal khusus")?[0];
-        custom.retain(|(g, _)| *g != f);
         custom.push((f, *t));
+    }
+    shell_variable_by_index(shape, default_thickness, &removed, &custom)
+}
+
+/// [`shell_variable_thickness`] dengan face dipilih lewat indeks
+/// [`crate::topo::enumerate_faces`]: `removed` dibuka, `variable_thickness`
+/// = (face, tebal) — face yang sama muncul dua kali → yang terakhir menang.
+pub fn shell_variable_by_index(
+    shape: &KernelShape,
+    default_thickness: f64,
+    removed: &[usize],
+    variable_thickness: &[(usize, f64)],
+) -> Result<KernelShape> {
+    if default_thickness <= 0.0 {
+        bail!("tebal default shell harus > 0");
+    }
+    if let Some((_, t)) = variable_thickness.iter().find(|(_, t)| *t <= 0.0) {
+        bail!("tebal khusus (variable thickness) harus > 0; diberikan {t:.3} mm");
+    }
+    let body = shape.require_body("Shell")?;
+    let n_faces = shape.topology().faces.len();
+    if let Some(&bad) = removed
+        .iter()
+        .chain(variable_thickness.iter().map(|(f, _)| f))
+        .find(|&&f| f >= n_faces)
+    {
+        bail!("indeks face {bad} di luar jangkauan (shape punya {n_faces} face)");
+    }
+    let mut custom: Vec<(usize, f64)> = Vec::with_capacity(variable_thickness.len());
+    for &(f, t) in variable_thickness {
+        custom.retain(|(g, _)| *g != f);
+        custom.push((f, t));
     }
     let topo = shape.topology();
     let size = body.size();
@@ -610,10 +706,23 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
     if distance.abs() < 1e-9 {
         bail!("jarak extrude face harus tidak nol");
     }
-    let body = shape.require_body("Extrude face")?;
+    shape.require_body("Extrude face")?;
     let Some((f, _, _)) = super::picking_face::resolve_face_hit(shape.topology(), ray) else {
         bail!("wajah terpilih tidak ditemukan pada shape");
     };
+    extrude_face_by_index(shape, f, distance)
+}
+
+/// [`extrude_face`] dengan face dipilih lewat indeks [`crate::topo::enumerate_faces`].
+pub fn extrude_face_by_index(shape: &KernelShape, f: usize, distance: f64) -> Result<KernelShape> {
+    if distance.abs() < 1e-9 {
+        bail!("jarak extrude face harus tidak nol");
+    }
+    let body = shape.require_body("Extrude face")?;
+    let n_faces = shape.topology().faces.len();
+    if f >= n_faces {
+        bail!("indeks face {f} di luar jangkauan (shape punya {n_faces} face)");
+    }
     let planar = is_planar_face(shape, f);
     if shape.topology().faces[f].kind == SurfaceKind::Cylinder {
         if let Some(r) = super::topo::face_radius(shape.topology(), f) {
@@ -669,14 +778,33 @@ pub fn revolve_face(
     axis_dir: DVec3,
     angle_degrees: Option<f64>,
 ) -> Result<KernelShape> {
+    if axis_dir.length() < 1e-9 {
+        bail!("sumbu revolve tidak valid (dua titik axis sama/terlalu dekat)");
+    }
+    shape.require_body("Revolve face")?;
+    let Some((f, _, _)) = super::picking_face::resolve_face_hit(shape.topology(), ray) else {
+        bail!("wajah terpilih tidak ditemukan pada shape");
+    };
+    revolve_face_by_index(shape, f, axis_origin, axis_dir, angle_degrees)
+}
+
+/// [`revolve_face`] dengan face dipilih lewat indeks [`crate::topo::enumerate_faces`].
+pub fn revolve_face_by_index(
+    shape: &KernelShape,
+    f: usize,
+    axis_origin: DVec3,
+    axis_dir: DVec3,
+    angle_degrees: Option<f64>,
+) -> Result<KernelShape> {
     let dir_len = axis_dir.length();
     if dir_len < 1e-9 {
         bail!("sumbu revolve tidak valid (dua titik axis sama/terlalu dekat)");
     }
     let body = shape.require_body("Revolve face")?;
-    let Some((f, _, _)) = super::picking_face::resolve_face_hit(shape.topology(), ray) else {
-        bail!("wajah terpilih tidak ditemukan pada shape");
-    };
+    let n_faces = shape.topology().faces.len();
+    if f >= n_faces {
+        bail!("indeks face {f} di luar jangkauan (shape punya {n_faces} face)");
+    }
     let Some((anchor, normal)) = plane_of_face(shape, f) else {
         return unsupported("revolve face lengkung (hanya face datar)");
     };
@@ -820,23 +948,16 @@ pub fn resize_shape_along_edge(
     // Face di ujung AKHIR rusuk dulu, baru ujung awal: hasilnya tidak
     // bergantung urutan face (backend lama (≤ 0.5.x) kebetulan menemukan face atas dulu).
     let n_faces = shape.topology().faces.len();
-    let find = |at: DVec3, outward: DVec3| -> Option<PickRay> {
-        (0..n_faces).find_map(|f| {
-            let (on, normal) = plane_of_face(shape, f)?;
-            (normal.dot(outward) > 0.95 && (at - on).dot(normal).abs() < 1e-2).then(|| PickRay {
-                // Ray dari luar face, menembak balik ke dalam.
-                origin: (
-                    on.x + outward.x * 20.0,
-                    on.y + outward.y * 20.0,
-                    on.z + outward.z * 20.0,
-                ),
-                dir: (-outward.x, -outward.y, -outward.z),
+    let find = |at: DVec3, outward: DVec3| -> Option<usize> {
+        (0..n_faces).find(|&f| {
+            plane_of_face(shape, f).is_some_and(|(on, normal)| {
+                normal.dot(outward) > 0.95 && (at - on).dot(normal).abs() < 1e-2
             })
         })
     };
     let target = find(p_end, dir).or_else(|| find(p_start, -dir));
-    if let Some(ray) = target {
-        if let Ok(out) = extrude_face(shape, ray, delta) {
+    if let Some(f) = target {
+        if let Ok(out) = extrude_face_by_index(shape, f, delta) {
             return Ok(out);
         }
     }

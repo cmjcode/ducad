@@ -222,6 +222,7 @@ impl DuCADApp {
             Ok(shape) => {
                 self.model.geometry.insert(body, BodyGeometry::from_shape(shape));
                 self.model.doc.dirty = true;
+                self.note_rigid_move(body, &tf);
             }
             Err(e) => log::warn!("gagal memindah geometri instance {id}: {e}"),
         }
@@ -707,11 +708,28 @@ impl DuCADApp {
             .iter()
             .filter(|(_, b)| b.name.starts_with(&meta.name))
             .count();
-        let name = format!("{} ({})", meta.name, count + 1);
-        let msg = ducad_i18n::t!("asm-occurrence-copied", name = name.as_str());
-        let cmd = crate::model::AddSolidCommand::new(name.clone(), BodyGeometry::from_shape(shape))
-            .with_material(meta.material);
-        self.execute_model_command(Box::new(cmd), &msg);
+        // Jalur oplog: salinan = op `transform` dengan `copy` (body baru
+        // bernama id op), jadi tercatat di Feature Tree.
+        let r = self.transform_body_via_oplog(src, Some(glam::DVec3::from(offset)), None, true);
+        let name = match self.try_gui_op("Copy Occurrence", r) {
+            Some(true) => self
+                .agent_meta
+                .design
+                .oplog
+                .last()
+                .map(|o| o.id().to_string())?,
+            Some(false) => return None,
+            None => {
+                let name = format!("{} ({})", meta.name, count + 1);
+                let msg = ducad_i18n::t!("asm-occurrence-copied", name = name.as_str());
+                let cmd =
+                    crate::model::AddSolidCommand::new(name.clone(), BodyGeometry::from_shape(shape))
+                        .with_material(meta.material);
+                self.execute_model_command(Box::new(cmd), &msg);
+                name
+            }
+        };
+        self.model_status = Some(ducad_i18n::t!("asm-occurrence-copied", name = name.as_str()));
         let new_body = self
             .model
             .doc
@@ -719,6 +737,9 @@ impl DuCADApp {
             .iter()
             .find(|(_, b)| b.name == name)
             .map(|(id, _)| id)?;
+        if let Some(b) = self.model.doc.bodies.get_mut(new_body) {
+            b.material = meta.material;
+        }
         let src_inst = self
             .instance_of_body(src)
             .and_then(|i| self.assembly_tree.instances.get(&i).cloned());
@@ -731,7 +752,6 @@ impl DuCADApp {
                 inst.parent_sub_assembly = si.parent_sub_assembly;
             }
         }
-        self.model_status = Some(msg);
         Some(new_body)
     }
 }

@@ -645,19 +645,32 @@ impl DuCADApp {
                 ducad_kernel::HelixProfileKind::Triangle { .. } => "Helix Thread",
             };
 
-            match ducad_kernel::create_helix_solid(&params, prof, 36) {
-                Ok(shape) => {
-                    let geo = BodyGeometry::from_shape(shape);
-                    self.execute_model_command(
-                        Box::new(AddSolidCommand::new(solid_name, geo)),
-                        &format!("Membuat solid 3D {} (Pitch {:.1} mm, {} Putaran)", solid_name, params.pitch, params.turns),
-                    );
+            // Jalur oplog: op `helix` (pitch/putaran bisa diedit).
+            let section = match prof {
+                ducad_kernel::HelixProfileKind::Circle { radius } => serde_json::json!({ "circle": { "r": radius } }),
+                ducad_kernel::HelixProfileKind::Rectangle { width, height } => {
+                    serde_json::json!({ "rect": { "w": width, "h": height } })
+                }
+                ducad_kernel::HelixProfileKind::Triangle { width, height } => {
+                    serde_json::json!({ "triangle": { "w": width, "h": height } })
+                }
+            };
+            let mut op = serde_json::json!({
+                "op": "helix", "id": self.unique_op_id("helix"), "r": params.radius,
+                "pitch": params.pitch, "turns": params.turns, "section": section,
+                "at": params.origin, "axis": params.axis,
+                "left_hand": params.handedness == ducad_kernel::HelixHandedness::LeftHand,
+            });
+            if let Some(er) = params.end_radius {
+                op["end_r"] = serde_json::json!(er);
+            }
+            self.sync_agent_meta();
+            match self.run_with_renames(op, Vec::new(), solid_name, solid_name) {
+                Ok(()) => {
                     self.model_status = Some(format!("✔ Solid 3D {} berhasil dibuat!", solid_name));
                     self.set_tool(ToolKind::Select);
                 }
-                Err(e) => {
-                    self.model_status = Some(format!("Pembuatan Helix Solid gagal: {e}"));
-                }
+                Err(e) => self.report_gui_op_error("Helix", &e),
             }
         } else {
             // Mode Curve Path Only: Buat kurva jalur spine untuk Sweep
@@ -936,9 +949,9 @@ impl DuCADApp {
             self.model_status = Some("Tebal default shell tidak valid".to_string());
             return;
         };
-        let Some(geo) = self.model.geometry.get(id) else {
+        if !self.model.geometry.contains_key(id) {
             return;
-        };
+        }
 
         let mut remove_faces = self.selected_faces.clone();
         if remove_faces.is_empty() {
@@ -947,6 +960,31 @@ impl DuCADApp {
             }
         }
 
+        // Jalur oplog: tebal variabel → op `shell_variable`; sisi dibuka
+        // dengan tebal seragam → op `shell`.
+        let r = if !self.shell_variable_faces.is_empty() {
+            let custom = self.shell_variable_faces.clone();
+            self.shell_variable_via_oplog(id, thickness, &remove_faces, &custom)
+        } else if !remove_faces.is_empty() {
+            self.shell_variable_via_oplog(id, thickness, &remove_faces, &[])
+        } else {
+            Ok(false)
+        };
+        if let Some(ok) = self.try_gui_op("Shell Variable", r) {
+            if ok {
+                self.archive_round_history(id);
+                self.selected_faces.clear();
+                self.shell_variable_faces.clear();
+                self.active_face = None;
+                self.picking_mode = crate::types::PickMode::None;
+                self.model_status = Some(format!("Shell dinding {:.1} mm berhasil ✔", thickness));
+                self.set_tool(crate::types::ToolKind::Select);
+            }
+            return;
+        }
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
         let result = if self.shell_variable_faces.is_empty() {
             if remove_faces.is_empty() {
                 ducad_kernel::shell_hollow(&geo.shape, thickness, self.shell_direction)
@@ -1108,7 +1146,29 @@ impl DuCADApp {
 
         // Coba fusion dengan arah normal yang dihitung; jika gagal (misal arah keluar vs masuk), coba arah sebaliknya
         let res = ducad_kernel::create_rib(&geo.shape, p_start, p_end, normal, thickness, depth, draft_deg)
-            .or_else(|_| ducad_kernel::create_rib(&geo.shape, p_start, p_end, -normal, thickness, depth, draft_deg));
+            .map(|s| (s, normal))
+            .or_else(|_| {
+                ducad_kernel::create_rib(&geo.shape, p_start, p_end, -normal, thickness, depth, draft_deg)
+                    .map(|s| (s, -normal))
+            });
+        // Jalur oplog: arah yang berhasil dicatat sebagai op `rib`.
+        if let Ok((_, used_normal)) = &res {
+            let used_normal = *used_normal;
+            let r = self.rib_via_oplog(id, p_start, p_end, used_normal, thickness, depth, draft_deg);
+            if let Some(ok) = self.try_gui_op("Rib", r) {
+                if ok {
+                    self.archive_round_history(id);
+                    self.rib_start_pt = None;
+                    self.rib_end_pt = None;
+                    self.active_face = None;
+                    self.picking_mode = crate::types::PickMode::None;
+                    self.model_status = Some(format!("Tulang penguat (Rib t={thickness:.1} mm) berhasil ditambahkan ✔"));
+                    self.set_tool(crate::types::ToolKind::Select);
+                }
+                return;
+            }
+        }
+        let res = res.map(|(s, _)| s);
 
         match res {
             Ok(shape) => {
@@ -1145,6 +1205,16 @@ impl DuCADApp {
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
             return;
         };
+        // Jalur oplog: tarik/potong sisi tercatat sebagai op `push_pull`.
+        let r = self.push_pull_via_oplog(target_id, ray, distance);
+        if let Some(ok) = self.try_gui_op("Extrude face", r) {
+            if ok {
+                self.archive_round_history(target_id);
+                self.active_face = None;
+                self.model_status = Some(format!("Extrude face {:.1} mm sukses", distance));
+            }
+            return;
+        }
         let Some(target_geo) = self.model.geometry.get(target_id) else {
             self.model_status = Some("Body terpilih tidak ditemukan".to_string());
             return;
@@ -1193,10 +1263,10 @@ impl DuCADApp {
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
             return false;
         };
-        let Some(target_geo) = self.model.geometry.get(target_id) else {
+        if !self.model.geometry.contains_key(target_id) {
             self.model_status = Some("Body terpilih tidak ditemukan".to_string());
             return false;
-        };
+        }
 
         let p0_3d = self.active_plane.to_world_f64(axis_origin_2d, 0.0);
         let p1_2d = (axis_origin_2d.0 + axis_dir_2d.0, axis_origin_2d.1 + axis_dir_2d.1);
@@ -1204,6 +1274,21 @@ impl DuCADApp {
 
         let axis_origin = glam::dvec3(p0_3d[0], p0_3d[1], p0_3d[2]);
         let axis_dir = glam::dvec3(p1_3d[0] - p0_3d[0], p1_3d[1] - p0_3d[1], p1_3d[2] - p0_3d[2]);
+
+        // Jalur oplog: op `revolve_face`.
+        let r = self.revolve_face_via_oplog(target_id, ray, axis_origin, axis_dir, angle_deg);
+        if let Some(ok) = self.try_gui_op("Revolve face", r) {
+            if ok {
+                let deg_label = angle_deg.map(|d| format!("{:.0}°", d)).unwrap_or_else(|| "360°".to_string());
+                self.archive_round_history(target_id);
+                self.active_face = None;
+                self.model_status = Some(format!("Revolve face {} sukses", deg_label));
+            }
+            return ok;
+        }
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            return false;
+        };
 
         match ducad_kernel::revolve_face(&target_geo.shape, ray, axis_origin, axis_dir, angle_deg) {
             Ok(new_shape) => {
@@ -1306,6 +1391,14 @@ impl DuCADApp {
     /// Hapus semua body terpilih.
     pub fn delete_selected_bodies(&mut self) {
         for id in std::mem::take(&mut self.selected_bodies) {
+            // Jalur oplog: op `delete`.
+            let r = self.delete_body_via_oplog(id);
+            if let Some(ok) = self.try_gui_op("Delete Body", r) {
+                if ok {
+                    self.archive_round_history(id);
+                }
+                continue;
+            }
             let body_name = self.model.doc.bodies.get(id).map(|b| b.name.clone()).unwrap_or_else(|| "Solid".to_string());
             self.execute_model_command(
                 Box::new(DeleteBodyCommand::new(id)),
@@ -1481,6 +1574,29 @@ impl DuCADApp {
 
         match mode {
             ducad_ui::SplitMode::SplitBody => {
+                // Jalur oplog: op `split` (bidang bisa diedit).
+                let r = self.direct_op_via_oplog(target_id, "Split Body", |app, body| {
+                    Some(serde_json::json!({
+                        "op": "split", "id": app.unique_op_id("split"), "body": body,
+                        "point": [plane_point.x, plane_point.y, plane_point.z],
+                        "normal": [plane_normal.x, plane_normal.y, plane_normal.z],
+                    }))
+                });
+                if let Some(ok) = self.try_gui_op("Split Body", r) {
+                    if ok {
+                        self.archive_round_history(target_id);
+                        self.selected_bodies.clear();
+                        self.active_face = None;
+                        self.selected_faces.clear();
+                        self.picking_mode = crate::types::PickMode::None;
+                        self.model_status = Some(format!("Body '{}' berhasil dipotong ✔", orig_name));
+                        self.set_tool(crate::types::ToolKind::Select);
+                    }
+                    return;
+                }
+                let Some(geo) = self.model.geometry.get(target_id) else {
+                    return;
+                };
                 match ducad_kernel::split_body(&geo.shape, plane_point, plane_normal) {
                     Ok(parts) => {
                         if parts.len() < 2 {
@@ -1532,6 +1648,40 @@ impl DuCADApp {
                     .collect();
                 picked.sort_unstable();
                 picked.dedup();
+                // Jalur oplog: op `split_face` dengan bidang eksplisit.
+                let faces_sel = if picked.is_empty() { None } else { self.face_selector(target_id, &picked) };
+                if picked.is_empty() || faces_sel.is_some() {
+                    let n = plane_normal.normalize_or_zero();
+                    let u = n.any_orthonormal_vector();
+                    let v = n.cross(u);
+                    let a = |d: DVec3| [d.x, d.y, d.z];
+                    let r = self.direct_op_via_oplog(target_id, "Split Face", |app, body| {
+                        let mut op = serde_json::json!({
+                            "op": "split_face", "id": app.unique_op_id("split_face"), "body": body,
+                            "tool": { "plane": { "frame": {
+                                "origin": a(plane_point), "u": a(u), "v": a(v), "normal": a(n),
+                            }}},
+                        });
+                        if let Some(sel) = faces_sel {
+                            op["faces"] = serde_json::json!(sel);
+                        }
+                        Some(op)
+                    });
+                    if let Some(ok) = self.try_gui_op("Split Face", r) {
+                        if ok {
+                            self.archive_round_history(target_id);
+                            self.active_face = None;
+                            self.selected_faces.clear();
+                            self.picking_mode = crate::types::PickMode::None;
+                            self.model_status = Some(format!("Face pada body '{}' berhasil dibagi ✔", orig_name));
+                            self.set_tool(crate::types::ToolKind::Select);
+                        }
+                        return;
+                    }
+                }
+                let Some(geo) = self.model.geometry.get(target_id) else {
+                    return;
+                };
                 match ducad_kernel::split_faces_by_plane(&geo.shape, &picked, plane_point, plane_normal) {
                     Ok(new_shape) => {
                         let new_geo = BodyGeometry::from_shape(new_shape);
@@ -1711,6 +1861,23 @@ impl DuCADApp {
         // `at_world`; ukuran yang tidak bisa dinyatakan op memakai jalur lama.
         let ray = self.active_face.as_ref().map(|(_, r, _)| *r);
         let wants_edit_op = self.hole_popup_state.mode == ducad_ui::HoleOperationMode::EditHole;
+        // Lubang lama yang body-nya sudah diedit sesudahnya: jangan bangun
+        // ulang dari bentuk dasar lama (membuang edit itu) — lubang lama
+        // dihapus (`delete_face`) lalu dibuat ulang sebagai op `hole`.
+        if wants_edit_op {
+            if let Some(done) = ray.and_then(|ray| self.rehole_stale_legacy(body_id, ray, pos, &spec)) {
+                if done {
+                    self.active_face = None;
+                    self.editing_hole_idx = None;
+                    self.hole_popup_state.offset_u = 0.0;
+                    self.hole_popup_state.offset_v = 0.0;
+                    self.hole_popup_state.current_pos_3d = None;
+                    let callout = spec.technical_callout();
+                    self.model_status = Some(ducad_i18n::t!("hole-applied", callout = &callout));
+                }
+                return;
+            }
+        }
         if let Some(ray) = ray {
             match self.hole_via_oplog(body_id, ray, pos, &spec, wants_edit_op) {
                 Ok(true) => {
@@ -1747,8 +1914,13 @@ impl DuCADApp {
 
         let wants_edit = self.hole_popup_state.mode == ducad_ui::HoleOperationMode::EditHole;
 
+        let current_fp = geo.mesh_fingerprint;
         let (new_shape_res, is_reedit) = if wants_edit {
-            if let Some(hist) = self.hole_history.get_mut(&body_id) {
+            if let Some(hist) = self
+                .hole_history
+                .get_mut(&body_id)
+                .filter(|h| h.result_fingerprint == current_fp)
+            {
                 if !hist.features.is_empty() {
                     // Tentukan indeks fitur yang diedit
                     let target_idx = if let Some((edit_body, edit_idx)) = self.editing_hole_idx {
@@ -1814,6 +1986,7 @@ impl DuCADApp {
                             e.insert(crate::types::HoleHistory {
                                     base: base_sh,
                                     features: Vec::new(),
+                                    result_fingerprint: 0,
                                 });
                         }
                     }
@@ -1844,6 +2017,10 @@ impl DuCADApp {
                     &history_msg,
                 );
 
+                let fp = self.model.geometry.get(body_id).map_or(0, |g| g.mesh_fingerprint);
+                if let Some(hist) = self.hole_history.get_mut(&body_id) {
+                    hist.result_fingerprint = fp;
+                }
                 self.active_face = None;
                 self.editing_hole_idx = None;
                 self.hole_popup_state.offset_u = 0.0;
@@ -2170,6 +2347,7 @@ impl DuCADApp {
                             let new_geo = BodyGeometry::from_shape(new_shape);
                             self.model.geometry.insert(body_id, new_geo);
                             self.model.doc.dirty = true;
+                            self.note_rigid_move(body_id, &tf);
                         }
                     }
                 }
@@ -2261,12 +2439,14 @@ impl DuCADApp {
         if let (Some(sa), Some(sb)) = (shape_a, shape_b) {
             if let Ok(intersect_shape) = ducad_kernel::intersect(sa, sb) {
                 let name = format!("Clash-{}x{}", clash.body_a_name, clash.body_b_name);
-                let body_id = self.model.doc.add_body(&name);
                 let geo = BodyGeometry::from_shape(intersect_shape);
-                self.model.geometry.insert(body_id, geo);
-                self.model.doc.dirty = true;
+                // Lewat command: bisa di-undo dan tercatat di Feature Tree.
+                let before: std::collections::HashSet<_> = self.model.doc.bodies.keys().collect();
+                self.execute_model_command(Box::new(AddSolidCommand::new(name.clone(), geo)), &name);
                 self.selected_bodies.clear();
-                self.selected_bodies.insert(body_id);
+                if let Some(body_id) = self.model.doc.bodies.keys().find(|k| !before.contains(k)) {
+                    self.selected_bodies.insert(body_id);
+                }
                 self.model_status = Some(format!(
                     "Volume tabrakan berhasil diubah jadi bodi solid baru '{}'",
                     name

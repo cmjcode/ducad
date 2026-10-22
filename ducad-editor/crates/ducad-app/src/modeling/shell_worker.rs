@@ -168,10 +168,12 @@ impl DuCADApp {
                 if let Some(op) = op {
                     self.sync_agent_meta();
                     let mark = self.begin_oplog_step();
+                    self.skip_direct_edit_guard = true;
                     self.execute_model_command(
                         Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
                         &details,
                     );
+                    self.skip_direct_edit_guard = false;
                     self.agent_meta.design.oplog.push(op);
                     self.end_oplog_step(mark, label);
                     self.sync_design_after_agent();

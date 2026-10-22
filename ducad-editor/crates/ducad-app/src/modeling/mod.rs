@@ -3,6 +3,7 @@ pub mod external_parts;
 pub mod face_sketch;
 pub mod operations;
 pub mod parametric_engine;
+pub mod round_ops;
 pub mod rounding;
 pub mod shell_worker;
 pub mod swap_model;

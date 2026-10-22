@@ -917,6 +917,30 @@ impl SessionCore<'_> {
         self.model_undo.execute(cmd, self.model);
     }
 
+    /// Hasil op ubah-body: ganti geometri `body` di tempat, atau — bila
+    /// `copy` — tambahkan sebagai body baru bernama `id` (body asal utuh).
+    #[allow(clippy::too_many_arguments)]
+    fn place_modified(
+        &mut self,
+        id: &str,
+        body: &str,
+        bid: BodyId,
+        label: &'static str,
+        geo: BodyGeometry,
+        copy: bool,
+        out: &mut OpOutcome,
+    ) {
+        if copy {
+            self.exec(Box::new(
+                AddSolidCommand::new(label, geo).with_body_name(id.to_string()),
+            ));
+            out.created.push(id.to_string());
+        } else {
+            self.exec(Box::new(ReplaceGeometryCommand::new(label, bid, geo)));
+            out.modified.push(body.to_string());
+        }
+    }
+
     fn body_shape_clone(&self, name: &str) -> OpResult<KernelShape> {
         clone_shape(&self.body(name)?.1.shape)
     }
@@ -1436,10 +1460,11 @@ impl SessionCore<'_> {
                 }
             }
             Op::Transform {
+                id,
                 body,
                 translate,
                 rotate,
-                ..
+                copy,
             } => {
                 if translate.is_none() && rotate.is_none() {
                     return Err(OpError::invalid(
@@ -1464,12 +1489,7 @@ impl SessionCore<'_> {
                         .map_err(|e| OpError::kernel("Transform", e))?;
                 }
                 let new_geo = compute::finish("Transform", shape)?;
-                self.exec(Box::new(ReplaceGeometryCommand::new(
-                    "Transform",
-                    bid,
-                    new_geo,
-                )));
-                out.modified.push(body.clone());
+                self.place_modified(id, body, bid, "Transform", new_geo, *copy, &mut out);
             }
             Op::SetMaterial { id: _, body, material } => {
                 let (bid, _) = self.body(body)?;
@@ -2017,7 +2037,14 @@ impl SessionCore<'_> {
             | Op::BoundaryFill { .. }
             | Op::BoundingSolid { .. }
             | Op::Surface { .. }
-            | Op::Plastic { .. } => self.apply_direct(op, &params, &mut out)?,
+            | Op::Plastic { .. }
+            | Op::PushPull { .. }
+            | Op::RevolveFace { .. }
+            | Op::RoundVertex { .. }
+            | Op::Rib { .. }
+            | Op::ResizeEdge { .. }
+            | Op::ShellVariable { .. }
+            | Op::Adopt { .. } => self.apply_direct(op, &params, &mut out)?,
             Op::Draft {
                 body,
                 faces,
@@ -2096,17 +2123,17 @@ impl SessionCore<'_> {
                 }
             }
             Op::Scale {
+                id,
                 body,
                 factor,
                 pivot,
-                ..
+                copy,
             } => {
                 let f = eval(factor, &params)?;
                 let (bid, geo) = self.body(body)?;
                 let new_geo = compute::advanced::scale(&geo.shape, eval_arr(pivot, &params)?, f)?;
                 out.detail = volume_detail(&new_geo);
-                self.exec(Box::new(ReplaceGeometryCommand::new("Scale", bid, new_geo)));
-                out.modified.push(body.clone());
+                self.place_modified(id, body, bid, "Scale", new_geo, *copy, &mut out);
             }
             Op::Split {
                 id,

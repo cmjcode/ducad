@@ -378,9 +378,18 @@ impl DuCADApp {
         // batas) tidak boleh menutup aplikasi bersama pekerjaan pengguna.
         // Panik lazim terjadi saat menghitung shape, sebelum body disentuh,
         // jadi model biasanya utuh; pengguna diberi tahu dan bisa menyimpan.
+        // Edit langsung (bukan op) pada model yang punya oplog: catat hasilnya
+        // sebagai op `adopt`/`delete` alih-alih membiarkan `sync_agent_meta`
+        // membuang seluruh Feature Tree.
+        let guard = self.begin_direct_edit_guard();
         let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.model_undo.execute(cmd, &mut self.model);
         }));
+        if let Some(guard) = guard {
+            if applied.is_ok() {
+                self.finish_direct_edit_guard(guard, &name);
+            }
+        }
         if let Err(payload) = applied {
             let msg = ducad_engine::guard::panic_message(&*payload);
             log::error!("panik tertangkap pada command model '{name}': {msg}");

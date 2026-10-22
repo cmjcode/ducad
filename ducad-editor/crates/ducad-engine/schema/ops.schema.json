@@ -154,6 +154,35 @@
         }
       ]
     },
+    "AxisLine": {
+      "additionalProperties": false,
+      "description": "Axis line in world space.",
+      "properties": {
+        "dir": {
+          "description": "Axis direction [dx,dy,dz] (non-zero).",
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "origin": {
+          "description": "Point on the axis [x,y,z].",
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "dir",
+        "origin"
+      ],
+      "type": "object"
+    },
     "AxisSpec": {
       "anyOf": [
         {
@@ -2361,6 +2390,29 @@
       ],
       "type": "object"
     },
+    "FaceThickness": {
+      "additionalProperties": false,
+      "description": "Per-face wall thickness for `shell_variable`.",
+      "properties": {
+        "faces": {
+          "description": "Face selector (may match several faces).",
+          "type": "string"
+        },
+        "thickness": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Num"
+            }
+          ],
+          "description": "Wall thickness of those faces (> 0)."
+        }
+      },
+      "required": [
+        "faces",
+        "thickness"
+      ],
+      "type": "object"
+    },
     "FitKind": {
       "description": "Character of an ISO 286 fit.",
       "oneOf": [
@@ -3609,6 +3661,10 @@
               "description": "Name of the body to move.",
               "type": "string"
             },
+            "copy": {
+              "description": "Keep `body` unchanged and create the moved copy as a new body named `id`.",
+              "type": "boolean"
+            },
             "id": {
               "type": "string"
             },
@@ -4008,6 +4064,10 @@
             "body": {
               "description": "Name of the body to modify.",
               "type": "string"
+            },
+            "copy": {
+              "description": "Keep `body` unchanged and create the scaled copy as a new body named `id`.",
+              "type": "boolean"
             },
             "factor": {
               "allOf": [
@@ -5411,6 +5471,360 @@
             "body",
             "id",
             "make",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Push/pull one face along its outward normal (body modified in place): `distance > 0` adds a prism on a planar face (or grows a curved face), `< 0` cuts into the body.",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "distance": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Signed distance (mm, non-zero)."
+            },
+            "face": {
+              "description": "Selector of exactly 1 face, e.g. `\">Z\"`.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "push_pull"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "distance",
+            "face",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Revolve one planar face around an axis lying in its plane; the swept solid is unioned into `body` (in place).",
+          "properties": {
+            "angle_deg": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sweep angle; omitted = 360°."
+            },
+            "axis": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AxisLine"
+                }
+              ],
+              "description": "`{\"origin\":[x,y,z],\"dir\":[dx,dy,dz]}`; the direction must lie in the face plane."
+            },
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "face": {
+              "description": "Selector of exactly 1 planar face.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "revolve_face"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "axis",
+            "body",
+            "face",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Fillet (or chamfer) every edge meeting at the body corner nearest `near` (in place). The corner must lie within 5 mm of `near`.",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "chamfer": {
+              "default": false,
+              "description": "Chamfer instead of fillet.",
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "near": {
+              "description": "World point at (or near) the corner [x,y,z].",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "op": {
+              "enum": [
+                "round_vertex"
+              ],
+              "type": "string"
+            },
+            "radius": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Fillet radius / chamfer distance (> 0)."
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "near",
+            "op",
+            "radius"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Stiffening rib from `start` to `end`, `thickness` wide (centered on the line) and `depth` tall along `normal`, unioned into `body` (in place).",
+          "properties": {
+            "body": {
+              "description": "Name of the body that receives the rib.",
+              "type": "string"
+            },
+            "depth": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Rib height along `normal` (> 0)."
+            },
+            "draft_deg": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Draft of both long sides in degrees (narrower at the top); omitted = none."
+            },
+            "end": {
+              "description": "End point of the rib line [x,y,z].",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "normal": {
+              "description": "Direction the rib grows in (its height).",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "op": {
+              "enum": [
+                "rib"
+              ],
+              "type": "string"
+            },
+            "start": {
+              "description": "Start point of the rib line [x,y,z].",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "thickness": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Rib thickness (> 0)."
+            }
+          },
+          "required": [
+            "body",
+            "depth",
+            "end",
+            "id",
+            "normal",
+            "op",
+            "start",
+            "thickness"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Resize the body along an edge from `start` to `end` to the new `length` (in place): the planar end face perpendicular to the edge moves; otherwise the body scales uniformly.",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "end": {
+              "description": "Edge end point [x,y,z] (this end moves).",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "length": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "New edge length (> 0)."
+            },
+            "op": {
+              "enum": [
+                "resize_edge"
+              ],
+              "type": "string"
+            },
+            "start": {
+              "description": "Edge start point [x,y,z].",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "body",
+            "end",
+            "id",
+            "length",
+            "op",
+            "start"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Shell with per-face wall thickness (in place). Convex bodies with planar faces only.",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "custom": {
+              "description": "Faces with their own wall thickness, e.g. `[{\"faces\":\"<Z\",\"thickness\":4}]`.",
+              "items": {
+                "$ref": "#/definitions/FaceThickness"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "shell_variable"
+              ],
+              "type": "string"
+            },
+            "remove_faces": {
+              "description": "Selector of the faces to open (may match several); omitted = closed hollow body.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "thickness": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Default wall thickness (> 0)."
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op",
+            "thickness"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Frozen geometry from an edit that has no parametric op: sets the geometry of `body` to the stored shape (creates body `body` when it does not exist). Written by the GUI; not editable.",
+          "properties": {
+            "body": {
+              "description": "Name of the body that receives the geometry.",
+              "type": "string"
+            },
+            "brep": {
+              "description": "Encoded B-rep (native cache `\"<producer>:<base64>\"` or STEP text).",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "adopt"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "brep",
+            "id",
             "op"
           ],
           "type": "object"

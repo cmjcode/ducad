@@ -562,3 +562,173 @@ pub fn bounding_solid(
     .map_err(k("Bounding Solid"))?;
     finish("Bounding Solid", out)
 }
+
+// ---------------------------------------------------------------------------
+// Alat langsung GUI sebagai op oplog (ADR 0010): push/pull, revolve face,
+// round vertex, rib, resize edge, shell variable, adopt.
+// ---------------------------------------------------------------------------
+
+/// Toleransi (mm) pencarian sudut terdekat `round_vertex` — sama dengan
+/// `EDGE_REAPPLY_TOLERANCE_MM` di GUI.
+pub const VERTEX_TOLERANCE_MM: f64 = 5.0;
+
+/// Push/pull satu face (indeks `enumerate_faces`) sejauh `distance`:
+/// `> 0` menambah, `< 0` memotong (kernel `extrude_face`).
+pub fn push_pull(shape: &KernelShape, face: usize, distance: f64) -> OpResult<BodyGeometry> {
+    require_nonzero("distance", distance)?;
+    let out = ducad_kernel::extrude_face_by_index(shape, face, distance).map_err(k("Push/Pull"))?;
+    finish("Push/Pull", out)
+}
+
+/// Revolve satu face planar mengelilingi sumbu di bidangnya, digabung ke body.
+pub fn revolve_face(
+    shape: &KernelShape,
+    face: usize,
+    axis_origin: DVec3,
+    axis_dir: DVec3,
+    angle_deg: Option<f64>,
+) -> OpResult<BodyGeometry> {
+    finite_vec("axis.origin", axis_origin)?;
+    finite_vec("axis.dir", axis_dir)?;
+    if axis_dir.length() < 1e-9 {
+        return Err(OpError::invalid("axis.dir tidak boleh vektor nol"));
+    }
+    if let Some(a) = angle_deg {
+        if !a.is_finite() || a <= 0.0 || a > 360.0 {
+            return Err(OpError::invalid(format!(
+                "angle_deg harus 0 < sudut ≤ 360 (diberikan {a})"
+            )));
+        }
+    }
+    let out = ducad_kernel::revolve_face_by_index(shape, face, axis_origin, axis_dir, angle_deg)
+        .map_err(k("Revolve Face"))?;
+    finish("Revolve Face", out)
+}
+
+/// Fillet (atau chamfer) semua tepi di sudut terdekat `near`.
+pub fn round_vertex(
+    shape: &KernelShape,
+    near: DVec3,
+    radius: f64,
+    chamfer: bool,
+) -> OpResult<BodyGeometry> {
+    require_positive("radius", radius)?;
+    finite_vec("near", near)?;
+    if ducad_kernel::nearest_vertex(shape, near, VERTEX_TOLERANCE_MM).is_none() {
+        return Err(OpError::invalid(format!(
+            "tidak ada sudut body dalam {VERTEX_TOLERANCE_MM} mm dari near [{:.3}, {:.3}, {:.3}]",
+            near.x, near.y, near.z
+        ))
+        .with_hint("isi 'near' dengan koordinat sudut body (lihat bbox di inspect)"));
+    }
+    let (label, out) = if chamfer {
+        let r = ducad_kernel::chamfer_vertex_at(shape, radius, near, VERTEX_TOLERANCE_MM);
+        ("Chamfer Vertex", r)
+    } else {
+        let r = ducad_kernel::fillet_vertex_at(shape, radius, near, VERTEX_TOLERANCE_MM);
+        ("Fillet Vertex", r)
+    };
+    finish(label, out.map_err(k(label))?)
+}
+
+/// Tulang penguat `start`–`end` digabung ke body.
+pub fn rib(
+    shape: &KernelShape,
+    start: DVec3,
+    end: DVec3,
+    normal: DVec3,
+    thickness: f64,
+    depth: f64,
+    draft_deg: Option<f64>,
+) -> OpResult<BodyGeometry> {
+    require_positive("thickness", thickness)?;
+    require_positive("depth", depth)?;
+    finite_vec("start", start)?;
+    finite_vec("end", end)?;
+    finite_vec("normal", normal)?;
+    if normal.length() < 1e-9 {
+        return Err(OpError::invalid("normal rib tidak boleh vektor nol"));
+    }
+    if let Some(a) = draft_deg {
+        if !a.is_finite() || !(0.0..89.0).contains(&a) {
+            return Err(OpError::invalid(format!(
+                "draft_deg harus 0 ≤ sudut < 89 (diberikan {a})"
+            )));
+        }
+    }
+    let out = ducad_kernel::create_rib(shape, start, end, normal, thickness, depth, draft_deg)
+        .map_err(k("Rib"))?;
+    finish("Rib", out)
+}
+
+/// Ubah panjang body sepanjang rusuk `start`–`end` menjadi `length`.
+pub fn resize_edge(
+    shape: &KernelShape,
+    start: DVec3,
+    end: DVec3,
+    length: f64,
+) -> OpResult<BodyGeometry> {
+    require_positive("length", length)?;
+    finite_vec("start", start)?;
+    finite_vec("end", end)?;
+    let out = ducad_kernel::resize_shape_along_edge(shape, tuple(start), tuple(end), length)
+        .map_err(k("Resize Edge"))?;
+    finish("Resize Edge", out)
+}
+
+/// Shell dengan tebal per face (indeks `enumerate_faces`).
+pub fn shell_variable(
+    shape: &KernelShape,
+    thickness: f64,
+    remove: &[usize],
+    custom: &[(usize, f64)],
+) -> OpResult<BodyGeometry> {
+    require_positive("thickness", thickness)?;
+    for (_, t) in custom {
+        require_positive("custom.thickness", *t)?;
+    }
+    let out = ducad_kernel::shell_variable_by_index(shape, thickness, remove, custom)
+        .map_err(k("Shell Variable"))?;
+    finish("Shell Variable", out)
+}
+
+/// Encode shape untuk op `adopt`: `"<producer>:<base64 zlib>"` (cache B-rep
+/// native, lossless).
+pub fn encode_brep(shape: &KernelShape) -> OpResult<String> {
+    let cache = ducad_io::native::NativeBrepCache::of(shape).map_err(k("Adopt"))?;
+    Ok(format!("{}:{}", cache.producer, cache.data))
+}
+
+/// Kebalikan [`encode_brep`]; teks STEP (`ISO-10303-21;…`) juga diterima.
+pub fn decode_brep(brep: &str) -> OpResult<KernelShape> {
+    let text = brep.trim_start();
+    if text.starts_with("ISO-10303-21") {
+        return KernelShape::from_step_string(text).map_err(k("Adopt"));
+    }
+    let Some((producer, data)) = text.split_once(':') else {
+        return Err(OpError::invalid(
+            "brep adopt tidak dikenali (harus \"<producer>:<data>\" atau teks STEP)",
+        ));
+    };
+    let cache = ducad_io::native::NativeBrepCache {
+        producer: producer.to_string(),
+        data: data.to_string(),
+    };
+    match cache.decode().map_err(k("Adopt"))? {
+        Some(shape) => Ok(shape),
+        None => Err(OpError::invalid(format!(
+            "brep adopt ditulis kernel '{producer}', bukan '{}'",
+            KernelShape::NATIVE_CACHE_PRODUCER
+        ))),
+    }
+}
+
+/// Op `adopt` yang membekukan `shape` ke body `body` — dipakai GUI untuk
+/// edit langsung yang belum punya op parametrik.
+pub fn adopt_op(id: &str, body: &str, shape: &KernelShape) -> OpResult<crate::ops::Op> {
+    Ok(crate::ops::Op::Adopt {
+        id: id.to_string(),
+        body: body.to_string(),
+        brep: encode_brep(shape)?,
+    })
+}

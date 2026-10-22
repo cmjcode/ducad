@@ -45,6 +45,7 @@ pub mod tooling;
 
 pub use ducad_core::{Feature, LicenseTier};
 pub use error::{apply_patch, ErrorCategory, OpError, OpErrorCode, OpPatch, OpResult, SuggestedFix};
+pub use compute::direct::adopt_op;
 pub use ops::MaterialSel;
 pub use plane::PlaneFrame;
 pub use session::{

@@ -441,7 +441,8 @@ fn call_core_tool_inner(
             let a: SessionArg = args(a)?;
             let _ = a.session;
             let d = &core.meta.design;
-            Ok(ToolOut::ok(json!({ "params": d.params, "ops": d.oplog })))
+            let ops = crate::oplog_view::oplog_display_json(&d.oplog);
+            Ok(ToolOut::ok(json!({ "params": d.params, "ops": ops })))
         }
         "get_schema" => call_stateless_tool(name, a),
         "set_checks" => {
