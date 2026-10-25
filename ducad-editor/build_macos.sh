@@ -228,6 +228,145 @@ if new_content != content:
     print_success "Sinkronisasi versi selesai (v$VERSION, build $BUILD_NUMBER)!"
 }
 
+# Upload built artifacts to GitHub release
+upload_github_release() {
+    if [ "$UPLOAD_RELEASE" != true ]; then
+        print_status "Upload ke GitHub release dilewati (--no-upload atau SKIP_UPLOAD=1)."
+        return 0
+    fi
+
+    echo ""
+    print_status "🚀 Menyiapkan upload ke GitHub Release..."
+
+    # Check dependencies: gh CLI
+    if ! command -v gh &> /dev/null; then
+        print_warning "GitHub CLI (gh) tidak terpasang. Lewati upload ke GitHub release."
+        print_warning "Pasang gh via: brew install gh"
+        return 0
+    fi
+
+    if ! gh auth status &> /dev/null; then
+        print_warning "GitHub CLI (gh) belum terotentikasi. Lewati upload ke GitHub release."
+        print_warning "Jalankan: gh auth login"
+        return 0
+    fi
+
+    # Tentukan repository GitHub
+    local github_repo="${GITHUB_REPO:-}"
+    if [ -z "$github_repo" ]; then
+        local remote_url
+        remote_url=$(git config --get remote.origin.url 2>/dev/null || echo "")
+        if [[ "$remote_url" =~ github\.com[:/]([^/]+/[^/.]+)(\.git)?$ ]]; then
+            github_repo="${BASH_REMATCH[1]}"
+        fi
+    fi
+    github_repo="${github_repo:-cmjcode/ducad}"
+
+    # Tentukan tag release
+    local release_tag="${RELEASE_TAG:-v$VERSION}"
+
+    # Kumpulkan berkas artifact yang akan di-upload dari dist
+    local candidate_files=()
+    if [ -d "dist" ]; then
+        while IFS= read -r -d '' file; do
+            candidate_files+=("$file")
+        done < <(find dist -type f \( -name "*.dmg" -o -name "*.pkg" -o -name "*.tar.gz" -o -name "*.zip" -o -name "*.msi" \) -print0 2>/dev/null)
+    fi
+
+    if [ ${#candidate_files[@]} -eq 0 ]; then
+        print_warning "Tidak ada berkas rilis (.dmg, .pkg, .tar.gz, .zip, .msi) ditemukan di $EDITOR_DIR/dist. Lewati upload."
+        return 0
+    fi
+
+    # Pastikan setiap artefak biner memiliki berkas .sha256
+    local upload_files=()
+    for file in "${candidate_files[@]}"; do
+        upload_files+=("$file")
+        local sha_file="${file}.sha256"
+        if [ ! -f "$sha_file" ]; then
+            print_status "Membuat checksum SHA-256 untuk $(basename "$file")..."
+            (cd "$(dirname "$file")" && shasum -a 256 "$(basename "$file")" > "$(basename "$sha_file")")
+        fi
+        if [ -f "$sha_file" ]; then
+            upload_files+=("$sha_file")
+        fi
+    done
+
+    # Deduplikasi daftar upload
+    local unique_files=()
+    local seen=" "
+    for f in "${upload_files[@]}"; do
+        if [ -f "$f" ] && [[ ! "$seen" =~ " $f " ]]; then
+            unique_files+=("$f")
+            seen="$seen$f "
+        fi
+    done
+
+    print_status "Target repo: $github_repo"
+    print_status "Target release tag: $release_tag"
+    print_status "Berkas yang akan diunggah (${#unique_files[@]} berkas):"
+    for f in "${unique_files[@]}"; do
+        local sz
+        sz=$(ls -lh "$f" 2>/dev/null | awk '{print $5}')
+        echo "  📦 $f ($sz)"
+    done
+
+    # Cek apakah release sudah ada di GitHub
+    local is_draft=false
+    if gh release view "$release_tag" --repo "$github_repo" >/dev/null 2>&1; then
+        print_status "Release $release_tag ditemukan di GitHub."
+        local draft_status
+        draft_status=$(gh release view "$release_tag" --repo "$github_repo" --json isDraft -q '.isDraft' 2>/dev/null || echo "false")
+        if [ "$draft_status" = "true" ]; then
+            is_draft=true
+        fi
+    else
+        print_status "Release $release_tag belum ada. Membuat release baru..."
+        local target_args=()
+        local head_sha
+        head_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+        if [ -n "$head_sha" ]; then
+            target_args=(--target "$head_sha")
+        fi
+
+        if ! gh release create "$release_tag" \
+            --repo "$github_repo" \
+            --title "DUCAD $release_tag" \
+            --generate-notes \
+            "${target_args[@]}"; then
+            if gh release view "$release_tag" --repo "$github_repo" >/dev/null 2>&1; then
+                print_status "Release $release_tag sudah dibuat oleh proses lain, lanjut upload."
+            else
+                print_error "Gagal membuat release $release_tag di $github_repo."
+                return 1
+            fi
+        else
+            print_success "Release $release_tag berhasil dibuat."
+        fi
+    fi
+
+    # Upload berkas dengan --clobber
+    print_status "Mengunggah berkas ke release $release_tag..."
+    if gh release upload "$release_tag" "${unique_files[@]}" --repo "$github_repo" --clobber; then
+        print_success "🎉 Berhasil mengunggah semua berkas ke GitHub release $release_tag!"
+    else
+        print_error "Gagal mengunggah berkas ke release $release_tag."
+        return 1
+    fi
+
+    # Publikasikan jika --publish diminta, atau beri petunjuk jika masih draft
+    if [ "$PUBLISH_RELEASE" = true ]; then
+        print_status "Mempublikasikan release $release_tag (--publish aktif)..."
+        gh release edit "$release_tag" --repo "$github_repo" --draft=false --latest
+        print_success "Release $release_tag telah dipublikasikan dan berstatus latest!"
+    elif [ "$is_draft" = true ]; then
+        echo ""
+        print_status "ℹ️  Release $release_tag saat ini masih berstatus DRAFT."
+        print_status "Untuk mempublikasikannya ke pengguna / updater, jalankan:"
+        echo "   gh release edit $release_tag --draft=false --latest"
+    fi
+}
+
 # Show help
 show_help() {
     echo -e "${CYAN}🛠️  DUCAD Editor Build Script${NC}"
@@ -250,15 +389,21 @@ show_help() {
     echo "Options:"
     echo "  --deps       - Install build dependencies and targets first"
     echo "  --clean      - Clean previous builds before building"
+    echo "  --upload     - Upload build artifacts to GitHub release (default: enabled)"
+    echo "  --no-upload  - Skip uploading build artifacts to GitHub release"
+    echo "  --publish    - Publish draft release to public/latest after upload"
+    echo "  --tag <tag>  - Target GitHub release tag (default: v<VERSION>)"
     echo "  --help, -h   - Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 macos          # Build macOS .app & .dmg"
-    echo "  $0 macos-pkg      # Build macOS signed .pkg for App Store"
-    echo "  $0 publish-all    # Publish iPadOS + macOS to App Store Connect"
-    echo "  $0 sync           # Sinkronisasi VERSION & build number"
-    echo "  $0 linux --clean  # Clean and build Linux"
-    echo "  $0 all --deps     # Install deps and build all"
+    echo "  $0 macos              # Build macOS .app & .dmg lalu upload ke GitHub release"
+    echo "  $0 macos --no-upload  # Build tanpa upload ke GitHub release"
+    echo "  $0 macos --publish    # Build, upload, dan publikasikan rilis draft"
+    echo "  $0 macos-pkg          # Build macOS signed .pkg for App Store"
+    echo "  $0 publish-all        # Publish iPadOS + macOS to App Store Connect"
+    echo "  $0 sync               # Sinkronisasi VERSION & build number"
+    echo "  $0 linux --clean      # Clean and build Linux"
+    echo "  $0 all --deps         # Install deps and build all"
     echo ""
 }
 
@@ -266,6 +411,16 @@ show_help() {
 PLATFORM="macos"
 INSTALL_DEPS=false
 CLEAN_FIRST=false
+UPLOAD_RELEASE=true
+PUBLISH_RELEASE=false
+CUSTOM_TAG=""
+
+if [ "${SKIP_UPLOAD:-0}" = "1" ]; then
+    UPLOAD_RELEASE=false
+fi
+if [ "${AUTO_PUBLISH:-0}" = "1" ] || [ "${PUBLISH:-0}" = "1" ]; then
+    PUBLISH_RELEASE=true
+fi
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -281,6 +436,22 @@ while [[ $# -gt 0 ]]; do
             CLEAN_FIRST=true
             shift
             ;;
+        --upload)
+            UPLOAD_RELEASE=true
+            shift
+            ;;
+        --no-upload)
+            UPLOAD_RELEASE=false
+            shift
+            ;;
+        --publish)
+            PUBLISH_RELEASE=true
+            shift
+            ;;
+        --tag)
+            CUSTOM_TAG="$2"
+            shift 2
+            ;;
         --help|-h)
             show_help
             exit 0
@@ -292,6 +463,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [ -n "$CUSTOM_TAG" ]; then
+    RELEASE_TAG="$CUSTOM_TAG"
+fi
 
 # Main build function
 main() {
@@ -324,6 +499,7 @@ main() {
             # Jika ingin membuat versi App Store (sandbox), jalankan:
             #   APPLE_APP_IDENTITY='3rd Party Mac Developer Application: PT. VNEU TEKNOLOGI INDONESIA (YD4J5Z6A4G)' ./build_apple.sh macos-pkg
             unset APPLE_APP_IDENTITY
+            export APPLE_PASSWORD="${APPLE_PASSWORD:-$PASSWORD}"
             
             echo "✅ Environment variables set for code signing"
             echo "📝 Note: For notarization, manually set NOTARIZE=1 or run ./notarize.sh"
@@ -342,7 +518,7 @@ main() {
             export APPLE_TEAM_ID="${APPLE_TEAM_ID}"
             export APPLE_BUNDLE_ID="${APPLE_BUNDLE_ID}"
             export PASSWORD="${PASSWORD}"
-            export APPLE_PASSWORD="${APPLE_PASSWORD}"
+            export APPLE_PASSWORD="${APPLE_PASSWORD:-$PASSWORD}"
             export APPLE_IDENTITY="${APPLE_IDENTITY}"
             export APPLE_IDENTITY_INS="${APPLE_IDENTITY_INS}"
             export APPLE_APP_IDENTITY="${APPLE_APP_IDENTITY}"
@@ -417,6 +593,9 @@ main() {
     
     echo ""
     print_status "✨ Ready for distribution!"
+
+    # Upload to GitHub release
+    upload_github_release
 }
 
 # Run main function

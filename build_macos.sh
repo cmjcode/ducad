@@ -4,6 +4,7 @@ export APPLE_ID='nunung.pamungkas@vneu.co.id'
 export APPLE_TEAM_ID='YD4J5Z6A4G'
 export APPLE_BUNDLE_ID='id.ducad.studio'
 export PASSWORD='Simbok21AMIDAMA'
+export APPLE_PASSWORD='Simbok21AMIDAMA'
 export APPLE_IDENTITY='Developer ID Application: PT. VNEU TEKNOLOGI INDONESIA (YD4J5Z6A4G)'
 export APPLE_IDENTITY_INS='Developer ID Installer: PT. VNEU TEKNOLOGI INDONESIA (YD4J5Z6A4G)'
 
