@@ -5,7 +5,7 @@
 //!
 //! `ducad-core::Document` sengaja bebas dependensi kernel (lihat komentar
 //! di crate itu) — jadi geometri B-rep sungguhan hidup DI LUAR `Document`,
-//! di `ModelDoc::geometry`, sebuah `SecondaryMap` yang dikunci dengan
+//! di `ModelDoc::geometry`, sebuah `IdMap` berkunci stabil yang dikunci dengan
 //! `BodyId` yang SAMA dengan yang dipakai `Document::bodies`. `ModelDoc`
 //! itulah target generik `ducad_core::Command<T>` untuk seluruh command
 //! di modul ini — bukan `Document` langsung — karena command butuh
@@ -18,7 +18,7 @@
 
 use ducad_core::{BodyId, Command, Document};
 use ducad_kernel::{self, KernelMesh, KernelShape};
-use slotmap::SecondaryMap;
+use ducad_core::IdMap;
 
 /// Geometri kernel satu body — pasangan shape B-rep + mesh hasil
 /// tessellation-nya (mesh di-cache di sini, bukan dihitung ulang tiap
@@ -121,7 +121,7 @@ fn mesh_fingerprint(mesh: &KernelMesh) -> u64 {
 #[derive(Default)]
 pub struct ModelDoc {
     pub doc: Document,
-    pub geometry: SecondaryMap<BodyId, BodyGeometry>,
+    pub geometry: IdMap<BodyGeometry>,
 }
 
 /// Tambah satu body baru dari geometri yang SUDAH dihitung (dry-run sudah
@@ -134,7 +134,13 @@ pub struct AddSolidCommand {
     body_name: Option<String>,
     pending: Option<BodyGeometry>,
     material: Option<ducad_core::Material>,
+    /// Id body: diisi saat `apply` pertama dan DIPERTAHANKAN lintas
+    /// undo/redo (lihat `ducad_core::BodyMap`), supaya langkah berikutnya
+    /// yang merujuk body ini tetap berlaku setelah redo.
     id: Option<BodyId>,
+    /// Metadata body saat di-undo (nama, material, UUID, visibilitas) agar
+    /// redo memulihkan body yang sama persis, bukan body baru.
+    stash: Option<ducad_core::Body>,
 }
 
 impl AddSolidCommand {
@@ -145,6 +151,7 @@ impl AddSolidCommand {
             pending: Some(geometry),
             material: None,
             id: None,
+            stash: None,
         }
     }
 
@@ -168,11 +175,19 @@ impl Command<ModelDoc> for AddSolidCommand {
 
     fn apply(&mut self, model: &mut ModelDoc) {
         if let Some(geo) = self.pending.take() {
-            let name = self.body_name.clone().unwrap_or_else(|| self.label.clone());
-            let id = if let Some(mat) = self.material {
-                model.doc.add_body_with_material(name, mat)
-            } else {
-                model.doc.add_body(name)
+            let id = match (self.id, self.stash.take()) {
+                (Some(id), Some(body)) => {
+                    model.doc.insert_body_with_id(id, body);
+                    id
+                }
+                _ => {
+                    let name = self.body_name.clone().unwrap_or_else(|| self.label.clone());
+                    if let Some(mat) = self.material {
+                        model.doc.add_body_with_material(name, mat)
+                    } else {
+                        model.doc.add_body(name)
+                    }
+                }
             };
             model.geometry.insert(id, geo);
             self.id = Some(id);
@@ -180,8 +195,8 @@ impl Command<ModelDoc> for AddSolidCommand {
     }
 
     fn revert(&mut self, model: &mut ModelDoc) {
-        if let Some(id) = self.id.take() {
-            model.doc.bodies.remove(id);
+        if let Some(id) = self.id {
+            self.stash = model.doc.bodies.remove(id);
             if let Some(geo) = model.geometry.remove(id) {
                 self.pending = Some(geo);
             }
@@ -194,6 +209,8 @@ pub struct AddMultipleSolidsCommand {
     label: String,
     pending: Option<Vec<(String, BodyGeometry, Option<ducad_core::Material>)>>,
     ids: Option<Vec<BodyId>>,
+    /// Body yang dicabut saat undo, dengan id-nya, untuk redo yang identik.
+    stash: Vec<(BodyId, ducad_core::Body, BodyGeometry)>,
 }
 
 impl AddMultipleSolidsCommand {
@@ -203,6 +220,7 @@ impl AddMultipleSolidsCommand {
             label: label.into(),
             pending: Some(with_mats),
             ids: None,
+            stash: Vec::new(),
         }
     }
 
@@ -214,6 +232,7 @@ impl AddMultipleSolidsCommand {
             label: label.into(),
             pending: Some(bodies),
             ids: None,
+            stash: Vec::new(),
         }
     }
 
@@ -228,6 +247,17 @@ impl Command<ModelDoc> for AddMultipleSolidsCommand {
     }
 
     fn apply(&mut self, model: &mut ModelDoc) {
+        if !self.stash.is_empty() {
+            // Redo: pasang kembali body yang sama pada id yang sama.
+            let mut created = Vec::with_capacity(self.stash.len());
+            for (id, body, geo) in std::mem::take(&mut self.stash) {
+                model.doc.insert_body_with_id(id, body);
+                model.geometry.insert(id, geo);
+                created.push(id);
+            }
+            self.ids = Some(created);
+            return;
+        }
         if let Some(items) = self.pending.take() {
             let mut created = Vec::with_capacity(items.len());
             for (name, geo, mat) in items {
@@ -245,15 +275,15 @@ impl Command<ModelDoc> for AddMultipleSolidsCommand {
 
     fn revert(&mut self, model: &mut ModelDoc) {
         if let Some(ids) = self.ids.take() {
-            let mut pending = Vec::with_capacity(ids.len());
+            let mut stash = Vec::with_capacity(ids.len());
             for id in ids {
                 if let Some(body) = model.doc.bodies.remove(id) {
                     if let Some(geo) = model.geometry.remove(id) {
-                        pending.push((body.name, geo, Some(body.material)));
+                        stash.push((id, body, geo));
                     }
                 }
             }
-            self.pending = Some(pending);
+            self.stash = stash;
         }
     }
 }
@@ -262,7 +292,7 @@ impl Command<ModelDoc> for AddMultipleSolidsCommand {
 /// Fillet/Chamfer semua tepi, Shell/Hollow) — `BodyId` tetap sama, cuma
 /// isinya ditukar. `apply`/`revert` sengaja identik: keduanya cuma
 /// menukar geometri yang tersimpan di `pending` dengan yang ada di peta
-/// (`SecondaryMap::insert` mengembalikan nilai lama), jadi memanggilnya
+/// (`IdMap::insert` mengembalikan nilai lama), jadi memanggilnya
 /// dua kali berturut-turut kembali ke keadaan semula — pas untuk
 /// apply/revert/redo yang simetris.
 pub struct ReplaceGeometryCommand {
@@ -454,6 +484,8 @@ pub struct BooleanCommand {
     result_name: String,
     a: BodyId,
     b: BodyId,
+    /// Id body hasil dari `apply` pertama; redo memakainya lagi.
+    result_id: Option<BodyId>,
     state: Option<BooleanState>,
 }
 
@@ -472,6 +504,7 @@ impl BooleanCommand {
             result_name: result_name.into(),
             a,
             b,
+            result_id: None,
             state: Some(BooleanState::Pending(result)),
         }
     }
@@ -504,6 +537,7 @@ impl BooleanCommand {
             result_name: result_name.into(),
             a,
             b,
+            result_id: None,
             state: Some(BooleanState::Pending(result_geo)),
         })
     }
@@ -529,7 +563,17 @@ impl Command<ModelDoc> for BooleanCommand {
         ) else {
             return;
         };
-        let result_id = model.doc.add_body(self.result_name.clone());
+        let result_id = match self.result_id {
+            Some(id) => {
+                model.doc.insert_body_with_id(
+                    id,
+                    ducad_core::Body::new(self.result_name.clone(), ducad_core::Material::default()),
+                );
+                id
+            }
+            None => model.doc.add_body(self.result_name.clone()),
+        };
+        self.result_id = Some(result_id);
         // Hasil boolean mewarisi material mekanik body target (P16).
         if let Some(body) = model.doc.bodies.get_mut(result_id) {
             body.mechanical = a_body.mechanical.clone();
@@ -561,12 +605,12 @@ impl Command<ModelDoc> for BooleanCommand {
         model.doc.bodies.remove(result_id);
         let result_geo = model.geometry.remove(result_id);
 
-        // BodyId lama tidak bisa dipakai lagi (konvensi slotmap yang sama
-        // dengan `ducad_sketch::DeleteEntities`) — perbarui `self.a`/`b`
-        // supaya `apply` (redo) berikutnya menghapus id yang BENAR.
-        self.a = model.doc.bodies.insert(a_body);
+        // Id A/B dipertahankan (`BodyMap` berkunci stabil): instance
+        // assembly, seleksi, dan langkah undo lain yang memegang id itu
+        // tetap sah setelah undo.
+        model.doc.insert_body_with_id(self.a, a_body);
         model.geometry.insert(self.a, a_geo);
-        self.b = model.doc.bodies.insert(b_body);
+        model.doc.insert_body_with_id(self.b, b_body);
         model.geometry.insert(self.b, b_geo);
 
         if let Some(result_geo) = result_geo {
@@ -599,9 +643,8 @@ impl Command<ModelDoc> for DeleteBodyCommand {
     }
     fn revert(&mut self, model: &mut ModelDoc) {
         if let Some((body, geo)) = self.stash.take() {
-            let new_id = model.doc.bodies.insert(body);
-            model.geometry.insert(new_id, geo);
-            self.id = new_id;
+            model.doc.insert_body_with_id(self.id, body);
+            model.geometry.insert(self.id, geo);
         }
     }
 }
@@ -618,7 +661,9 @@ struct SplitBodyApplied {
 }
 
 enum SplitBodyState {
-    Pending(Vec<(String, BodyGeometry)>),
+    /// Body hasil yang menunggu dipasang; `Some(ids)` = id dari apply
+    /// sebelumnya (redo memakai id yang sama).
+    Pending(Vec<(String, BodyGeometry)>, Option<Vec<BodyId>>),
     Applied(Box<SplitBodyApplied>),
 }
 
@@ -639,7 +684,7 @@ impl SplitBodyCommand {
         Self {
             label: "Split Body",
             target_id,
-            state: Some(SplitBodyState::Pending(result_bodies)),
+            state: Some(SplitBodyState::Pending(result_bodies, None)),
         }
     }
 
@@ -659,10 +704,10 @@ impl Command<ModelDoc> for SplitBodyCommand {
     }
 
     fn apply(&mut self, model: &mut ModelDoc) {
-        let Some(SplitBodyState::Pending(_)) = &self.state else {
+        let Some(SplitBodyState::Pending(..)) = &self.state else {
             return;
         };
-        let Some(SplitBodyState::Pending(new_bodies)) = self.state.take() else {
+        let Some(SplitBodyState::Pending(new_bodies, prev_ids)) = self.state.take() else {
             unreachable!()
         };
         let (Some(orig_body), Some(orig_geo)) = (
@@ -675,8 +720,17 @@ impl Command<ModelDoc> for SplitBodyCommand {
         let mut result_ids = Vec::with_capacity(new_bodies.len());
         let mut result_names = Vec::with_capacity(new_bodies.len());
 
-        for (name, geo) in new_bodies {
-            let id = model.doc.add_body(name.clone());
+        for (i, (name, geo)) in new_bodies.into_iter().enumerate() {
+            let id = match prev_ids.as_ref().and_then(|ids| ids.get(i).copied()) {
+                Some(id) => {
+                    model.doc.insert_body_with_id(
+                        id,
+                        ducad_core::Body::new(name.clone(), ducad_core::Material::default()),
+                    );
+                    id
+                }
+                None => model.doc.add_body(name.clone()),
+            };
             if let Some(body) = model.doc.bodies.get_mut(id) {
                 body.mechanical = orig_body.mechanical.clone();
             }
@@ -708,18 +762,18 @@ impl Command<ModelDoc> for SplitBodyCommand {
         } = *applied;
 
         let mut pending = Vec::with_capacity(result_ids.len());
-        for (id, name) in result_ids.into_iter().zip(result_names) {
+        for (id, name) in result_ids.iter().copied().zip(result_names) {
             model.doc.bodies.remove(id);
             if let Some(geo) = model.geometry.remove(id) {
                 pending.push((name, geo));
             }
         }
 
-        // Kembalikan body awal
-        self.target_id = model.doc.bodies.insert(orig_body);
+        // Kembalikan body awal pada id semula.
+        model.doc.insert_body_with_id(self.target_id, orig_body);
         model.geometry.insert(self.target_id, orig_geo);
 
-        self.state = Some(SplitBodyState::Pending(pending));
+        self.state = Some(SplitBodyState::Pending(pending, Some(result_ids)));
     }
 }
 

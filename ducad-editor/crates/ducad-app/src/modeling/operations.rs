@@ -6,7 +6,7 @@ use glam::{DVec2, Vec3};
 use slotmap::Key;
 
 use ducad_engine::compute::{self, ProfilePick};
-use ducad_engine::{OpError, OpErrorCode, PlaneFrame};
+use ducad_engine::{OpError, OpErrorCode};
 use ducad_kernel::ExtrudeExtent;
 
 use crate::app::DuCADApp;
@@ -300,11 +300,12 @@ impl DuCADApp {
                 return false;
             }
         }
-        // Jalur lama (bidang datum): selalu bidang XY.
+        // Jalur lama (bidang datum): bidang sketsa aktif, seperti Extrude.
+        let plane = crate::document::plane_frame_from(&self.active_plane);
         let result = compute::revolve(
             self.sketch(),
             &ProfilePick::Entities(&self.selected),
-            &PlaneFrame::top(),
+            &plane,
             DVec2::new(axis_origin.0, axis_origin.1),
             DVec2::new(axis_dir.0, axis_dir.1),
             angle_deg,
@@ -510,6 +511,22 @@ impl DuCADApp {
                 return;
             }
         };
+        // Jalur oplog (ADR 0010), sama dengan jalur dua region.
+        let plane = self.active_plane;
+        match self.loft_via_oplog(&bottom, &top, &plane, height) {
+            Ok(true) => {
+                self.pending_loft_bottom = None;
+                self.model_status = None;
+                return;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                self.model_status = Some(op_status("Loft", &e));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                return;
+            }
+        }
         match ducad_kernel::loft_profiles(&bottom, &top, height) {
             Ok(shape) => {
                 let geo = BodyGeometry::from_shape(shape);
@@ -968,7 +985,9 @@ impl DuCADApp {
         } else if !remove_faces.is_empty() {
             self.shell_variable_via_oplog(id, thickness, &remove_faces, &[])
         } else {
-            Ok(false)
+            // Tanpa sisi terpilih: sisi dibuka menurut arah shell → op `shell`
+            // dengan selector arah (bukan adopt beku lewat jalur lama).
+            self.shell_direction_via_oplog(id, thickness)
         };
         if let Some(ok) = self.try_gui_op("Shell Variable", r) {
             if ok {
@@ -1390,21 +1409,28 @@ impl DuCADApp {
 
     /// Hapus semua body terpilih.
     pub fn delete_selected_bodies(&mut self) {
-        for id in std::mem::take(&mut self.selected_bodies) {
-            // Jalur oplog: op `delete`.
-            let r = self.delete_body_via_oplog(id);
-            if let Some(ok) = self.try_gui_op("Delete Body", r) {
-                if ok {
-                    self.archive_round_history(id);
+        let ids: Vec<BodyId> = std::mem::take(&mut self.selected_bodies).into_iter().collect();
+        if !ids.is_empty() {
+            // Jalur oplog: semua op `delete` dalam SATU batch = satu langkah undo.
+            let r = self.delete_bodies_via_oplog(&ids);
+            match self.try_gui_op("Delete Body", r) {
+                Some(true) => {
+                    for id in &ids {
+                        self.archive_round_history(*id);
+                    }
                 }
-                continue;
+                Some(false) => {}
+                None => {
+                    for id in ids {
+                        let body_name = self.model.doc.bodies.get(id).map(|b| b.name.clone()).unwrap_or_else(|| "Solid".to_string());
+                        self.execute_model_command(
+                            Box::new(DeleteBodyCommand::new(id)),
+                            &format!("Menghapus objek solid '{}' dari dokumen", body_name),
+                        );
+                        self.archive_round_history(id);
+                    }
+                }
             }
-            let body_name = self.model.doc.bodies.get(id).map(|b| b.name.clone()).unwrap_or_else(|| "Solid".to_string());
-            self.execute_model_command(
-                Box::new(DeleteBodyCommand::new(id)),
-                &format!("Menghapus objek solid '{}' dari dokumen", body_name),
-            );
-            self.archive_round_history(id);
         }
         self.body_move_armed = false;
         self.body_move_target = None;
@@ -1945,12 +1971,15 @@ impl DuCADApp {
                         best_idx
                     };
 
-                    hist.features[target_idx] = new_feature.clone();
+                    // Riwayat hanya ditulis bila rebuild berhasil; bila gagal
+                    // fitur lama tetap utuh (riwayat tidak rusak).
+                    let mut features = hist.features.clone();
+                    features[target_idx] = new_feature.clone();
 
                     // Rebuild all holes from base shape
                     let mut curr: Option<BodyGeometry> = None;
                     let mut err = None;
-                    for feat in &hist.features {
+                    for feat in &features {
                         let base = curr.as_ref().map(|g| &g.shape).unwrap_or(&hist.base);
                         match hole_at(base, &feat.spec, feat.pos, feat.normal) {
                             Ok(g) => curr = Some(g),
@@ -1959,6 +1988,9 @@ impl DuCADApp {
                                 break;
                             }
                         }
+                    }
+                    if err.is_none() {
+                        hist.features = features;
                     }
                     match (err, curr) {
                         (Some(e), _) => (Err(e), true),

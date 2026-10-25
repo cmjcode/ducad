@@ -185,6 +185,9 @@ impl DuCADApp {
         let rdir = crate::recovery::dir();
         let _ = std::fs::create_dir_all(&rdir);
         let path = crate::recovery::file_in(&rdir, crate::recovery::session_key());
+        // Samakan `design` dengan oplog live sebelum ditulis (lihat
+        // `write_native_file`).
+        self.sync_agent_meta();
         let body_exports = self.native_export_bodies();
         let ordered = self.plane_ordered_sketches();
         let datums = self.native_datums();

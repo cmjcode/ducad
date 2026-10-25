@@ -222,6 +222,38 @@ fn transform_and_scale_copy_keep_the_original() {
 }
 
 #[test]
+fn transform_copy_inherits_source_material() {
+    let mut s = boxed();
+    // Material visual diatur GUI (bukan op), mekanik lewat op `set_material`.
+    let chrome = ducad_core::Material::polished_chrome(None);
+    {
+        let bid = s.body("b").unwrap().0;
+        s.core().model.doc.bodies[bid].material = chrome;
+    }
+    let r = s.run(
+        vec![
+            op(json!({"op":"set_material","id":"mat","body":"b","material":"al_6061_t6"})),
+            op(json!({"op":"transform","id":"moved","body":"b","translate":[50,0,0],"copy":true})),
+            op(json!({"op":"scale","id":"big","body":"b","factor":2,"copy":true})),
+        ],
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let src = s.body("b").unwrap().0;
+    let mech = s.model().doc.bodies[src].mechanical.clone();
+    assert!(mech.is_some(), "set_material harus mengisi mekanik body asal");
+    for name in ["moved", "big"] {
+        let id = s.body(name).unwrap().0;
+        let b = &s.model().doc.bodies[id];
+        assert_eq!(b.material, chrome, "{name}: material visual ikut salinan");
+        assert_eq!(b.mechanical, mech, "{name}: material mekanik ikut salinan");
+    }
+    // Undo batch mengembalikan sesi tanpa salinan.
+    assert!(s.undo().is_ok());
+    assert!(s.body("moved").is_err());
+}
+
+#[test]
 fn adopt_restores_frozen_geometry_on_replay() {
     // Geometri "GUI" yang tidak punya op: kotak berfillet sudut.
     let mut src = boxed();
@@ -310,4 +342,64 @@ fn feature_tree_rows_and_display_json() {
     };
     let rows = ducad_engine::oplog_view::oplog_rows(&d);
     assert_eq!(rows[0].main_value, Some(("thickness".into(), 2.0)));
+}
+
+/// Hole Wizard dengan ukuran counterbore yang diubah (bukan tabel ISO) bisa
+/// dinyatakan sebagai op `hole` bentuk custom; hasilnya sama dengan
+/// `compute::hole` memakai `HoleSpec` yang sama, dan replay mereproduksinya.
+#[test]
+fn custom_counterbore_hole_op_applies_and_replays() {
+    use ducad_core::hole::{HoleKind, HoleSpec, IsoMetricThread};
+    let mut s = boxed();
+    let v0 = vol(&s, "b");
+    let r = s.run(
+        vec![op(json!({
+            "op":"hole","id":"h","body":"b","face":">Z","at_world":[[15,10,15]],
+            "spec":{"diameter":6.6,"depth":10,"kind":"counterbore","cbore_diameter":13.0,"cbore_depth":5.0}
+        }))],
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let v1 = vol(&s, "b");
+    assert!(v1 < v0, "lubang harus mengurangi volume");
+
+    // Referensi: kernel langsung dengan HoleSpec yang sama.
+    let mut spec = HoleSpec::for_iso(IsoMetricThread::Custom, HoleKind::Counterbore, 10.0);
+    spec.diameter = 6.6;
+    spec.counterbore_diameter = 13.0;
+    spec.counterbore_depth = 5.0;
+    spec.is_through = false;
+    let base = ducad_engine::compute::primitive(
+        &ducad_engine::compute::PrimitiveShape::Box { size: [30.0, 20.0, 15.0], centered: false },
+        [0.0; 3],
+    )
+    .unwrap();
+    let reference = ducad_engine::compute::hole(&base.shape, &spec, &[[15.0, 10.0, 15.0]], [0.0, 0.0, 1.0])
+        .unwrap();
+    assert!((reference.shape.volume().abs() - v1).abs() < 1e-3, "{} vs {v1}", reference.shape.volume());
+
+    // Spec yang sama lewat `hole_spec` memuat ukuran custom-nya.
+    let built = ducad_engine::session::hole_spec(
+        &serde_json::from_value(json!({
+            "diameter":6.6,"depth":10,"kind":"counterbore","cbore_diameter":13.0,"cbore_depth":5.0
+        }))
+        .unwrap(),
+        &ducad_engine::ops::Params::new(),
+    )
+    .unwrap();
+    assert_eq!(built.kind, HoleKind::Counterbore);
+    assert!((built.counterbore_diameter - 13.0).abs() < 1e-9);
+    assert!((built.counterbore_depth - 5.0).abs() < 1e-9);
+    assert!(!built.is_through);
+
+    // Nilai non-positif ditolak dengan jelas.
+    assert!(ducad_engine::session::hole_spec(
+        &serde_json::from_value(json!({"diameter":6.6,"kind":"counterbore","cbore_diameter":0})).unwrap(),
+        &ducad_engine::ops::Params::new(),
+    )
+    .is_err());
+
+    let design = ducad_engine::DesignDoc { fingerprint: String::new(), ..s.design().clone() };
+    let re = Session::replay(design).expect("replay");
+    assert!((vol(&re, "b") - v1).abs() < 1e-3);
 }

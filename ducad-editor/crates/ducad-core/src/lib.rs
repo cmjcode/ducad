@@ -7,7 +7,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
+
+pub mod body_map;
+pub use body_map::{BodyMap, IdMap};
 
 pub mod hole;
 pub use hole::{HoleKind, HoleSpec, IsoMetricThread};
@@ -195,7 +197,7 @@ pub struct Body {
 /// Dokumen aktif: kumpulan body + status modifikasi.
 #[derive(Debug, Default)]
 pub struct Document {
-    pub bodies: SlotMap<BodyId, Body>,
+    pub bodies: BodyMap,
     pub dirty: bool,
     pub unit: LengthUnit,
     /// Material mekanik kustom milik berkas ini (kunci → sifat), dirujuk
@@ -214,13 +216,15 @@ impl Document {
         material: Material,
     ) -> BodyId {
         self.dirty = true;
-        self.bodies.insert(Body {
-            name: name.into(),
-            visible: true,
-            material,
-            mechanical: None,
-            uuid: crate::new_part_uuid(),
-        })
+        self.bodies.insert(Body::new(name, material))
+    }
+
+    /// Pasang kembali body pada id yang sudah diketahui (undo hapus / redo
+    /// buat). Id tetap sama sehingga langkah undo/redo berikutnya, instance
+    /// assembly, dan seleksi yang memegang id itu tetap berlaku.
+    pub fn insert_body_with_id(&mut self, id: BodyId, body: Body) {
+        self.dirty = true;
+        self.bodies.insert_with_id(id, body);
     }
 
     /// Sifat mekanik body (pustaka kustom berkas didahulukan).

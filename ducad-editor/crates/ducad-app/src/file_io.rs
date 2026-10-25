@@ -64,10 +64,12 @@ impl DuCADApp {
     /// penanda tutorial (dipakai juga untuk menyisihkan dokumen kerja saat
     /// tutorial dimulai).
     pub(crate) fn write_native_file(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        // `design` yang ditulis harus mencerminkan oplog live (perubahan di
+        // luar command seperti `note_rigid_move` menandai `oplog_fp_dirty`).
+        self.sync_agent_meta();
         // Lembar gambar ikut tersimpan sebagai `design.drawings` (P21.6).
         self.capture_drawing_spec();
         if let Some(spec) = self.drawing_spec.clone() {
-            self.sync_agent_meta();
             self.agent_meta.design.upsert_drawing(spec);
             self.sync_design_after_agent();
         }

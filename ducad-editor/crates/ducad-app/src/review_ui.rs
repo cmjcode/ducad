@@ -512,6 +512,8 @@ impl DuCADApp {
                 brief: loaded.brief,
                 release: loaded.release,
                 package: loaded.package,
+                configurations: loaded.configurations,
+                active_configuration: loaded.active_configuration,
                 ..DesignDoc::default()
             },
             ..Default::default()
@@ -676,5 +678,25 @@ mod tests {
         assert_eq!(saved.checks.len(), 1);
         assert_eq!(saved.brief.unwrap().title, "Dari berkas");
         assert_eq!(saved.release.unwrap().revision, "C");
+    }
+
+    /// Konfigurasi dokumen tidak boleh hilang saat berkas dibuka.
+    #[test]
+    fn configurations_survive_adopt_loaded_design() {
+        let mut app = DuCADApp::new_for_test();
+        let mut cfg = ducad_core::Configuration { name: "Besar".into(), ..Default::default() };
+        cfg.params.insert("w".into(), 30.0);
+        let design = DesignDoc {
+            params: [("w".to_string(), 20.0)].into_iter().collect(),
+            configurations: vec![cfg],
+            active_configuration: Some("Besar".into()),
+            ..DesignDoc::default()
+        };
+        app.design = Some(serde_json::to_value(&design).unwrap());
+        app.adopt_loaded_design();
+        assert_eq!(app.agent_meta.design.configurations.len(), 1);
+        assert_eq!(app.agent_meta.design.configurations[0].name, "Besar");
+        assert_eq!(app.agent_meta.design.active_configuration.as_deref(), Some("Besar"));
+        assert_eq!(app.agent_meta.design.params["w"], 20.0);
     }
 }

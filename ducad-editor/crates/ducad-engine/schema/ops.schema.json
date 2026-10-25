@@ -2659,7 +2659,48 @@
         },
         {
           "additionalProperties": false,
+          "description": "Custom hole: `diameter` of the main bore; `depth: null` = through. `kind` (default `clearance`) selects the form: `counterbore` uses `cbore_diameter`/`cbore_depth`, `countersink` uses `csink_diameter`/`csink_angle_deg` (default 90), `tapped` uses `thread_pitch`. Omitted form fields fall back to generic defaults.",
           "properties": {
+            "cbore_depth": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cbore_diameter": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "csink_angle_deg": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "csink_diameter": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "depth": {
               "anyOf": [
                 {
@@ -2673,6 +2714,19 @@
             },
             "diameter": {
               "$ref": "#/definitions/Num"
+            },
+            "kind": {
+              "$ref": "#/definitions/HoleKindSpec"
+            },
+            "thread_pitch": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -3602,7 +3656,7 @@
                   "$ref": "#/definitions/HoleSpecRef"
                 }
               ],
-              "description": "`{\"iso\":\"M5\"}` (clearance, through), `{\"iso\":\"M6\",\"kind\":\"counterbore\"}`, or `{\"diameter\":4.2,\"depth\":10}`."
+              "description": "`{\"iso\":\"M5\"}` (clearance, through), `{\"iso\":\"M6\",\"kind\":\"counterbore\"}`, `{\"diameter\":4.2,\"depth\":10}`, or a custom stepped hole such as `{\"diameter\":6.6,\"kind\":\"counterbore\",\"cbore_diameter\":12,\"cbore_depth\":6.5}`."
             }
           },
           "required": [

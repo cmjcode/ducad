@@ -433,6 +433,9 @@ impl DuCADApp {
             brief: self.agent_meta.design.brief.clone(),
             release: self.agent_meta.design.release.clone(),
             package: self.agent_meta.design.package.clone(),
+            // Konfigurasi (variasi param) juga bukan op: ikut dibawa.
+            configurations: self.agent_meta.design.configurations.clone(),
+            active_configuration: self.agent_meta.design.active_configuration.clone(),
             base_bodies,
             fingerprint: fp,
             ..DesignDoc::default()
@@ -797,6 +800,8 @@ impl DuCADApp {
         }
         self.agent_meta = meta;
         self.end_oplog_step(mark, what);
+        // Aksi model baru membatalkan redo sketsa/tinta, sama seperti jalur GUI.
+        self.clear_redo_except(crate::types::UndoTarget::Model);
         self.sync_design_after_agent();
         self.after_model_changed(&ducad_i18n::t!("bridge-title"), what);
     }
@@ -826,6 +831,20 @@ impl DuCADApp {
         self.save_native_to(path.clone());
         let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         Ok(ToolOut::ok(json!({ "path": path, "bytes": bytes })))
+    }
+
+    /// Adopsi model hasil replay dengan penanda undo yang SUDAH diambil
+    /// pemanggil. Dipakai `sync_bound_sketches`: snapshot "sebelum" harus
+    /// berisi sketsa sebelum diedit, padahal saat adopsi slot sudah berisi
+    /// hasil editan.
+    pub(crate) fn adopt_agent_model_with_mark(
+        &mut self,
+        model: ducad_engine::model::ModelDoc,
+        meta: ducad_engine::SessionMeta,
+        what: &str,
+        mark: crate::oplog_undo::OplogMark,
+    ) {
+        self.adopt_agent_model_marked(model, meta, what, mark);
     }
 }
 

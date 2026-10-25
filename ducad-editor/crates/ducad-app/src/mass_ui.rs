@@ -114,6 +114,8 @@ impl DuCADApp {
             );
             self.model_undo.execute(Box::new(cmd), &mut self.model);
         }
+        // Konsisten dengan `execute_model_command`: redo stack lain dibuang.
+        self.clear_redo_except(crate::types::UndoTarget::Model);
         self.model_status = Some(ducad_i18n::t!("mass-material-applied"));
     }
 

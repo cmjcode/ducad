@@ -168,15 +168,26 @@ impl DuCADApp {
                 if let Some(op) = op {
                     self.sync_agent_meta();
                     let mark = self.begin_oplog_step();
+                    let fp_before = self.model.geometry.get(id).map(|g| g.mesh_fingerprint);
                     self.skip_direct_edit_guard = true;
                     self.execute_model_command(
                         Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
                         &details,
                     );
                     self.skip_direct_edit_guard = false;
-                    self.agent_meta.design.oplog.push(op);
-                    self.end_oplog_step(mark, label);
-                    self.sync_design_after_agent();
+                    let fp_after = self.model.geometry.get(id).map(|g| g.mesh_fingerprint);
+                    // Command bisa batal (panik tertangkap → model utuh). Op
+                    // hanya dicatat bila geometri benar-benar berubah; kalau
+                    // tidak, oplog + sidik jari akan tak sinkron dan Feature
+                    // Tree dibuang pada sync berikutnya.
+                    if fp_after.is_some() && fp_after != fp_before {
+                        self.agent_meta.design.oplog.push(op);
+                        self.end_oplog_step(mark, label);
+                        self.sync_design_after_agent();
+                    } else {
+                        log::warn!("shell: command tidak mengubah body, op shell tidak dicatat");
+                        return;
+                    }
                 } else {
                     self.execute_model_command(
                         Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),

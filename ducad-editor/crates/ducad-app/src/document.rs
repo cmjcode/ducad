@@ -182,6 +182,36 @@ impl DuCADApp {
     }
 
     pub fn delete_datum_plane(&mut self, id: u32) {
+        // Slot sketsa di bidang ini yang terikat ke op `sketch` oplog tidak
+        // boleh hilang diam-diam: fitur hilirnya akan kehilangan sumbernya.
+        let mut dependents: Vec<String> = self
+            .sketch_set
+            .ids_on_plane(PlaneRef::Datum(id))
+            .into_iter()
+            .flat_map(|sid| {
+                self.agent_meta
+                    .live_sketches
+                    .iter()
+                    .filter(move |(_, s)| **s == sid)
+                    .map(|(op_id, _)| op_id.clone())
+            })
+            .collect();
+        if !dependents.is_empty() {
+            dependents.sort();
+            dependents.dedup();
+            let name = self
+                .datum_planes
+                .iter()
+                .find(|dp| dp.id == id)
+                .map(|dp| dp.name.clone())
+                .unwrap_or_default();
+            self.model_status = Some(format!(
+                "Bidang referensi '{}' tidak bisa dihapus: masih dipakai op sketsa {}",
+                name,
+                dependents.join(", ")
+            ));
+            return;
+        }
         if let Some(pos) = self.datum_planes.iter().position(|dp| dp.id == id) {
             let is_active = match self.active_plane.kind {
                 PlaneKind::Custom(active_id) => active_id == id,
@@ -214,7 +244,16 @@ impl DuCADApp {
         self.last_snap = None;
         self.is_sketching = true;
         self.left_toolbar.is_sketching = true;
+        self.sync_active_sketch_slot();
         self.camera.orient_to_plane(&self.active_plane);
+    }
+
+    /// Samakan slot aktif `sketch_set` dengan bidang aktif (bila slotnya
+    /// ada). Undo/redo global dan `clear_redo_except` membaca slot aktif,
+    /// sedangkan bidang aktif diubah lewat `active_plane`.
+    pub(crate) fn sync_active_sketch_slot(&mut self) {
+        let id = self.active_sketch_id();
+        self.sketch_set.set_active(id);
     }
 
     pub fn apply_create_datum_plane(&mut self) {
@@ -447,7 +486,11 @@ impl DuCADApp {
     pub(crate) fn clear_redo_except(&mut self, keep: crate::types::UndoTarget) {
         use crate::types::UndoTarget;
         if keep != UndoTarget::Sketch {
-            self.sketch_set.active_mut().undo.clear_redo();
+            // Semua slot, bukan hanya yang aktif: redo sketsa di bidang lain
+            // juga tidak berlaku lagi setelah aksi baru.
+            for (_, slot) in self.sketch_set.iter_mut() {
+                slot.undo.clear_redo();
+            }
         }
         if keep != UndoTarget::Model {
             self.model_undo.clear_redo();
@@ -464,7 +507,7 @@ impl DuCADApp {
     pub fn next_undo_target(&self) -> Option<crate::types::UndoTarget> {
         use crate::types::UndoTarget;
         [
-            (UndoTarget::Sketch, self.sketch_set.active().undo.top_undo_stamp()),
+            (UndoTarget::Sketch, self.newest_sketch_undo().map(|(_, s)| s)),
             (UndoTarget::Model, self.model_undo.top_undo_stamp()),
             (UndoTarget::Ink, self.ink_undo.top_undo_stamp()),
         ]
@@ -479,7 +522,7 @@ impl DuCADApp {
     pub fn next_redo_target(&self) -> Option<crate::types::UndoTarget> {
         use crate::types::UndoTarget;
         [
-            (UndoTarget::Sketch, self.sketch_set.active().undo.top_redo_stamp()),
+            (UndoTarget::Sketch, self.newest_sketch_redo().map(|(_, s)| s)),
             (UndoTarget::Model, self.model_undo.top_redo_stamp()),
             (UndoTarget::Ink, self.ink_undo.top_redo_stamp()),
         ]
@@ -489,8 +532,24 @@ impl DuCADApp {
         .map(|(_, target)| target)
     }
 
+    /// Pratinjau yang masih di-stage (extrude gizmo, loft, sumbu revolve)
+    /// mengacu pada geometri/seleksi saat ini; undo/redo mengubahnya di
+    /// bawah pratinjau itu, jadi dibatalkan dulu.
+    fn cancel_staged_previews(&mut self) {
+        if self.extruding_from_gizmo || self.gizmo_staged {
+            self.cancel_gizmo_extrusion();
+        }
+        if self.loft_staged_body_id.is_some() {
+            self.cancel_staged_loft();
+        }
+        if self.revolve_staged_axis.is_some() {
+            self.cancel_staged_revolve();
+        }
+    }
+
     #[inline]
     pub fn undo(&mut self) {
+        self.cancel_staged_previews();
         if self.can_undo() {
             self.onboarding.note_undo();
         }
@@ -504,6 +563,7 @@ impl DuCADApp {
 
     #[inline]
     pub fn redo(&mut self) {
+        self.cancel_staged_previews();
         match self.next_redo_target() {
             Some(crate::types::UndoTarget::Sketch) => self.redo_active_sketch(),
             Some(crate::types::UndoTarget::Model) => self.redo_model(),
@@ -522,17 +582,45 @@ impl DuCADApp {
         self.next_redo_target().is_some()
     }
 
+    /// Slot sketsa (bidang mana pun) yang memegang langkah undo paling baru
+    /// beserta stempelnya. Undo global tidak boleh bergantung pada bidang
+    /// yang kebetulan aktif: garis di Top tetap bisa di-undo setelah
+    /// pengguna beralih ke Front.
+    fn newest_sketch_undo(&self) -> Option<(SketchId, u64)> {
+        self.sketch_set
+            .iter()
+            .filter_map(|(id, slot)| slot.undo.top_undo_stamp().map(|s| (id, s)))
+            .max_by_key(|(_, s)| *s)
+    }
+
+    /// Pasangan redo dari [`Self::newest_sketch_undo`].
+    fn newest_sketch_redo(&self) -> Option<(SketchId, u64)> {
+        self.sketch_set
+            .iter()
+            .filter_map(|(id, slot)| slot.undo.top_redo_stamp().map(|s| (id, s)))
+            .max_by_key(|(_, s)| *s)
+    }
+
+    /// Undo langkah sketsa paling baru — di slot yang memegangnya, atau slot
+    /// bidang aktif bila tidak ada langkah tercatat.
     #[inline]
     pub fn undo_active_sketch(&mut self) {
-        let id = self.active_sketch_id();
+        let id = self
+            .newest_sketch_undo()
+            .map(|(id, _)| id)
+            .unwrap_or_else(|| self.active_sketch_id());
         self.sketch_set.set_active(id);
         self.sketch_set.undo();
         self.check_stale_features();
     }
 
+    /// Redo pasangan [`Self::undo_active_sketch`].
     #[inline]
     pub fn redo_active_sketch(&mut self) {
-        let id = self.active_sketch_id();
+        let id = self
+            .newest_sketch_redo()
+            .map(|(id, _)| id)
+            .unwrap_or_else(|| self.active_sketch_id());
         self.sketch_set.set_active(id);
         self.sketch_set.redo();
         self.check_stale_features();
@@ -585,6 +673,7 @@ impl DuCADApp {
         }
         self.is_sketching = true;
         self.left_toolbar.is_sketching = true;
+        self.sync_active_sketch_slot();
         self.camera.orient_to_plane(&self.active_plane);
     }
 
@@ -1109,6 +1198,81 @@ mod tests {
             .map(|g| g.shape.volume().abs())
             .sum();
         assert!((v - 2400.0).abs() < 1e-6, "{v}");
+    }
+
+    /// Undo global setelah berpindah bidang: garis di Top tetap bisa
+    /// di-undo meski bidang aktif kini Front; slot aktif mengikuti bidang.
+    #[test]
+    fn undo_after_plane_switch_undoes_line_on_previous_plane() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_sketch_plane(PlaneKind::Top);
+        let top = app.active_sketch_id();
+        let l = ducad_sketch::Entity::Line {
+            start: glam::DVec2::new(0.0, 0.0),
+            end: glam::DVec2::new(10.0, 0.0),
+            is_construction: false,
+        };
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+            "Line",
+            vec![l],
+        )));
+        assert_eq!(app.sketch_set.sketch(top).unwrap().entities.len(), 1);
+
+        app.set_sketch_plane(PlaneKind::Front);
+        assert_ne!(app.active_sketch_id(), top);
+        assert_eq!(
+            app.sketch_set.active_id(),
+            app.active_sketch_id(),
+            "slot aktif mengikuti bidang aktif"
+        );
+        assert_eq!(app.next_undo_target(), Some(crate::types::UndoTarget::Sketch));
+        app.undo();
+        assert_eq!(
+            app.sketch_set.sketch(top).unwrap().entities.len(),
+            0,
+            "garis Top dibatalkan"
+        );
+        assert!(!app.can_undo());
+        assert_eq!(app.next_redo_target(), Some(crate::types::UndoTarget::Sketch));
+        app.redo();
+        assert_eq!(app.sketch_set.sketch(top).unwrap().entities.len(), 1);
+
+        // Aksi baru di domain lain membuang redo sketsa di bidang mana pun.
+        app.undo();
+        let shape = ducad_kernel::make_box(10.0, 10.0, 10.0, false).unwrap();
+        app.execute_model_command(
+            Box::new(ducad_engine::model::AddSolidCommand::new(
+                "Kotak",
+                ducad_engine::model::BodyGeometry::from_shape(shape),
+            )),
+            "add",
+        );
+        assert_eq!(app.next_redo_target(), None);
+    }
+
+    /// Datum yang slot sketsanya terikat ke op `sketch` oplog tidak boleh
+    /// dihapus diam-diam; statusnya menyebut op yang bergantung.
+    #[test]
+    fn delete_datum_plane_refuses_when_slot_is_bound_to_oplog_sketch() {
+        let mut app = DuCADApp::new_for_test();
+        let id = app.create_datum_plane("Offset".into(), SketchPlane::top().offset(10.0));
+        let sid = app
+            .sketch_set
+            .first_on_plane(PlaneRef::Datum(id))
+            .expect("datum baru punya slot sketsa");
+        app.agent_meta.live_sketches.insert("sketch1".into(), sid);
+
+        app.delete_datum_plane(id);
+        assert!(app.datum_planes.iter().any(|dp| dp.id == id), "bidang tetap ada");
+        assert!(app.sketch_set.get(sid).is_some(), "slot tetap ada");
+        let status = app.model_status.clone().unwrap_or_default();
+        assert!(status.contains("sketch1"), "{status}");
+
+        // Setelah ikatan lepas, penghapusan berjalan seperti biasa.
+        app.agent_meta.live_sketches.clear();
+        app.delete_datum_plane(id);
+        assert!(!app.datum_planes.iter().any(|dp| dp.id == id));
+        assert!(app.sketch_set.get(sid).is_none());
     }
 }
 

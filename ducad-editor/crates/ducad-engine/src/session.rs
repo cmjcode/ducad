@@ -931,9 +931,28 @@ impl SessionCore<'_> {
         out: &mut OpOutcome,
     ) {
         if copy {
+            // Salinan mewarisi material visual + mekanik body asal; tanpa ini
+            // salinan jatuh ke material default dan replay oplog
+            // menghilangkan pilihan material pengguna.
+            let (material, mechanical) = self
+                .model
+                .doc
+                .bodies
+                .get(bid)
+                .map(|b| (b.material, b.mechanical.clone()))
+                .unwrap_or_default();
             self.exec(Box::new(
-                AddSolidCommand::new(label, geo).with_body_name(id.to_string()),
+                AddSolidCommand::new(label, geo)
+                    .with_body_name(id.to_string())
+                    .with_material(material),
             ));
+            if mechanical.is_some() {
+                if let Ok((new_id, _)) = self.body(id) {
+                    self.exec(Box::new(SetBodyMechanicalCommand::new(
+                        label, new_id, mechanical,
+                    )));
+                }
+            }
             out.created.push(id.to_string());
         } else {
             self.exec(Box::new(ReplaceGeometryCommand::new(label, bid, geo)));
@@ -2579,7 +2598,7 @@ pub fn hole_spec(
     spec: &HoleSpecRef,
     params: &Params,
 ) -> OpResult<ducad_core::hole::HoleSpec> {
-    use ducad_core::hole::{HoleKind, HoleSpec, IsoMetricThread};
+    use ducad_core::hole::{HoleSpec, IsoMetricThread};
     const THROUGH_DEFAULT_DEPTH: f64 = 20.0;
     let depth = |d: &Option<Num>| -> OpResult<Option<f64>> {
         d.as_ref().map(|n| eval(n, params)).transpose()
@@ -2600,12 +2619,7 @@ pub fn hole_spec(
                         "ukuran ISO '{iso}' tidak dikenal (M2, M2.5, M3, M4, M5, M6, M8, M10, M12)"
                     ))
                 })?;
-            let kind = match kind {
-                HoleKindSpec::Clearance => HoleKind::Simple,
-                HoleKindSpec::Tapped => HoleKind::Tapped,
-                HoleKindSpec::Counterbore => HoleKind::Counterbore,
-                HoleKindSpec::Countersink => HoleKind::Countersink,
-            };
+            let kind = hole_kind(*kind);
             let d = depth(d)?;
             let mut s = HoleSpec::for_iso(thread, kind, d.unwrap_or(THROUGH_DEFAULT_DEPTH));
             // `for_iso` memakai kolom clearance_dia untuk Simple/Counterbore/
@@ -2613,18 +2627,68 @@ pub fn hole_spec(
             s.is_through = d.is_none();
             Ok(s)
         }
-        HoleSpecRef::Custom { diameter, depth: d } => {
+        HoleSpecRef::Custom {
+            diameter,
+            depth: d,
+            kind,
+            cbore_diameter,
+            cbore_depth,
+            csink_diameter,
+            csink_angle_deg,
+            thread_pitch,
+        } => {
             let dia = eval(diameter, params)?;
             let d = depth(d)?;
             let mut s = HoleSpec::for_iso(
                 IsoMetricThread::Custom,
-                HoleKind::Simple,
+                hole_kind(*kind),
                 d.unwrap_or(THROUGH_DEFAULT_DEPTH),
             );
             s.diameter = dia;
             s.is_through = d.is_none();
+            let opt = |n: &Option<Num>, name: &str| -> OpResult<Option<f64>> {
+                match n {
+                    Some(n) => {
+                        let v = eval(n, params)?;
+                        if v <= 0.0 {
+                            return Err(OpError::invalid(format!(
+                                "lubang: '{name}' harus > 0 (dapat {v})"
+                            )));
+                        }
+                        Ok(Some(v))
+                    }
+                    None => Ok(None),
+                }
+            };
+            if let Some(v) = opt(cbore_diameter, "cbore_diameter")? {
+                s.counterbore_diameter = v;
+            }
+            if let Some(v) = opt(cbore_depth, "cbore_depth")? {
+                s.counterbore_depth = v;
+            }
+            if let Some(v) = opt(csink_diameter, "csink_diameter")? {
+                s.countersink_diameter = v;
+            }
+            if let Some(v) = opt(csink_angle_deg, "csink_angle_deg")? {
+                s.countersink_angle_deg = v;
+            }
+            if let Some(p) = opt(thread_pitch, "thread_pitch")? {
+                s.thread_pitch = p;
+                // Sama dengan `HoleSpec::for_iso`: ulir efektif = depth - 2 pitch.
+                s.thread_depth = (s.depth - 2.0 * p).max(2.0 * p);
+            }
             Ok(s)
         }
+    }
+}
+
+fn hole_kind(kind: HoleKindSpec) -> ducad_core::hole::HoleKind {
+    use ducad_core::hole::HoleKind;
+    match kind {
+        HoleKindSpec::Clearance => HoleKind::Simple,
+        HoleKindSpec::Tapped => HoleKind::Tapped,
+        HoleKindSpec::Counterbore => HoleKind::Counterbore,
+        HoleKindSpec::Countersink => HoleKind::Countersink,
     }
 }
 

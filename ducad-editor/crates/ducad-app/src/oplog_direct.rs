@@ -141,6 +141,13 @@ impl DuCADApp {
         self.agent_meta.design.oplog.extend(ops);
         self.sync_design_after_agent();
         self.end_oplog_step(guard.mark, label);
+        // Beri tahu pengguna: hasil jalur lama ini beku (op `adopt`), tidak
+        // bisa diedit dari Feature Tree. Pesan sukses pemanggil dipertahankan.
+        let note = ducad_i18n::t!("direct-edit-frozen");
+        self.model_status = Some(match self.model_status.take() {
+            Some(prev) if !prev.is_empty() && !prev.contains(&note) => format!("{prev} — {note}"),
+            _ => note,
+        });
     }
 
     // --- Body utuh ----------------------------------------------------------
@@ -217,6 +224,58 @@ impl DuCADApp {
     pub(crate) fn delete_body_via_oplog(&mut self, id: BodyId) -> Result<bool, OpError> {
         self.direct_op_via_oplog(id, "Delete Body", |app, body| {
             Some(serde_json::json!({ "op": "delete", "id": app.unique_op_id("delete"), "body": body }))
+        })
+    }
+
+    /// Hapus beberapa body sebagai SATU batch op `delete` (satu langkah undo
+    /// memulihkan semuanya). `Ok(false)` hanya bila daftar kosong.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn delete_bodies_via_oplog(&mut self, ids: &[BodyId]) -> Result<bool, OpError> {
+        if ids.is_empty() {
+            return Ok(false);
+        }
+        if ids.len() == 1 {
+            return self.delete_body_via_oplog(ids[0]);
+        }
+        self.sync_agent_meta();
+        let (names, renames) = self
+            .unique_body_names(ids)
+            .ok_or_else(|| OpError::invalid("body terpilih tidak ada lagi"))?;
+        let mut ops = Vec::with_capacity(names.len());
+        let mut used = std::collections::HashSet::new();
+        for name in &names {
+            let mut id_op = self.unique_op_id("delete");
+            // `unique_op_id` hanya melihat oplog; dalam satu batch id harus
+            // berbeda juga satu sama lain.
+            let mut k = 2;
+            while !used.insert(id_op.clone()) {
+                id_op = format!("{}_{k}", self.unique_op_id("delete"));
+                k += 1;
+            }
+            ops.push(op_from(serde_json::json!({ "op": "delete", "id": id_op, "body": name }))?);
+        }
+        let details = format!("Menghapus {} body: {}", names.len(), names.join(", "));
+        let result = self.run_gui_ops(ops, "Delete Body", &details).map(|_| ());
+        for mut cmd in renames.into_iter().rev() {
+            if result.is_ok() {
+                self.model_undo.attach_to_top(Box::new(cmd));
+            } else {
+                ducad_core::Command::revert(&mut cmd, &mut self.model);
+            }
+        }
+        result.map(|()| true)
+    }
+
+    /// Shell seragam yang membuka sisi menurut `shell_direction` (tanpa sisi
+    /// yang diklik) sebagai op `shell` dengan selector arah (`>Z`, `<X`, ...).
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn shell_direction_via_oplog(&mut self, id: BodyId, thickness: f64) -> Result<bool, OpError> {
+        let dir = self.shell_direction;
+        self.direct_op_via_oplog(id, "Shell", |app, body| {
+            let shape = &app.model.geometry.get(id)?.shape;
+            let pick = crate::modeling::operations::ShellPick::Direction(dir);
+            let op = app.shell_op_for(body, shape, &pick, thickness, 0.0)?;
+            serde_json::to_value(op).ok()
         })
     }
 
@@ -475,11 +534,15 @@ impl DuCADApp {
             Ok(true) => {}
             Ok(false) => {
                 self.undo_model();
+                // Undo kompensasi bukan aksi pengguna: tanpa ini Redo akan
+                // menghapus sisi lubang lagi tanpa membuat lubang baru.
+                self.model_undo.clear_redo();
                 self.model_status = Some("Ukuran lubang ini belum bisa dibuat ulang sebagai fitur".to_string());
                 return Some(false);
             }
             Err(e) => {
                 self.undo_model();
+                self.model_undo.clear_redo();
                 self.report_gui_op_error("Edit Hole", &e);
                 return Some(false);
             }
@@ -519,6 +582,8 @@ impl DuCADApp {
             }
         }
         self.oplog_fp_dirty = true;
+        // `design` ikut tersimpan ke berkas: harus memuat op baru ini.
+        self.sync_design_after_agent();
     }
 
     /// `(body, mesh_fingerprint)` semua body — pasangan
@@ -564,19 +629,33 @@ impl DuCADApp {
         };
         // Δ: x → rd·x + cd.
         let cd = p + t - rd * p;
-        // Op terakhir = `place` body ini → gabungkan.
-        let last = self.agent_meta.design.oplog.last().and_then(|o| {
+        // Op `place` terakhir body ini yang hanya diikuti op `place` body
+        // lain → gabungkan. (Pemutaran gerak dengan >= 2 body bergerak
+        // bergantian; bila hanya op paling akhir yang dicek, tiap frame
+        // menambah op baru.) Op non-`place` di antaranya memutus penggabungan.
+        let is_place = |o: &Op| -> Option<(serde_json::Value, bool)> {
             let v = serde_json::to_value(o).ok()?;
-            let is_place = o.id().starts_with("place")
-                && v["op"] == "transform"
-                && v["body"] == name.as_str();
-            is_place.then_some(v)
-        });
+            let place = o.id().starts_with("place") && v["op"] == "transform";
+            let mine = place && v["body"] == name.as_str();
+            Some((v, mine)).filter(|_| place)
+        };
+        let mut merge_at: Option<(usize, serde_json::Value)> = None;
+        for (i, o) in self.agent_meta.design.oplog.iter().enumerate().rev() {
+            match is_place(o) {
+                Some((v, true)) => {
+                    merge_at = Some((i, v));
+                    break;
+                }
+                Some((_, false)) => continue,
+                None => break,
+            }
+        }
+        let last = merge_at.as_ref().map(|(_, v)| v.clone());
         let vec3 = |v: &serde_json::Value| -> Option<DVec3> {
             let a = v.as_array()?;
             Some(DVec3::new(a.first()?.as_f64()?, a.get(1)?.as_f64()?, a.get(2)?.as_f64()?))
         };
-        let (r_new, c_new, replace) = match &last {
+        let (r_new, c_new) = match &last {
             Some(v) => {
                 // Op `place` selalu berpivot 0: x → R·(x + t) = R·x + R·t.
                 let t_old = vec3(&v["translate"]).unwrap_or(DVec3::ZERO);
@@ -587,16 +666,15 @@ impl DuCADApp {
                     _ => DQuat::IDENTITY,
                 };
                 let c_old = r_old * t_old;
-                (rd * r_old, rd * c_old + cd, true)
+                (rd * r_old, rd * c_old + cd)
             }
-            None => (rd, cd, false),
+            None => (rd, cd),
         };
         let translate = r_new.inverse() * c_new;
         let (ax, ang) = r_new.to_axis_angle();
-        let op_id = if replace {
-            self.agent_meta.design.oplog.last().map(|o| o.id().to_string()).unwrap_or_default()
-        } else {
-            self.unique_op_id("place")
+        let op_id = match &merge_at {
+            Some((i, _)) => self.agent_meta.design.oplog[*i].id().to_string(),
+            None => self.unique_op_id("place"),
         };
         let mut v = serde_json::json!({
             "op": "transform", "id": op_id, "body": name, "translate": arr(translate),
@@ -605,11 +683,13 @@ impl DuCADApp {
             v["rotate"] = serde_json::json!({ "pivot": [0.0, 0.0, 0.0], "axis": arr(ax), "angle_deg": ang.to_degrees() });
         }
         let Ok(op) = op_from(v) else { return };
-        if replace {
-            self.agent_meta.design.oplog.pop();
+        match merge_at {
+            Some((i, _)) => self.agent_meta.design.oplog[i] = op,
+            None => self.agent_meta.design.oplog.push(op),
         }
-        self.agent_meta.design.oplog.push(op);
         self.oplog_fp_dirty = true;
+        // `design` ikut tersimpan (Save/autosave): harus memuat op `place`.
+        self.sync_design_after_agent();
     }
 
 
@@ -971,5 +1051,172 @@ mod tests {
         assert!(app.active_face.is_none());
         assert!(app.active_vertex.is_some());
         assert!((app.vertex_gizmo_radius + 4.0).abs() < 1e-9, "chamfer dibuka sebagai nilai negatif");
+    }
+
+    fn move_body(app: &mut DuCADApp, id: BodyId, dx: f64) {
+        let tf = ducad_kernel::MateTransformResult {
+            translation: (dx, 0.0, 0.0),
+            pivot: (0.0, 0.0, 0.0),
+            axis: (0.0, 0.0, 1.0),
+            angle_rad: 0.0,
+        };
+        let geo = app.model.geometry.get(id).unwrap();
+        let moved = ducad_kernel::apply_mate_transform_to_shape(&geo.shape, &tf).unwrap();
+        app.model.geometry.insert(id, BodyGeometry::from_shape(moved));
+        app.note_rigid_move(id, &tf);
+    }
+
+    /// `design` yang ikut tersimpan (Save/autosave) harus memuat op `place`.
+    #[test]
+    fn rigid_move_is_synced_to_saved_design() {
+        let (mut app, id) = app_with_box();
+        move_body(&mut app, id, 5.0);
+        let design: ducad_engine::DesignDoc =
+            serde_json::from_value(app.design.clone().expect("design ada")).unwrap();
+        assert_eq!(
+            design.oplog.iter().map(|o| o.kind().to_string()).collect::<Vec<_>>(),
+            ["primitive", "transform"],
+            "op place harus ada di `design`"
+        );
+        assert!(design.oplog[1].id().starts_with("place"));
+    }
+
+    /// Dua body digerakkan bergantian (pemutaran gerak): tiap body tetap satu
+    /// op `place`, bukan satu op baru per frame.
+    #[test]
+    fn alternating_moves_of_two_bodies_merge_per_body() {
+        let (mut app, a) = app_with_box();
+        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0, 10.0, 10.0], [50.0, 0.0, 0.0], false);
+        let b = app.model.doc.bodies.keys().find(|k| *k != a).expect("box kedua");
+        assert_eq!(app.agent_meta.design.oplog.len(), 2);
+        for _ in 0..3 {
+            move_body(&mut app, a, 2.0);
+            move_body(&mut app, b, -3.0);
+        }
+        assert_eq!(kinds(&app), ["primitive", "primitive", "transform", "transform"]);
+        let (amin, _) = bbox(&app, a);
+        let (bmin, _) = bbox(&app, b);
+        assert!((amin[0] - 6.0).abs() < 1e-6);
+        assert!((bmin[0] - 41.0).abs() < 1e-6);
+        app.sync_agent_meta();
+        assert_eq!(app.agent_meta.design.oplog.len(), 4);
+        assert_replays(&app);
+    }
+
+    /// Edit langsung jalur lama pada model ber-oplog dicatat sebagai `adopt`
+    /// beku — dan pengguna DIBERI TAHU lewat status, bukan diam-diam.
+    #[test]
+    fn legacy_direct_edit_reports_frozen_adopt_in_status() {
+        let (mut app, id) = app_with_box();
+        let smaller = ducad_engine::compute::primitive(
+            &ducad_engine::compute::PrimitiveShape::Box { size: [10.0, 10.0, 10.0], centered: false },
+            [0.0; 3],
+        )
+        .unwrap();
+        app.model_status = Some("Sukses".to_string());
+        app.execute_model_command(Box::new(ReplaceGeometryCommand::new("Tes", id, smaller)), "tes");
+        assert_eq!(kinds(&app), ["primitive", "adopt"]);
+        let note = ducad_i18n::t!("direct-edit-frozen");
+        let status = app.model_status.clone().unwrap_or_default();
+        assert!(status.contains(&note), "status: {status}");
+        assert!(status.starts_with("Sukses — "), "pesan pemanggil dipertahankan: {status}");
+    }
+
+    /// Edit lubang lama yang body-nya sudah berubah: langkah 1 (`delete_face`)
+    /// berhasil, langkah 2 (`hole`) gagal → undo kompensasi TANPA menyisakan
+    /// redo yang akan menghapus sisi lubang lagi; model utuh.
+    #[test]
+    fn rehole_stale_legacy_failed_second_step_leaves_no_redo() {
+        let (mut app, id) = app_with_box();
+        let base = ducad_kernel::clone_shape(&app.model.geometry.get(id).unwrap().shape).unwrap();
+        let mut spec = ducad_core::hole::HoleSpec::for_iso(
+            ducad_core::hole::IsoMetricThread::M6,
+            ducad_core::hole::HoleKind::Simple,
+            20.0,
+        );
+        spec.is_through = true;
+        let pos = (10.0, 10.0, 20.0);
+        let normal = (0.0, 0.0, 1.0);
+        let holed = ducad_engine::compute::hole(&base, &spec, &[[pos.0, pos.1, pos.2]], [0.0, 0.0, 1.0]).unwrap();
+        let down = PickRay { origin: (10.0, 10.0, 50.0), dir: (0.0, 0.0, -1.0) };
+        let hit = ducad_kernel::pick_face_details(&base, down).unwrap();
+        // Lubang jalur lama (geometri diganti langsung → op adopt).
+        app.execute_model_command(Box::new(ReplaceGeometryCommand::new("Hole Wizard", id, holed)), "hole");
+        assert_eq!(kinds(&app), ["primitive", "adopt"]);
+        let v_holed = app.model.geometry.get(id).unwrap().shape.volume();
+        app.hole_history.insert(
+            id,
+            crate::types::HoleHistory {
+                base,
+                features: vec![crate::types::HoleFeature {
+                    spec: spec.clone(),
+                    pos,
+                    normal,
+                    face_hit: hit,
+                    offset_u: 0.0,
+                    offset_v: 0.0,
+                }],
+                // Sengaja basi: body "sudah diubah sesudahnya".
+                result_fingerprint: 0,
+            },
+        );
+        app.editing_hole_idx = Some((id, 0));
+        let undo_before = app.model_undo.undo_count();
+
+        // Ray meleset → `hole_via_oplog` = Ok(false) → langkah 2 gagal.
+        let miss = PickRay { origin: (500.0, 500.0, 50.0), dir: (0.0, 0.0, -1.0) };
+        let r = app.rehole_stale_legacy(id, miss, pos, &spec);
+        assert_eq!(r, Some(false), "status: {:?}", app.model_status);
+        assert_eq!(
+            app.model_status.as_deref(),
+            Some("Ukuran lubang ini belum bisa dibuat ulang sebagai fitur"),
+            "harus gagal di langkah 2, bukan langkah 1"
+        );
+        assert!(!app.model_undo.can_redo(), "undo kompensasi tidak boleh menyisakan redo");
+        assert_eq!(app.model_undo.undo_count(), undo_before);
+        let v_now = app.model.geometry.get(id).unwrap().shape.volume();
+        assert!((v_now - v_holed).abs() < 1e-6, "model harus utuh: {v_now} vs {v_holed}");
+        assert_eq!(kinds(&app), ["primitive", "adopt"]);
+    }
+
+    /// Hapus 2 body terpilih = SATU langkah undo (batch op `delete`).
+    #[test]
+    fn deleting_two_bodies_is_one_undo_step() {
+        let (mut app, a) = app_with_box();
+        app.create_primitive(ducad_ui::PrimitiveKind::Box, [10.0, 10.0, 10.0], [40.0, 0.0, 0.0], false);
+        assert_eq!(app.model.doc.bodies.len(), 2);
+        let b = app.model.doc.bodies.keys().find(|k| *k != a).unwrap();
+        let undo_before = app.model_undo.undo_count();
+        app.selected_bodies.clear();
+        app.selected_bodies.insert(a);
+        app.selected_bodies.insert(b);
+        app.delete_selected_bodies();
+        assert!(app.model.doc.bodies.is_empty(), "status: {:?}", app.model_status);
+        assert_eq!(kinds(&app), ["primitive", "primitive", "delete", "delete"]);
+        assert_eq!(app.model_undo.undo_count(), undo_before + 1, "satu langkah undo");
+        app.undo_model();
+        assert_eq!(app.model.doc.bodies.len(), 2, "satu undo memulihkan kedua body");
+        assert_eq!(kinds(&app), ["primitive", "primitive"]);
+        assert_replays(&app);
+    }
+
+    /// Shell tanpa sisi yang diklik membuka sisi menurut arah shell sebagai
+    /// op `shell` (selector arah), bukan adopt beku.
+    #[test]
+    fn shell_without_picked_faces_becomes_shell_op() {
+        let (mut app, id) = app_with_box();
+        select(&mut app, id);
+        app.selected_faces.clear();
+        app.active_face = None;
+        app.shell_variable_faces.clear();
+        app.shell_thickness_input = "2".to_string();
+        app.shell_direction = ducad_kernel::Direction::PosZ;
+        app.shell_variable_selected_body();
+        assert_eq!(kinds(&app), ["primitive", "shell"], "status: {:?}", app.model_status);
+        let v = app.model.geometry.get(id).unwrap().shape.volume();
+        assert!((v - (8000.0 - 16.0 * 16.0 * 18.0)).abs() < 1e-3, "{v}");
+        let op = serde_json::to_value(app.agent_meta.design.oplog.last().unwrap()).unwrap();
+        assert_eq!(op["remove_faces"], ">Z");
+        assert_replays(&app);
     }
 }

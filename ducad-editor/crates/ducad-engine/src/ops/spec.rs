@@ -179,8 +179,9 @@ pub enum Op {
         /// World points, projected perpendicular onto the face plane.
         #[serde(default)]
         at_world: Vec<[Num; 3]>,
-        /// `{"iso":"M5"}` (clearance, through), `{"iso":"M6","kind":"counterbore"}`, or
-        /// `{"diameter":4.2,"depth":10}`.
+        /// `{"iso":"M5"}` (clearance, through), `{"iso":"M6","kind":"counterbore"}`,
+        /// `{"diameter":4.2,"depth":10}`, or a custom stepped hole such as
+        /// `{"diameter":6.6,"kind":"counterbore","cbore_diameter":12,"cbore_depth":6.5}`.
         spec: HoleSpecRef,
     },
     /// Pattern copies of a body. `merge: false` (default): new copies `id.1`, `id.2`, …; `merge:
@@ -1471,11 +1472,31 @@ pub enum HoleSpecRef {
         #[serde(default)]
         depth: Option<Num>,
     },
+    /// Custom hole: `diameter` of the main bore; `depth: null` = through. `kind` (default
+    /// `clearance`) selects the form: `counterbore` uses `cbore_diameter`/`cbore_depth`,
+    /// `countersink` uses `csink_diameter`/`csink_angle_deg` (default 90), `tapped` uses
+    /// `thread_pitch`. Omitted form fields fall back to generic defaults.
     Custom {
         diameter: Num,
         #[serde(default)]
         depth: Option<Num>,
+        #[serde(default, skip_serializing_if = "is_default_hole_kind")]
+        kind: HoleKindSpec,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cbore_diameter: Option<Num>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cbore_depth: Option<Num>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        csink_diameter: Option<Num>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        csink_angle_deg: Option<Num>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_pitch: Option<Num>,
     },
+}
+
+fn is_default_hole_kind(k: &HoleKindSpec) -> bool {
+    *k == HoleKindSpec::Clearance
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
@@ -1977,6 +1998,58 @@ mod tests {
             "schema/ops.schema.json basi — jalankan: DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file"
         );
         assert!(fresh.contains("\"extrude\""));
+    }
+
+    /// Spec lubang custom bertingkat (counterbore/countersink/tapped) ikut
+    /// bentuk `{diameter,..}`; bentuk lama `{iso,kind,depth}` dan
+    /// `{diameter,depth}` tetap terbaca dan serialisasi ulang tidak menambah
+    /// field.
+    #[test]
+    fn hole_spec_custom_forms_round_trip_and_stay_backward_compatible() {
+        let legacy_iso: HoleSpecRef =
+            serde_json::from_value(serde_json::json!({"iso":"M6","kind":"counterbore","depth":12}))
+                .unwrap();
+        assert!(matches!(legacy_iso, HoleSpecRef::Iso { kind: HoleKindSpec::Counterbore, .. }));
+
+        let legacy_custom: HoleSpecRef =
+            serde_json::from_value(serde_json::json!({"diameter":4.2,"depth":10})).unwrap();
+        assert!(matches!(
+            &legacy_custom,
+            HoleSpecRef::Custom { kind: HoleKindSpec::Clearance, cbore_diameter: None, .. }
+        ));
+        assert_eq!(
+            serde_json::to_value(&legacy_custom).unwrap(),
+            serde_json::json!({"diameter":4.2,"depth":10.0}),
+            "bentuk lama tidak boleh berubah saat diserialisasi ulang"
+        );
+
+        let cbore_json = serde_json::json!({
+            "diameter":6.6,"depth":12.0,"kind":"counterbore","cbore_diameter":12.5,"cbore_depth":6.5
+        });
+        let cbore: HoleSpecRef = serde_json::from_value(cbore_json.clone()).unwrap();
+        assert!(matches!(&cbore, HoleSpecRef::Custom { kind: HoleKindSpec::Counterbore, .. }));
+        let back: HoleSpecRef =
+            serde_json::from_value(serde_json::to_value(&cbore).unwrap()).unwrap();
+        assert_eq!(cbore, back);
+        assert_eq!(serde_json::to_value(&back).unwrap(), cbore_json);
+
+        let csink: HoleSpecRef = serde_json::from_value(serde_json::json!({
+            "diameter":5.5,"kind":"countersink","csink_diameter":11.0,"csink_angle_deg":82
+        }))
+        .unwrap();
+        assert!(matches!(&csink, HoleSpecRef::Custom { kind: HoleKindSpec::Countersink, depth: None, .. }));
+
+        let tapped: HoleSpecRef = serde_json::from_value(
+            serde_json::json!({"diameter":5.0,"depth":15,"kind":"tapped","thread_pitch":1.0}),
+        )
+        .unwrap();
+        assert!(matches!(&tapped, HoleSpecRef::Custom { kind: HoleKindSpec::Tapped, .. }));
+
+        // Field tak dikenal tetap ditolak.
+        assert!(serde_json::from_value::<HoleSpecRef>(
+            serde_json::json!({"diameter":5.0,"cbore_dia":9.0})
+        )
+        .is_err());
     }
 }
 

@@ -254,20 +254,36 @@ impl DuCADApp {
     }
 
     /// Id op `sketch` yang terikat ke slot `sid` dan masih ada di oplog.
-    fn bound_sketch_id(&self, sid: ducad_sketch::SketchId) -> Option<String> {
-        self.agent_meta
+    ///
+    /// Op `sketch` buatan agent/MCP mendapat slot GUI (`sketch_ids`) tetapi
+    /// tidak diikat hidup (`live_sketches`); tanpa ikatan itu edit GUI pada
+    /// slotnya tidak diteruskan dan extrude dari slot itu membuat op
+    /// `sketch` ganda. Ikatan dibuat di sini saat pertama kali dibutuhkan.
+    fn bound_sketch_id(&mut self, sid: ducad_sketch::SketchId) -> Option<String> {
+        let in_oplog = |id: &str| {
+            self.agent_meta
+                .design
+                .oplog
+                .iter()
+                .any(|o| o.id() == id && o.kind() == "sketch")
+        };
+        if let Some(id) = self
+            .agent_meta
             .live_sketches
             .iter()
-            .find(|(id, s)| {
-                **s == sid
-                    && self
-                        .agent_meta
-                        .design
-                        .oplog
-                        .iter()
-                        .any(|o| o.id() == id.as_str())
-            })
+            .find(|(id, s)| **s == sid && in_oplog(id))
             .map(|(id, _)| id.clone())
+        {
+            return Some(id);
+        }
+        let id = self
+            .agent_meta
+            .sketch_ids
+            .iter()
+            .find(|(id, s)| **s == sid && in_oplog(id))
+            .map(|(id, _)| id.clone())?;
+        self.agent_meta.live_sketches.insert(id.clone(), sid);
+        Some(id)
     }
 
     /// Edit oplog (ganti/tambah op) dengan replay penuh di sesi salinan, lalu
@@ -278,6 +294,19 @@ impl DuCADApp {
         replace: Vec<ducad_engine::ReplaceOp>,
         append: Vec<Op>,
         what: &str,
+    ) -> Result<(), OpError> {
+        self.edit_oplog_via_replay_marked(replace, append, what, None)
+    }
+
+    /// [`Self::edit_oplog_via_replay`] dengan penanda undo yang boleh sudah
+    /// diambil pemanggil (lihat `sync_bound_sketches`).
+    #[allow(clippy::result_large_err)]
+    fn edit_oplog_via_replay_marked(
+        &mut self,
+        replace: Vec<ducad_engine::ReplaceOp>,
+        append: Vec<Op>,
+        what: &str,
+        mark: Option<crate::oplog_undo::OplogMark>,
     ) -> Result<(), OpError> {
         // Replay langsung tanpa diff geometri: `preview_edit` juga menghitung
         // boolean body lama vs baru untuk ghost proposal, yang tidak perlu di
@@ -292,11 +321,41 @@ impl DuCADApp {
             ducad_engine::reverify_fixes(&design, &mut e);
             e
         })?;
-        self.adopt_replayed_session(session, what);
+        match mark {
+            None => self.adopt_replayed_session(session, what),
+            Some(mark) => self.adopt_replayed_session_marked(session, what, mark),
+        }
         self.clear_redo_except(crate::types::UndoTarget::Model);
         let ids: Vec<String> = replace.iter().map(|r| r.id.clone()).collect();
         self.warn_if_frozen(&ids);
         Ok(())
+    }
+
+    /// Cermin `adopt_replayed_session` (agent_bridge.rs) dengan penanda undo
+    /// yang sudah diambil pemanggil: slot terikat diperbarui dari replay, op
+    /// `sketch` terikat ditulis ulang dari slot agar keduanya identik.
+    fn adopt_replayed_session_marked(
+        &mut self,
+        session: ducad_engine::Session,
+        what: &str,
+        mark: crate::oplog_undo::OplogMark,
+    ) {
+        self.update_live_slots_from(&session);
+        let mut meta = session.meta().clone();
+        let live: Vec<(String, ducad_sketch::SketchId)> = self
+            .agent_meta
+            .live_sketches
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        for (id, sid) in live {
+            if let Some(fresh) = self.sketch_op_for_slot(sid, &id) {
+                if let Some(op) = meta.design.oplog.iter_mut().find(|o| o.id() == id) {
+                    *op = fresh;
+                }
+            }
+        }
+        self.adopt_agent_model_with_mark(session.into_model(), meta, what, mark);
     }
 
     /// Extrude entitas terpilih di sketsa aktif sebagai op oplog. `Ok(false)`
@@ -623,8 +682,14 @@ impl DuCADApp {
 
     /// Sketsa terikat yang isinya berubah sejak op-nya dicatat → ganti op
     /// `sketch` dan replay, agar body hilir mengikuti (dipanggil saat keluar
-    /// dari mode sketsa). Gagal → oplog lama tetap, error ditampilkan.
-    pub(crate) fn sync_bound_sketches(&mut self) {
+    /// dari mode sketsa). Gagal → oplog lama tetap, error ditampilkan, dan
+    /// `false` dikembalikan supaya pemanggil tetap di mode sketsa.
+    ///
+    /// Langkah undo "Perbarui sketsa" harus mengembalikan slot GUI ke isi
+    /// sebelum diedit; karena saat ini slot sudah berisi editan, snapshot
+    /// "sebelum" dibangun dari op `sketch` yang masih tercatat dan dititipkan
+    /// ke penanda undo sebelum replay.
+    pub(crate) fn sync_bound_sketches(&mut self) -> bool {
         let bound: Vec<(String, ducad_sketch::SketchId)> = self
             .agent_meta
             .live_sketches
@@ -632,29 +697,186 @@ impl DuCADApp {
             .map(|(id, sid)| (id.clone(), *sid))
             .collect();
         let mut replace = Vec::new();
+        let mut befores: Vec<(ducad_sketch::SketchId, ducad_sketch::Sketch)> = Vec::new();
         for (id, sid) in bound {
-            let Some(current) = self.agent_meta.design.oplog.iter().find(|o| o.id() == id) else {
+            let Some(current) = self
+                .agent_meta
+                .design
+                .oplog
+                .iter()
+                .find(|o| o.id() == id)
+                .cloned()
+            else {
                 continue;
             };
             let Some(op) = self.sketch_op_for_slot(sid, &id) else {
                 continue;
             };
-            if *current != op {
-                replace.push(ducad_engine::ReplaceOp { id, op });
+            if current == op {
+                continue;
             }
+            // Op agent (spec `rect`, ekspresi `$param`) tidak identik dengan
+            // terjemahan slot GUI walau geometrinya sama: bandingkan lewat
+            // isi slot yang dibangun ulang dari op, bukan JSON op.
+            if let Some(before) = self.slot_content_from_op(sid, &current) {
+                let same = self
+                    .sketch_set
+                    .get(sid)
+                    .map(|slot| {
+                        ducad_engine::ops::from_sketch::sketch_to_specs(&before).entities
+                            == ducad_engine::ops::from_sketch::sketch_to_specs(&slot.sketch).entities
+                            && before.constraints.len() == slot.sketch.constraints.len()
+                    })
+                    .unwrap_or(false);
+                if same {
+                    continue;
+                }
+                befores.push((sid, before));
+            }
+            replace.push(ducad_engine::ReplaceOp { id, op });
         }
         if replace.is_empty() {
-            return;
+            return true;
         }
-        if let Err(e) = self.edit_oplog_via_replay(replace, Vec::new(), "Perbarui sketsa") {
-            self.model_status = Some(crate::modeling::operations::op_status(
-                "Perbarui sketsa",
-                &e,
-            ));
-            let fixes = self.fixes_for_op_error(&e);
-            self.show_op_error(&e, fixes);
+        // Snapshot "sebelum": slot sementara diisi isi op lama, lalu
+        // dikembalikan ke editan sebelum replay.
+        let mut edited = Vec::new();
+        for (sid, before) in befores {
+            if let Some(slot) = self.sketch_set.sketch_mut(sid) {
+                edited.push((sid, std::mem::replace(slot, before)));
+            }
+        }
+        let mark = self.begin_oplog_step();
+        let synced: Vec<ducad_sketch::SketchId> = edited.iter().map(|(sid, _)| *sid).collect();
+        for (sid, sketch) in edited {
+            if let Some(slot) = self.sketch_set.sketch_mut(sid) {
+                *slot = sketch;
+            }
+        }
+        match self.edit_oplog_via_replay_marked(replace, Vec::new(), "Perbarui sketsa", Some(mark))
+        {
+            Ok(()) => {
+                // Editan sketsa kini terwakili oleh langkah model "Perbarui
+                // sketsa" (snapshot slot sebelum/sesudah). Riwayat undo slot
+                // itu dilipat ke sana: bila dibiarkan, undo berikutnya akan
+                // mencabut editan sketsa yang sudah dipulihkan oleh langkah
+                // model, sehingga sketsa dan body saling berbeda.
+                for sid in synced {
+                    if let Some(slot) = self.sketch_set.get_mut(sid) {
+                        slot.undo.clear();
+                    }
+                }
+                self.model_status = None;
+                true
+            }
+            Err(e) => {
+                self.model_status = Some(crate::modeling::operations::op_status(
+                    "Perbarui sketsa",
+                    &e,
+                ));
+                let fixes = self.fixes_for_op_error(&e);
+                self.show_op_error(&e, fixes);
+                false
+            }
         }
     }
+
+    /// Isi slot GUI `sid` seperti saat op `sketch` `op` dicatat: op
+    /// dijalankan di sesi kosong (dengan param dokumen), hasilnya dipetakan
+    /// ke slot lewat nama spec agar `EntityId` GUI tetap. Entitas yang
+    /// sudah dihapus di GUI kembali dengan id baru; yang baru ditambah di
+    /// GUI dibuang. `None` bila op tidak bisa dijalankan sendiri.
+    fn slot_content_from_op(
+        &self,
+        sid: ducad_sketch::SketchId,
+        op: &Op,
+    ) -> Option<ducad_sketch::Sketch> {
+        let gui = self.sketch_set.sketch(sid)?;
+        let design = ducad_engine::DesignDoc {
+            oplog: vec![op.clone()],
+            checks: Vec::new(),
+            base_bodies: Vec::new(),
+            fingerprint: String::new(),
+            geometry: Vec::new(),
+            drawings: Vec::new(),
+            ..self.agent_meta.design.clone()
+        };
+        let session = ducad_engine::Session::replay(design).ok()?;
+        let (replayed, _) = session.sketch(op.id()).ok()?;
+        Some(merge_replayed_into_slot(gui, replayed))
+    }
+}
+
+/// Petakan hasil replay `replayed` ke slot GUI `gui`: entitas dicocokkan
+/// lewat nama spec (id GUI dipertahankan), entitas yang hilang dari replay
+/// dibuang, yang hanya ada di replay disisipkan dengan id baru; constraint
+/// diambil dari replay dengan id yang sudah dipetakan.
+fn merge_replayed_into_slot(
+    gui: &ducad_sketch::Sketch,
+    replayed: &ducad_sketch::Sketch,
+) -> ducad_sketch::Sketch {
+    use ducad_engine::ops::from_sketch::entity_spec_name;
+    use ducad_sketch::entity::EntityId;
+    use std::collections::HashMap;
+
+    let by_name: HashMap<&str, EntityId> = replayed
+        .entity_names
+        .iter()
+        .map(|(rid, n)| (n.as_str(), *rid))
+        .collect();
+    let mut updated = gui.clone();
+    let mut rid_to_gid: HashMap<EntityId, EntityId> = HashMap::new();
+    let gids: Vec<EntityId> = gui.entities.keys().collect();
+    for gid in gids {
+        let name = entity_spec_name(gui, gid);
+        let matched = by_name
+            .get(name.as_str())
+            .and_then(|rid| replayed.entities.get(*rid).map(|e| (*rid, e)));
+        match matched {
+            Some((rid, r)) => {
+                if let Some(e) = updated.entities.get_mut(gid) {
+                    *e = r.clone();
+                }
+                updated.touch(gid);
+                rid_to_gid.insert(rid, gid);
+            }
+            None => {
+                updated.entities.remove(gid);
+                updated.entity_names.remove(&gid);
+                updated.hidden_entities.remove(&gid);
+                updated.styles.remove(gid);
+                updated.entity_layer.remove(gid);
+                updated.z_order.retain(|z| *z != gid);
+                updated.entity_group.remove(gid);
+                updated.origin.remove(gid);
+                updated.infinite_lines.remove(&gid);
+                updated.linked.remove(&gid);
+                updated.touch(gid);
+            }
+        }
+    }
+    for (rid, e) in replayed.entities.iter() {
+        if rid_to_gid.contains_key(&rid) {
+            continue;
+        }
+        let gid = updated.entities.insert(e.clone());
+        if let Some(n) = replayed.entity_names.get(&rid) {
+            updated.entity_names.insert(gid, n.clone());
+        }
+        updated.z_order.push(gid);
+        updated.touch(gid);
+        rid_to_gid.insert(rid, gid);
+    }
+    updated.constraints = replayed
+        .constraints
+        .iter()
+        .cloned()
+        .map(|mut c| {
+            c.map_entity_ids(|id| rid_to_gid.get(&id).copied().unwrap_or(id));
+            c
+        })
+        .collect();
+    updated
 }
 
 impl DuCADApp {
@@ -757,11 +979,19 @@ impl DuCADApp {
         if design.oplog.is_empty() {
             return;
         }
-        let Ok(session) = ducad_engine::Session::replay(ducad_engine::DesignDoc {
+        let session = match ducad_engine::Session::replay(ducad_engine::DesignDoc {
             fingerprint: String::new(),
             ..design
-        }) else {
-            return;
+        }) {
+            Ok(s) => s,
+            Err(e) => {
+                // Riwayat tidak bisa dibangun ulang: body berkas diadopsi
+                // sebagai geometri beku (lihat `sync_agent_meta`), dan
+                // pengguna diberi tahu, bukan diam-diam.
+                log::warn!("replay oplog berkas gagal ({}): riwayat diadopsi sebagai geometri beku", e.message);
+                self.file_status = Some(ducad_i18n::t!("file-oplog-replay-failed"));
+                return;
+            }
         };
         // Body dari berkas bisa berasal dari cache B-rep: bandingkan dengan
         // toleransi (sama dengan `Session::replay`), bukan sidik jari hash.
@@ -1279,32 +1509,50 @@ impl DuCADApp {
 }
 
 /// Spec op lubang (`{"iso":..}` / `{"diameter":..}`) yang menghasilkan
-/// `HoleSpec` sama persis dengan pilihan wizard; `None` = wizard memakai
-/// ukuran yang tidak bisa dinyatakan op (mis. counterbore custom).
+/// `HoleSpec` sama persis dengan pilihan wizard. Ukuran ISO dicoba dulu
+/// (op paling ringkas); ukuran yang diubah pengguna (mis. counterbore
+/// custom) dinyatakan sebagai bentuk `{"diameter",..,"kind",..}` lengkap.
+/// `None` hanya bila engine menolak spec itu.
 pub(crate) fn hole_spec_json(spec: &ducad_core::hole::HoleSpec) -> Option<serde_json::Value> {
     use ducad_core::hole::{HoleKind, IsoMetricThread};
     let depth = (!spec.is_through).then_some(spec.depth);
+    let kind = match spec.kind {
+        HoleKind::Simple => "clearance",
+        HoleKind::Tapped => "tapped",
+        HoleKind::Counterbore => "counterbore",
+        HoleKind::Countersink => "countersink",
+    };
     let mut cands = Vec::new();
     if spec.thread_size != IsoMetricThread::Custom {
-        let kind = match spec.kind {
-            HoleKind::Simple => "clearance",
-            HoleKind::Tapped => "tapped",
-            HoleKind::Counterbore => "counterbore",
-            HoleKind::Countersink => "countersink",
-        };
         let mut v = serde_json::json!({ "iso": spec.thread_size.label(), "kind": kind });
         if let Some(d) = depth {
             v["depth"] = serde_json::json!(d);
         }
         cands.push(v);
     }
-    if spec.kind == HoleKind::Simple {
-        let mut v = serde_json::json!({ "diameter": spec.diameter });
-        if let Some(d) = depth {
-            v["depth"] = serde_json::json!(d);
-        }
-        cands.push(v);
+    // Bentuk custom: diameter + ukuran bentuknya (cbore/csink/pitch).
+    let mut custom = serde_json::json!({ "diameter": spec.diameter });
+    if let Some(d) = depth {
+        custom["depth"] = serde_json::json!(d);
     }
+    match spec.kind {
+        HoleKind::Simple => {}
+        HoleKind::Counterbore => {
+            custom["kind"] = serde_json::json!(kind);
+            custom["cbore_diameter"] = serde_json::json!(spec.counterbore_diameter);
+            custom["cbore_depth"] = serde_json::json!(spec.counterbore_depth);
+        }
+        HoleKind::Countersink => {
+            custom["kind"] = serde_json::json!(kind);
+            custom["csink_diameter"] = serde_json::json!(spec.countersink_diameter);
+            custom["csink_angle_deg"] = serde_json::json!(spec.countersink_angle_deg);
+        }
+        HoleKind::Tapped => {
+            custom["kind"] = serde_json::json!(kind);
+            custom["thread_pitch"] = serde_json::json!(spec.thread_pitch);
+        }
+    }
+    cands.push(custom);
     let same = |a: &ducad_core::hole::HoleSpec| {
         let near = |x: f64, y: f64| (x - y).abs() < 1e-9;
         a.kind == spec.kind
@@ -1752,12 +2000,17 @@ mod tests {
         custom.is_through = false;
         assert_eq!(hole_spec_json(&custom).unwrap()["diameter"], 4.2);
 
+        // Counterbore yang diameternya diubah pengguna: bukan ISO lagi, tapi
+        // tetap bisa dinyatakan sebagai op bentuk custom (bukan adopt beku).
         let mut odd = iso;
         odd.counterbore_diameter += 1.5;
-        assert!(
-            hole_spec_json(&odd).is_none(),
-            "counterbore custom → jalur lama"
-        );
+        let v = hole_spec_json(&odd).expect("counterbore custom dinyatakan op custom");
+        assert!(v.get("iso").is_none(), "{v}");
+        assert_eq!(v["kind"], "counterbore");
+        assert_eq!(v["diameter"], odd.diameter);
+        assert_eq!(v["cbore_diameter"], odd.counterbore_diameter);
+        assert_eq!(v["cbore_depth"], odd.counterbore_depth);
+        assert_eq!(v["depth"], 12.0);
     }
 
     #[test]
@@ -2518,5 +2771,236 @@ mod tests {
         let fixes = gui_fixes_from_op_error(&e);
         assert!(!fixes.is_empty(), "{e:?}");
         assert!(matches!(fixes[0].1, GuiFix::FilletRadius(r) if r < 15.0));
+    }
+
+    fn base_x(app: &DuCADApp, id: ducad_sketch::entity::EntityId) -> f64 {
+        match app.sketch().entities.get(id) {
+            Some(ducad_sketch::Entity::Line { end, .. }) => end.x,
+            other => panic!("alas bukan garis: {other:?}"),
+        }
+    }
+
+    /// Edit alas lewat command sketsa (satu langkah undo sketsa).
+    fn edit_base_cmd(app: &mut DuCADApp, ids: &[ducad_sketch::entity::EntityId], base: f64) {
+        use ducad_sketch::Entity;
+        let sid = app.active_sketch_id();
+        app.sketch_set.set_active(sid);
+        let new = [
+            Entity::line(DVec2::new(0.0, 0.0), DVec2::new(base, 0.0)),
+            Entity::line(DVec2::new(base, 0.0), DVec2::new(base, 5.0)),
+            Entity::line(DVec2::new(base, 5.0), DVec2::new(5.0, 5.0)),
+        ];
+        app.sketch_set.active_mut().undo.begin("Edit alas");
+        for (i, ent) in new.into_iter().enumerate() {
+            app.sketch_set
+                .execute(Box::new(ducad_sketch::UpdateEntity::new("Edit alas", ids[i], ent)));
+        }
+        app.sketch_set.active_mut().undo.commit();
+    }
+
+    /// Sketsa terikat diedit dua kali (dua langkah undo sketsa) lalu keluar
+    /// (langkah model "Perbarui sketsa"). Undo global berjalan mundur satu
+    /// langkah per tekan: model dulu, lalu tiap edit sketsa — tanpa ada edit
+    /// yang di-revert dua kali atau riwayat sketsa yang hilang.
+    #[test]
+    fn undo_after_bound_sketch_edit_does_not_double_revert() {
+        let mut app = DuCADApp::new_for_test();
+        let ids = draw_l_profile(&mut app, 40.0);
+        app.selected = ids.iter().copied().collect();
+        app.extrude_distance_input = "60".into();
+        app.extrude_selected();
+        assert_eq!(oplog_kinds(&app), ["sketch", "extrude"]);
+
+        app.enter_sketching();
+        edit_base_cmd(&mut app, &ids, 55.0);
+        edit_base_cmd(&mut app, &ids, 70.0);
+        assert!(close(base_x(&app, ids[0]), 70.0));
+        app.exit_sketching();
+        assert!(!app.error_card.open, "{:?}", app.error_card);
+        assert!(close(volume(&app), l_volume(70.0, 0.0)));
+
+        // 1: langkah model "Perbarui sketsa" → body kembali ke alas 40 DAN
+        // isi slot sketsa dipulihkan ke isi op yang tercatat (40). Kedua
+        // editan sketsa sudah dilipat ke langkah ini, jadi undo berikutnya
+        // tidak boleh menggeser sketsa ke 55 sementara body tetap 40.
+        app.undo();
+        assert!(close(volume(&app), l_volume(40.0, 0.0)), "model kembali ke alas 40");
+        assert!(close(base_x(&app, ids[0]), 40.0), "slot kembali ke alas 40");
+        assert_eq!(app.model.doc.bodies.len(), 1);
+        // 2: langkah berikutnya adalah extrude (bukan editan sketsa).
+        app.undo();
+        assert!(close(base_x(&app, ids[0]), 40.0), "undo kedua tidak menyentuh sketsa");
+        assert_eq!(app.model.doc.bodies.len(), 0, "undo kedua mencabut extrude");
+        // Redo semuanya → body alas 40 lalu alas 70 + sketsa mengikuti.
+        app.redo();
+        assert!(close(volume(&app), l_volume(40.0, 0.0)));
+        app.redo();
+        assert!(close(base_x(&app, ids[0]), 70.0));
+        assert!(close(volume(&app), l_volume(70.0, 0.0)), "redo memulihkan body alas 70");
+        // Keluar-masuk sketsa tanpa editan tidak menambah langkah.
+        let steps = app.model_undo.undo_count();
+        app.enter_sketching();
+        app.exit_sketching();
+        assert_eq!(app.model_undo.undo_count(), steps);
+    }
+
+    /// Hole Wizard counterbore dengan diameter cbore yang digeser pengguna
+    /// menjadi op `hole` (bukan `adopt` beku) dan replay memberi geometri
+    /// yang sama.
+    #[test]
+    fn nudged_counterbore_hole_becomes_hole_op_and_replays() {
+        use ducad_core::hole::{HoleKind, HoleSpec, IsoMetricThread};
+        let (mut app, id) = app_with_box("Box", [0.0; 3]);
+        let v0 = app.model.geometry[id].shape.volume();
+        let mut spec = HoleSpec::for_iso(IsoMetricThread::M6, HoleKind::Counterbore, 12.0);
+        spec.is_through = false;
+        spec.counterbore_diameter += 1.5;
+        let down = PickRay { origin: (10.0, 10.0, 50.0), dir: (0.0, 0.0, -1.0) };
+        assert!(app
+            .hole_via_oplog(id, down, (10.0, 10.0, 20.0), &spec, false)
+            .unwrap_or_else(|e| panic!("{e:?}")));
+        assert_eq!(oplog_kinds(&app), ["hole"], "{:?}", app.model_status);
+        let op = serde_json::to_value(app.agent_meta.design.oplog.last().unwrap()).unwrap();
+        assert_eq!(op["spec"]["cbore_diameter"], spec.counterbore_diameter);
+        let v1 = app.model.geometry[id].shape.volume();
+        assert!(v1 < v0);
+        let s = ducad_engine::Session::replay(app.agent_meta.design.clone()).unwrap();
+        let v_replay: f64 = s.summary().bodies.iter().map(|b| b.volume).sum();
+        assert!(close(v_replay, v1), "replay {v_replay} vs live {v1}");
+    }
+
+    /// Undo "Perbarui sketsa" mengembalikan model DAN isi slot sketsa; masuk
+    /// lalu keluar mode sketsa lagi tidak diam-diam menerapkan ulang editan.
+    #[test]
+    fn undo_sketch_sync_restores_slot_and_next_exit_adds_no_step() {
+        use ducad_sketch::Entity;
+        let mut app = DuCADApp::new_for_test();
+        let ids = draw_l_profile(&mut app, 40.0);
+        app.selected = ids.iter().copied().collect();
+        app.extrude_distance_input = "60".into();
+        app.extrude_selected();
+        assert!(app.model_status.is_none(), "{:?}", app.model_status);
+        assert!(close(volume(&app), l_volume(40.0, 0.0)));
+        let steps = app.model_undo.undo_count();
+
+        app.enter_sketching();
+        set_base(&mut app, &ids, 55.0);
+        app.exit_sketching();
+        assert!(!app.is_sketching);
+        assert!(close(volume(&app), l_volume(55.0, 0.0)), "{}", volume(&app));
+        assert_eq!(app.model_undo.undo_count(), steps + 1, "satu langkah Perbarui sketsa");
+
+        app.undo();
+        assert!(close(volume(&app), l_volume(40.0, 0.0)), "{}", volume(&app));
+        let sid = app.active_sketch_id();
+        let sk = app.sketch_set.sketch(sid).unwrap();
+        assert_eq!(sk.entities.len(), 6);
+        match sk.entities.get(ids[0]) {
+            Some(Entity::Line { end, .. }) => {
+                assert!((end.x - 40.0).abs() < 1e-9, "slot kembali ke alas 40: {}", end.x)
+            }
+            other => panic!("entitas alas hilang: {other:?}"),
+        }
+
+        // Masuk + keluar tanpa mengubah apa pun: tidak ada langkah baru dan
+        // editan lama tidak diterapkan ulang.
+        app.enter_sketching();
+        app.exit_sketching();
+        assert!(!app.is_sketching);
+        assert_eq!(app.model_undo.undo_count(), steps, "tidak ada langkah baru");
+        assert!(close(volume(&app), l_volume(40.0, 0.0)), "{}", volume(&app));
+        assert_eq!(oplog_kinds(&app), ["sketch", "extrude"]);
+
+        // Redo mengembalikan editan 55 di model dan slot.
+        app.redo();
+        assert!(close(volume(&app), l_volume(55.0, 0.0)), "{}", volume(&app));
+        match app.sketch_set.sketch(sid).unwrap().entities.get(ids[0]) {
+            Some(Entity::Line { end, .. }) => assert!((end.x - 55.0).abs() < 1e-9, "{}", end.x),
+            other => panic!("entitas alas hilang: {other:?}"),
+        }
+    }
+
+    /// Profil terikat yang rusak saat keluar mode sketsa: replay gagal →
+    /// tetap di mode sketsa, model utuh, error + ujung terbuka ditampilkan;
+    /// setelah editan dibatalkan, keluar berhasil.
+    #[test]
+    fn exit_sketching_with_broken_profile_stays_in_sketch_mode() {
+        use ducad_sketch::Entity;
+        let mut app = DuCADApp::new_for_test();
+        let ids = draw_l_profile(&mut app, 40.0);
+        app.selected = ids.iter().copied().collect();
+        app.extrude_distance_input = "60".into();
+        app.extrude_selected();
+        assert!(app.model_status.is_none(), "{:?}", app.model_status);
+        let steps = app.model_undo.undo_count();
+
+        // Buka loop: ujung alas digeser menjauh dari sudut (lewat command
+        // agar bisa di-undo).
+        app.enter_sketching();
+        app.selected.clear();
+        let broken = Entity::line(DVec2::new(0.0, 0.0), DVec2::new(40.0, -10.0));
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::UpdateEntity::new(
+            "Edit", ids[0], broken,
+        )));
+        app.exit_sketching();
+        assert!(app.is_sketching, "replay gagal → tetap di mode sketsa");
+        assert!(app.model_status.is_some(), "error ditampilkan");
+        assert!(app.loose_ends.points.is_some(), "ujung terbuka disorot");
+        assert!(close(volume(&app), l_volume(40.0, 0.0)), "model utuh");
+        assert_eq!(app.model_undo.undo_count(), steps, "tidak ada langkah model");
+        assert_eq!(oplog_kinds(&app), ["sketch", "extrude"]);
+
+        // Batalkan editan (langkah sketsa paling baru) → keluar berhasil.
+        app.undo();
+        app.exit_sketching();
+        assert!(!app.is_sketching, "{:?}", app.model_status);
+        assert!(close(volume(&app), l_volume(40.0, 0.0)));
+        assert_eq!(app.model_undo.undo_count(), steps);
+    }
+
+    /// Op `sketch` buatan agent mendapat slot GUI tanpa ikatan hidup; saat
+    /// GUI meng-extrude dari slot itu, ikatan dibuat dan tidak ada op
+    /// `sketch` ganda.
+    #[test]
+    fn agent_sketch_slot_is_bound_on_first_gui_use_without_duplicate_op() {
+        use serde_json::json;
+        let mut app = DuCADApp::new_for_test();
+        // Slot Top bawaan dihapus supaya slot buatan agent menjadi sketsa
+        // aktif bidang Top (`active_sketch_id` = slot pertama di bidang).
+        let top = app
+            .sketch_set
+            .first_on_plane(ducad_sketch::PlaneRef::Top)
+            .unwrap();
+        assert!(app.sketch_set.remove(top));
+        let out = app
+            .agent_call_local(
+                "run_ops",
+                json!({ "ops": [
+                    {"op":"sketch","id":"base","plane":"XY","entities":[
+                        {"rect":{"center":[0,0],"w":60,"h":40,"name":"outline"}}]}
+                ] }),
+            )
+            .unwrap();
+        assert!(!out.is_error, "{}", out.payload);
+        assert_eq!(oplog_kinds(&app), ["sketch"]);
+        assert!(app.agent_meta.live_sketches.is_empty(), "op agent belum terikat");
+        let sid = app.agent_meta.sketch_ids["base"];
+
+        app.set_sketch_plane(ducad_render::PlaneKind::Top);
+        assert_eq!(app.active_sketch_id(), sid);
+        app.selected = app.sketch_set.sketch(sid).unwrap().entities.keys().collect();
+        assert!(app.extrude_via_oplog(8.0, None).unwrap());
+        assert_eq!(
+            oplog_kinds(&app),
+            ["sketch", "extrude"],
+            "tidak ada op sketch ganda"
+        );
+        assert_eq!(app.agent_meta.live_sketches.get("base"), Some(&sid));
+        assert!(close(volume(&app), 60.0 * 40.0 * 8.0), "{}", volume(&app));
+
+        // Keluar mode sketsa tanpa editan: op agent tidak ditulis ulang.
+        let steps = app.model_undo.undo_count();
+        app.exit_sketching();
+        assert_eq!(app.model_undo.undo_count(), steps);
     }
 }

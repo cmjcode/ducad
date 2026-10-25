@@ -516,16 +516,33 @@ impl Command<Sketch> for ResizeRectangle {
 pub struct TranslateEntities {
     label: &'static str,
     deltas: Vec<(EntityId, DVec2)>,
+    coalesce_key: Option<(&'static str, u64)>,
 }
 
 impl TranslateEntities {
     pub fn new(label: &'static str, ids: Vec<EntityId>, delta: DVec2) -> Self {
         let deltas = ids.into_iter().map(|id| (id, delta)).collect();
-        Self { label, deltas }
+        Self {
+            label,
+            deltas,
+            coalesce_key: None,
+        }
     }
 
     pub fn with_deltas(label: &'static str, deltas: Vec<(EntityId, DVec2)>) -> Self {
-        Self { label, deltas }
+        Self {
+            label,
+            deltas,
+            coalesce_key: None,
+        }
+    }
+
+    /// Pasang kunci coalescing: geseran berulang dengan kunci sama dalam
+    /// jendela coalescing digabung ke satu langkah undo (mis. tekan panah
+    /// berkali-kali).
+    pub fn with_coalesce_key(mut self, tag: &'static str, target_id: u64) -> Self {
+        self.coalesce_key = Some((tag, target_id));
+        self
     }
 
     pub fn deltas(&self) -> &[(EntityId, DVec2)] {
@@ -533,9 +550,29 @@ impl TranslateEntities {
     }
 }
 
+/// Kunci coalescing untuk nudge panah: tag `"nudge"` + hash id entitas yang
+/// digeser (urutan id tidak berpengaruh).
+pub fn nudge_coalesce_key(ids: &[EntityId]) -> (&'static str, u64) {
+    let mut raw: Vec<u64> = ids.iter().map(|id| id.data().as_ffi()).collect();
+    raw.sort_unstable();
+    raw.dedup();
+    // FNV-1a 64-bit: deterministik, tanpa dependensi.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for v in raw {
+        for b in v.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    ("nudge", h)
+}
+
 impl Command<Sketch> for TranslateEntities {
     fn name(&self) -> &str {
         self.label
+    }
+    fn coalesce_key(&self) -> Option<(&'static str, u64)> {
+        self.coalesce_key
     }
     fn apply(&mut self, sketch: &mut Sketch) {
         for &(id, delta) in &self.deltas {
@@ -1456,5 +1493,66 @@ impl Command<Sketch> for DeleteText {
                 sketch.origin.insert(nid, Origin::Text { text: new_tid });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod translate_tests {
+    use super::*;
+    use ducad_core::UndoStack;
+
+    fn line_sketch() -> (Sketch, EntityId, EntityId) {
+        let mut sk = Sketch::default();
+        let a = sk
+            .entities
+            .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0)));
+        let b = sk
+            .entities
+            .insert(Entity::line(DVec2::new(0.0, 5.0), DVec2::new(10.0, 5.0)));
+        (sk, a, b)
+    }
+
+    fn start_x(sk: &Sketch, id: EntityId) -> f64 {
+        match sk.entities[id] {
+            Entity::Line { start, .. } => start.x,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn nudges_with_same_key_coalesce_into_one_undo_step() {
+        let (mut sk, a, b) = line_sketch();
+        let mut undo: UndoStack<Sketch> = UndoStack::default();
+        let key = nudge_coalesce_key(&[a, b]);
+        for _ in 0..3 {
+            let cmd = TranslateEntities::new("Geser", vec![a, b], DVec2::new(1.0, 0.0))
+                .with_coalesce_key(key.0, key.1);
+            undo.execute(Box::new(cmd), &mut sk);
+        }
+        assert_eq!(undo.undo_count(), 1, "tiga tekanan panah = satu langkah");
+        assert!((start_x(&sk, a) - 3.0).abs() < 1e-9);
+        undo.undo(&mut sk);
+        assert!((start_x(&sk, a) - 0.0).abs() < 1e-9, "undo mengembalikan semua");
+        assert!((start_x(&sk, b) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn nudge_key_ignores_order_and_differs_per_selection() {
+        let (_, a, b) = line_sketch();
+        assert_eq!(nudge_coalesce_key(&[a, b]), nudge_coalesce_key(&[b, a]));
+        assert_ne!(nudge_coalesce_key(&[a]), nudge_coalesce_key(&[a, b]));
+    }
+
+    #[test]
+    fn nudges_without_key_stay_separate_steps() {
+        let (mut sk, a, _) = line_sketch();
+        let mut undo: UndoStack<Sketch> = UndoStack::default();
+        for _ in 0..2 {
+            undo.execute(
+                Box::new(TranslateEntities::new("Geser", vec![a], DVec2::new(1.0, 0.0))),
+                &mut sk,
+            );
+        }
+        assert_eq!(undo.undo_count(), 2);
     }
 }

@@ -1362,9 +1362,14 @@ impl DuCADApp {
 
     /// Catat aktivitas baru ke SQLite bersama snapshot dokumen penuh, lalu perbarui cache riwayat.
     pub fn record_activity(&mut self, kind: ActivityKindUi, action: &str, details: &str) {
-        let body_refs = self.native_body_refs();
+        // Snapshot memuat `design` (oplog parametrik) seperti berkas `.ducad`,
+        // supaya Time-Travel tidak menghancurkan Feature Tree. Body GUI
+        // selalu ditulis dengan STEP (`derived = false`).
+        let bodies = self.native_export_bodies();
         let ordered = self.plane_ordered_sketches();
-        let snapshot_json = ducad_io::native::serialize_to_json(&ordered, &body_refs).ok();
+        let snapshot_json =
+            ducad_io::native::serialize_full_to_json(&ordered, &bodies, self.design.as_ref(), None, None)
+                .ok();
 
         self.history_db.log_activity(kind, action, details, snapshot_json.as_deref());
         self.activity_cache = self.history_db.load_activities();
@@ -1422,6 +1427,12 @@ impl DuCADApp {
         }
         self.model = new_model;
         self.model_undo = ducad_core::UndoStack::default();
+        // `design` snapshot ikut dipulihkan lalu oplog-nya di-replay, sama
+        // seperti `open_native_path`; snapshot lama tanpa `design` diadopsi
+        // sebagai geometri beku oleh `sync_agent_meta`.
+        self.design = loaded.design;
+        self.adopt_loaded_design();
+        self.restore_oplog_from_design();
         self.selected_bodies.clear();
         self.selected_faces.clear();
         self.picking_mode = crate::types::PickMode::None;
@@ -1439,11 +1450,33 @@ impl DuCADApp {
     /// Saat gizmo extrude/push-pull mulai di-drag di mode sketsa, otomatis pindah ke mode 3D
     /// supaya hasil extrude langsung terlihat tanpa harus menekan ⌘⌥3 manual.
     pub fn auto_enter_3d_mode_on_extrude_drag(&mut self) {
-        if self.is_sketching {
-            self.is_sketching = false;
-            self.left_toolbar.is_sketching = false;
-            self.set_tool(ToolKind::Select);
+        self.leave_sketch_mode();
+    }
+
+    /// Inti keluar mode sketsa: edit sketsa terikat diteruskan ke fitur
+    /// hilir lebih dulu (ADR 0010), baru mode sketsa dimatikan dan tool
+    /// kembali ke Select. Bila replay gagal (mis. profil terbuka), mode
+    /// sketsa DIPERTAHANKAN supaya pengguna memperbaiki profilnya, ujung
+    /// terbuka disorot, dan `false` dikembalikan.
+    pub(crate) fn leave_sketch_mode(&mut self) -> bool {
+        if !self.is_sketching {
+            return true;
         }
+        if !self.sync_bound_sketches() {
+            let loose = self.highlight_loose_ends();
+            if loose > 0 {
+                let hint = ducad_i18n::t!("loose-ends-found", count = loose);
+                self.model_status = Some(match self.model_status.take() {
+                    Some(status) => format!("{status} — {hint}"),
+                    None => hint,
+                });
+            }
+            return false;
+        }
+        self.is_sketching = false;
+        self.left_toolbar.is_sketching = false;
+        self.set_tool(ToolKind::Select);
+        true
     }
 
     /// Lepaskan kunci kamera `Ortho2D` milik mode Vektor/Tinta: kembali ke
@@ -1469,20 +1502,16 @@ impl DuCADApp {
             self.left_toolbar.is_sketching = true;
             self.camera.orient_to_plane(&self.active_plane);
         }
+        self.sync_active_sketch_slot();
     }
 
     /// Keluar ke tampilan 3D (tombol kotak, ⌘⌥3, palette, Esc): lepas kunci
     /// kamera dan kembalikan tool ke Select.
     pub fn exit_sketching(&mut self) {
         self.release_camera_lock();
-        if self.is_sketching {
-            self.is_sketching = false;
-            self.left_toolbar.is_sketching = false;
-            self.set_tool(ToolKind::Select);
-            // Sketsa yang sudah jadi op oplog: perubahan isinya diteruskan
-            // ke fitur hilir (ADR 0010).
-            self.sync_bound_sketches();
-        }
+        // Sketsa yang sudah jadi op oplog: perubahan isinya diteruskan ke
+        // fitur hilir (ADR 0010); gagal → tetap di mode sketsa.
+        self.leave_sketch_mode();
     }
 
     /// Ubah mode aplikasi aktif (Sketch 2D, Vector 2D, Solid 3D).
@@ -3645,7 +3674,9 @@ impl eframe::App for DuCADApp {
                                     let cmd = crate::model::SetBodyMaterialCommand::new("Ubah Material", bid, new_mat);
                                     self.model_undo.execute(Box::new(cmd), &mut self.model);
                                 }
-                                self.model_status = Some("✔ Preset Material diterapkan".to_string());
+                                // Konsisten dengan `execute_model_command`: redo stack lain dibuang.
+                                self.clear_redo_except(crate::types::UndoTarget::Model);
+                                self.model_status = Some(ducad_i18n::t!("cmf-material-applied"));
                                 ctx.request_repaint();
                             }
                             CmfDrawerEvent::Close => {
@@ -5195,14 +5226,19 @@ impl DuCADApp {
         self.set_tool(ToolKind::Select);
     }
 
-    /// Eksekusi / perbarui loft 3D yang sedang di-stage (live preview) dari 2 region.
-    pub fn update_staged_loft(&mut self, regions: &[ducad_sketch::region::ClosedRegion]) {
+    /// Dua profil loft yang di-stage (urutan mengikuti `loft_is_flipped`)
+    /// beserta tingginya; `None` bila input belum lengkap (status diisi
+    /// bila profilnya rusak).
+    fn staged_loft_profiles(
+        &mut self,
+        regions: &[ducad_sketch::region::ClosedRegion],
+    ) -> Option<(ducad_kernel::Profile, ducad_kernel::Profile, f64)> {
         if regions.len() != 2 {
-            return;
+            return None;
         }
         let height: f64 = match self.loft_height_input.trim().parse() {
             Ok(v) if v > 0.0 => v,
-            _ => return,
+            _ => return None,
         };
 
         let (idx_b, idx_t) = if self.loft_is_flipped {
@@ -5218,7 +5254,7 @@ impl DuCADApp {
             Ok(p) => p,
             Err(e) => {
                 self.model_status = Some(format!("Profil 1 error: {e}"));
-                return;
+                return None;
             }
         };
 
@@ -5229,8 +5265,24 @@ impl DuCADApp {
             Ok(p) => p,
             Err(e) => {
                 self.model_status = Some(format!("Profil 2 error: {e}"));
-                return;
+                return None;
             }
+        };
+        Some((bottom, top, height))
+    }
+
+    /// Body preview loft bukan op: tandai sidik jari model sah supaya
+    /// `sync_agent_meta` tidak menganggap oplog basi dan membuang Feature
+    /// Tree selama staging. Dipanggil setiap preview berubah dan setelah
+    /// preview dilepas (commit/cancel), sebelum op apa pun dijalankan.
+    fn note_staged_loft_preview_changed(&mut self) {
+        self.oplog_fp_dirty = true;
+    }
+
+    /// Eksekusi / perbarui loft 3D yang sedang di-stage (live preview) dari 2 region.
+    pub fn update_staged_loft(&mut self, regions: &[ducad_sketch::region::ClosedRegion]) {
+        let Some((bottom, top, height)) = self.staged_loft_profiles(regions) else {
+            return;
         };
 
         match ducad_kernel::loft_profiles(&bottom, &top, height) {
@@ -5243,6 +5295,7 @@ impl DuCADApp {
                     self.model.geometry.insert(id, geo);
                     self.loft_staged_body_id = Some(id);
                 }
+                self.note_staged_loft_preview_changed();
             }
             Err(e) => {
                 self.model_status = Some(format!("Loft gagal: {e}"));
@@ -5250,21 +5303,54 @@ impl DuCADApp {
         }
     }
 
-    /// Terapkan (commit) loft yang sedang di-stage ke model dan catat ke undo history.
+    /// Terapkan (commit) loft yang sedang di-stage: preview dilepas dari
+    /// model, lalu loft dibuat sebagai op oplog (`loft_via_oplog`, seperti
+    /// jalur dua region); jalur lama (geometri beku) hanya bila bidang
+    /// aktif belum didukung op.
     pub fn commit_staged_loft(&mut self, regions: &[ducad_sketch::region::ClosedRegion]) {
         if let Some(staged_id) = self.loft_staged_body_id.take() {
-            if let Some(geo) = self.model.geometry.remove(staged_id) {
-                self.model.doc.bodies.remove(staged_id);
-                self.execute_model_command(
-                    Box::new(crate::model::AddSolidCommand::new("Loft", geo)),
-                    &format!("Tinggi {} mm", self.loft_height_input.trim()),
-                );
+            let preview = self.model.geometry.remove(staged_id);
+            self.model.doc.bodies.remove(staged_id);
+            self.note_staged_loft_preview_changed();
+
+            let plane = self.active_plane;
+            let via_op = match self.staged_loft_profiles(regions) {
+                Some((bottom, top, height)) => {
+                    self.loft_via_oplog(&bottom, &top, &plane, height)
+                }
+                None => Ok(false),
+            };
+            let finish_ui = |app: &mut Self| {
+                app.set_tool(ToolKind::Select);
+                app.selected.clear();
+                app.selection_box = None;
+                app.loft_alignment_dismissed = false;
+            };
+            match via_op {
+                Ok(true) => {}
+                Ok(false) => {
+                    if let Some(geo) = preview {
+                        self.execute_model_command(
+                            Box::new(crate::model::AddSolidCommand::new("Loft", geo)),
+                            &format!("Tinggi {} mm", self.loft_height_input.trim()),
+                        );
+                    }
+                }
+                Err(e) => {
+                    self.model_status =
+                        Some(crate::modeling::operations::op_status("Loft", &e));
+                    let fixes = self.fixes_for_op_error(&e);
+                    self.show_op_error(&e, fixes);
+                    finish_ui(self);
+                    return;
+                }
             }
-            self.set_tool(ToolKind::Select);
-            self.selected.clear();
-            self.selection_box = None;
-            self.loft_alignment_dismissed = false;
-            self.model_status = Some("✔ Loft 3D berhasil dibuat!".to_string());
+            finish_ui(self);
+            let note = self.model_status.take().filter(|_| matches!(via_op, Ok(false)));
+            self.model_status = Some(match note {
+                Some(n) => format!("Loft 3D berhasil dibuat — {n}"),
+                None => "Loft 3D berhasil dibuat".to_string(),
+            });
         } else if regions.len() == 2 {
             self.update_staged_loft(regions);
             self.commit_staged_loft(regions);
@@ -5276,6 +5362,7 @@ impl DuCADApp {
         if let Some(staged_id) = self.loft_staged_body_id.take() {
             self.model.geometry.remove(staged_id);
             self.model.doc.bodies.remove(staged_id);
+            self.note_staged_loft_preview_changed();
         }
         self.set_tool(ToolKind::Select);
         self.selected.clear();

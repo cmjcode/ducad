@@ -464,8 +464,7 @@ impl DuCADApp {
         self.model_undo = ducad_core::UndoStack::default();
         self.model.doc.dirty = false;
         self.onboarding.volume_dirty = true;
-        self.is_sketching = false;
-        self.left_toolbar.is_sketching = false;
+        self.leave_sketch_mode();
         Ok(())
     }
 
@@ -519,8 +518,7 @@ impl DuCADApp {
         match self.agent_call_local("run_ops", json!({ "ops": ops })) {
             Some(out) if !out.is_error => {
                 self.onboarding.volume_dirty = true;
-                self.is_sketching = false;
-                self.left_toolbar.is_sketching = false;
+                self.leave_sketch_mode();
                 self.model_status = Some(ducad_i18n::t!("onboard-bootstrap-done"));
             }
             Some(out) => {

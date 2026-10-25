@@ -12,7 +12,6 @@ use ducad_engine::{DesignDoc, ReplaceOp, Session};
 use ducad_ui::{AssistDialog, AssistDialogEvent, AssistDialogState};
 
 use crate::app::DuCADApp;
-use crate::model::ModelDoc;
 
 /// Kebijakan privasi AI (P11.4). `OfflineOnly` = hanya backend yang
 /// `is_on_device()`; jembatan agent eksternal dimatikan.
@@ -248,20 +247,20 @@ impl DuCADApp {
                 .unwrap_or_else(|| "usulan gagal diterapkan".into());
             return;
         }
-        let design = serde_json::to_value(session.design()).ok();
-        self.adopt_session(session.into_model(), design);
+        self.adopt_session(session);
         self.ai.dialog.has_proposal = false;
         self.ai.dialog.message = ducad_i18n::t!("assist-applied");
         let instruction = self.ai.dialog.instruction.trim().to_string();
         self.note_session(&format!("Usulan AI diterapkan: {instruction}"));
     }
 
-    /// Ganti model GUI dengan hasil sesi engine (body + `design`).
-    fn adopt_session(&mut self, model: ModelDoc, design: Option<serde_json::Value>) {
-        self.model = model;
-        self.model_undo = ducad_core::UndoStack::default();
+    /// Ganti model GUI dengan hasil sesi engine lewat jalur oplog bersama
+    /// (`adopt_replayed_session`): satu langkah undo yang ikut memulihkan
+    /// oplog/params, `agent_meta` dan `design` tetap sinkron sehingga
+    /// `sync_agent_meta` berikutnya tidak membuang oplog.
+    fn adopt_session(&mut self, session: Session) {
+        self.adopt_replayed_session(session, "assist");
         self.selected_bodies.clear();
-        self.design = design;
         let rationale = self.ai.dialog.rationale.clone();
         self.record_activity(
             ducad_ui::ActivityKindUi::Solid3D,
@@ -301,5 +300,57 @@ impl DuCADApp {
             }
             Some(AssistDialogEvent::Close) | None => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn stale(app: &DuCADApp) -> bool {
+        app.agent_meta.warnings.iter().any(|w| w == "oplog_stale")
+    }
+
+    /// Usulan AI yang diterapkan harus bisa di-undo (geometri + oplog) dan
+    /// tidak membuat oplog dibuang pada `sync_agent_meta` berikutnya.
+    #[test]
+    fn applied_assist_edit_is_undoable_and_keeps_oplog() {
+        let mut app = DuCADApp::new_for_test();
+        let out = app
+            .agent_call_local("set_params", json!({ "params": { "t": 5 } }))
+            .unwrap();
+        assert!(!out.is_error, "{}", out.payload);
+        let out = app
+            .agent_call_local(
+                "run_ops",
+                json!({ "ops": [{"op":"primitive","id":"b","shape":{"box":{"size":[10,10,"$t"]}}}] }),
+            )
+            .unwrap();
+        assert!(!out.is_error, "{}", out.payload);
+        let id = app.model.doc.bodies.keys().next().unwrap();
+        let v0 = app.model.geometry[id].shape.volume();
+        let steps = app.model_undo.undo_count();
+
+        let mut params = Params::default();
+        params.insert("t".into(), 9.0);
+        app.ai.pending = Some(AssistEdit { params: Some(params), replace: Vec::new(), append: Vec::new() });
+        app.apply_assist();
+        assert_eq!(app.agent_meta.design.params["t"], 9.0);
+        let id = app.model.doc.bodies.keys().next().unwrap();
+        assert!((app.model.geometry[id].shape.volume() - 900.0).abs() < 1e-6);
+        assert_eq!(app.model_undo.undo_count(), steps + 1, "satu langkah undo");
+        let design: DesignDoc = serde_json::from_value(app.design.clone().unwrap()).unwrap();
+        assert_eq!(design.params["t"], 9.0, "`design` ikut diperbarui");
+        app.sync_agent_meta();
+        assert!(!stale(&app));
+
+        app.undo_model();
+        assert_eq!(app.agent_meta.design.params["t"], 5.0, "undo memulihkan params");
+        let id = app.model.doc.bodies.keys().next().unwrap();
+        assert!((app.model.geometry[id].shape.volume() - v0).abs() < 1e-6, "undo memulihkan geometri");
+        assert_eq!(app.agent_meta.design.oplog.len(), 1);
+        app.sync_agent_meta();
+        assert!(!stale(&app), "oplog tidak boleh dibuang setelah undo usulan AI");
     }
 }

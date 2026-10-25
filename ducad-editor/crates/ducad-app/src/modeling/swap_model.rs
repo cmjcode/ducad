@@ -52,8 +52,7 @@ pub fn apply_model_preserving_ids(
     label: &str,
 ) {
     use ducad_engine::model::{
-        AddSolidCommand, DeleteBodyCommand, ReplaceGeometryCommand, SetBodyMaterialCommand,
-        SetBodyMechanicalCommand,
+        AddSolidCommand, DeleteBodyCommand, ReplaceGeometryCommand, SetBodyMechanicalCommand,
     };
     undo.begin(label.to_string());
     let mut unmatched_old: Vec<ducad_core::BodyId> = model.doc.bodies.keys().collect();
@@ -79,22 +78,19 @@ pub fn apply_model_preserving_ids(
                     Box::new(ReplaceGeometryCommand::new("Replay", oid, geo)),
                     model,
                 );
-                let old = &model.doc.bodies[oid];
-                if old.material != nbody.material {
-                    undo.execute(
-                        Box::new(SetBodyMaterialCommand::new("Replay", oid, nbody.material)),
-                        model,
-                    );
-                }
-                if model.doc.bodies[oid].mechanical != nbody.mechanical {
-                    undo.execute(
-                        Box::new(SetBodyMechanicalCommand::new(
-                            "Replay",
-                            oid,
-                            nbody.mechanical.clone(),
-                        )),
-                        model,
-                    );
+                // Material VISUAL hanya diatur GUI (drawer CMF) — tidak ada
+                // op oplog yang menyetelnya, sehingga hasil replay selalu
+                // membawa nilai default. Jangan timpa nilai GUI yang ada.
+                // Material MEKANIK ikut replay HANYA bila op `set_material`
+                // memang menyetelnya (`Some`); `None` berarti oplog tidak
+                // berpendapat, jadi pilihan GUI (panel massa) dipertahankan.
+                if let Some(mech) = nbody.mechanical.clone() {
+                    if model.doc.bodies[oid].mechanical.as_ref() != Some(&mech) {
+                        undo.execute(
+                            Box::new(SetBodyMechanicalCommand::new("Replay", oid, Some(mech))),
+                            model,
+                        );
+                    }
                 }
             }
             None => {
@@ -155,6 +151,35 @@ mod tests {
         undo.undo(&mut model);
         assert!((model.geometry[a].shape.volume() - 1000.0).abs() < 1e-6);
         assert_eq!(model.doc.bodies.len(), 2);
+    }
+
+    #[test]
+    fn replay_keeps_gui_material_and_mechanical_unless_op_sets_mechanical() {
+        let mut model = ModelDoc::default();
+        let a = body(&mut model, "a", 10.0);
+        let custom = ducad_core::Material::polished_chrome(Some([1.0, 0.0, 0.0, 1.0]));
+        model.doc.bodies[a].material = custom;
+        let gui_mech = Some(ducad_core::MaterialSource::Library("AISI 304".to_string()));
+        model.doc.bodies[a].mechanical = gui_mech.clone();
+
+        // Replay tanpa info material: nilai GUI dipertahankan.
+        let mut next = ModelDoc::default();
+        body(&mut next, "a", 20.0);
+        let mut undo: UndoStack<ModelDoc> = UndoStack::default();
+        apply_model_preserving_ids(&mut undo, &mut model, next, "Replay");
+        assert_eq!(model.doc.bodies[a].material, custom, "material visual GUI dipertahankan");
+        assert_eq!(model.doc.bodies[a].mechanical, gui_mech, "mekanik GUI dipertahankan");
+
+        // Replay yang membawa `set_material` (Some) menang.
+        let mut next = ModelDoc::default();
+        let na = body(&mut next, "a", 30.0);
+        let op_mech = Some(ducad_core::MaterialSource::Library("Al 6061".to_string()));
+        next.doc.bodies[na].mechanical = op_mech.clone();
+        apply_model_preserving_ids(&mut undo, &mut model, next, "Replay");
+        assert_eq!(model.doc.bodies[a].mechanical, op_mech, "mekanik dari op menang");
+        assert_eq!(model.doc.bodies[a].material, custom, "material visual tetap");
+        undo.undo(&mut model);
+        assert_eq!(model.doc.bodies[a].mechanical, gui_mech, "undo mengembalikan mekanik GUI");
     }
 
     #[test]

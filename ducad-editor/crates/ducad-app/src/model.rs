@@ -5,7 +5,7 @@
 //!
 //! `ducad-core::Document` sengaja bebas dependensi kernel (lihat komentar
 //! di crate itu) — jadi geometri B-rep sungguhan hidup DI LUAR `Document`,
-//! di `ModelDoc::geometry`, sebuah `SecondaryMap` yang dikunci dengan
+//! di `ModelDoc::geometry`, sebuah `IdMap` berkunci stabil yang dikunci dengan
 //! `BodyId` yang SAMA dengan yang dipakai `Document::bodies`. `ModelDoc`
 //! itulah target generik `ducad_core::Command<T>` untuk seluruh command
 //! di modul ini — bukan `Document` langsung — karena command butuh

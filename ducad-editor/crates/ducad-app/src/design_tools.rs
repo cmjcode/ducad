@@ -143,8 +143,12 @@ impl DuCADApp {
     pub fn apply_param_rows(&mut self, rows: &[ParamRow]) -> Result<(), String> {
         let (params, renames) = rows_to_params(&self.agent_meta.design, rows)?;
         if self.agent_meta.design.oplog.is_empty() {
-            // Belum ada op parametrik: cukup simpan nilainya.
+            // Belum ada op parametrik: cukup simpan nilainya — tetap sebagai
+            // satu langkah undo, dan `design` (yang ikut tersimpan) disamakan.
+            let mark = self.begin_oplog_step();
             self.agent_meta.design.params = params;
+            self.end_oplog_step(mark, "Parameter");
+            self.sync_design_after_agent();
             self.model.doc.dirty = true;
             return Ok(());
         }
@@ -360,5 +364,26 @@ mod tests {
         let rows = vec![ParamRow { name: "t".into(), orig_name: None, value: "3".into() }];
         app.apply_param_rows(&rows).unwrap();
         assert_eq!(app.agent_meta.design.params["t"], 3.0);
+    }
+
+    /// Param tanpa op parametrik tetap satu langkah undo dan ikut ke `design`.
+    #[test]
+    fn param_rows_without_oplog_are_undoable_and_synced_to_design() {
+        let mut app = crate::app::DuCADApp::new_for_test();
+        assert!(app.agent_meta.design.oplog.is_empty());
+        let steps = app.model_undo.undo_count();
+        app.apply_param_rows(&[ParamRow { name: "w".into(), orig_name: None, value: "20".into() }])
+            .unwrap();
+        assert_eq!(app.agent_meta.design.params["w"], 20.0);
+        assert_eq!(app.model_undo.undo_count(), steps + 1, "satu langkah undo");
+        let design: DesignDoc = serde_json::from_value(app.design.clone().expect("design ada")).unwrap();
+        assert_eq!(design.params["w"], 20.0, "`design` yang disimpan ikut berubah");
+
+        app.undo_model();
+        assert!(!app.agent_meta.design.params.contains_key("w"), "undo mencabut param");
+        let design: DesignDoc = serde_json::from_value(app.design.clone().unwrap()).unwrap();
+        assert!(!design.params.contains_key("w"));
+        app.redo_model();
+        assert_eq!(app.agent_meta.design.params["w"], 20.0);
     }
 }

@@ -408,4 +408,44 @@ mod app_branch_tests {
         assert_eq!(app.activity_cache[0].branch, "cabang-1");
         assert_eq!(app.activity_cache[1].branch, "main");
     }
+
+    /// Time-Travel: snapshot memuat `design`, jadi melompat kembali ke entri
+    /// riwayat memulihkan oplog (Feature Tree) dan tidak dianggap basi.
+    #[test]
+    fn jump_to_history_restores_oplog_not_stale() {
+        use serde_json::json;
+        let mut app = DuCADApp::new_for_test();
+        let out = app
+            .agent_call_local(
+                "run_ops",
+                json!({ "ops": [{ "op": "primitive", "id": "kotak",
+                                  "shape": { "box": { "size": [20, 20, 20] } } }] }),
+            )
+            .unwrap();
+        assert!(!out.is_error, "{}", out.payload);
+        assert_eq!(app.agent_meta.design.oplog.len(), 1);
+        app.record_activity(ActivityKindUi::Solid3D, "Kotak", "");
+        let first = app.activity_cache[0].id;
+        let snap = app.history_db.get_snapshot(first).expect("snapshot ada");
+        assert!(snap.contains("\"oplog\""), "snapshot harus memuat design: {snap}");
+
+        let out = app
+            .agent_call_local(
+                "run_ops",
+                json!({ "ops": [{"op":"fillet","id":"f1","body":"kotak","edges":"|Z","radius":2}] }),
+            )
+            .unwrap();
+        assert!(!out.is_error, "{}", out.payload);
+        assert_eq!(app.agent_meta.design.oplog.len(), 2);
+
+        app.restore_snapshot_from_json(&snap).unwrap();
+        let ids: Vec<&str> = app.agent_meta.design.oplog.iter().map(|o| o.id()).collect();
+        assert_eq!(ids, ["kotak"], "oplog snapshot dipulihkan");
+        app.sync_agent_meta();
+        assert!(
+            !app.agent_meta.warnings.iter().any(|w| w == "oplog_stale"),
+            "oplog tidak boleh dibuang setelah Time-Travel"
+        );
+        assert_eq!(app.agent_meta.design.oplog.len(), 1);
+    }
 }

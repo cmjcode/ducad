@@ -320,4 +320,19 @@ mod tests {
         app.undo_model();
         assert_eq!(oplog_ids(&app), ["base", "plate"]);
     }
+
+    /// Undo saat loft masih di-stage: pratinjau dibatalkan dulu (body
+    /// pratinjau dibuang), bukan ikut terseret ke keadaan undo.
+    #[test]
+    fn undo_cancels_staged_loft_preview_first() {
+        let mut app = DuCADApp::new_for_test();
+        plate(&mut app);
+        let preview = app.model.doc.add_body("loft-preview");
+        app.loft_staged_body_id = Some(preview);
+        app.undo();
+        assert!(app.loft_staged_body_id.is_none());
+        assert!(app.model.doc.bodies.get(preview).is_none(), "body pratinjau dibuang");
+        // `plate` = satu batch `run_ops` = satu langkah undo.
+        assert!(oplog_ids(&app).is_empty(), "undo tetap berjalan");
+    }
 }

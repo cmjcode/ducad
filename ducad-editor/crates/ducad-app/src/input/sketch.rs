@@ -1328,11 +1328,12 @@ impl DuCADApp {
                         }
                     });
                     if let Some(delta) = nudge {
-                        self.execute_sketch_command(Box::new(TranslateEntities::new(
-                            "Geser Sketch (Panah)",
-                            ids,
-                            delta,
-                        )));
+                        // Tekanan panah berulang digabung ke satu langkah undo.
+                        let (tag, key) = ducad_sketch::commands::nudge_coalesce_key(&ids);
+                        self.execute_sketch_command(Box::new(
+                            TranslateEntities::new("Geser Sketch (Panah)", ids, delta)
+                                .with_coalesce_key(tag, key),
+                        ));
                     }
                 }
             }

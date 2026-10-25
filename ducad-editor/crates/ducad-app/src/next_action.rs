@@ -98,7 +98,7 @@ mod tests {
             "add",
         );
         app.model.doc.dirty = true;
-        app.is_sketching = false; // di mode 3D setelah extrude
+        app.exit_sketching(); // di mode 3D setelah extrude
         assert_eq!(app.next_action(), Some(NextAction::Save));
 
         app.current_file_path = Some(std::path::PathBuf::from("a.ducad"));
