@@ -2711,6 +2711,30 @@ impl DuCADApp {
                         None => {}
                     }
                 }
+                // Face hasil chamfer/fillet: tombol untuk kembali mengedit
+                // op rounding-nya (klik face = pilih face utk extrude).
+                if !self.face_gizmo_staged && !self.extruding_face_from_gizmo {
+                    let round_op = self
+                        .active_face
+                        .as_ref()
+                        .and_then(|(b, _, h)| self.round_op_for_face(rect, *b, h));
+                    if let Some(op_id) = round_op {
+                        let label = match self.round_op_info(&op_id).map(|i| i.style) {
+                            Some(crate::types::RoundStyle::Chamfer) => "Edit chamfer",
+                            _ => "Edit fillet",
+                        };
+                        let pos = egui::pos2(
+                            pill_resp.rect.center().x,
+                            pill_resp.rect.top() - 18.0,
+                        );
+                        let resp = CanvasHud::render_interactive_dimension_pill(ui, pos, label, false)
+                            .on_hover_text("Ubah radius/jarak rounding yang membentuk face ini");
+                        if resp.clicked() {
+                            self.begin_round_op_edit(&op_id);
+                            ui.ctx().request_repaint();
+                        }
+                    }
+                }
 
                 if self.face_gizmo_staged && !self.face_gizmo_dimension_editing {
                     if let Some(prefix) = Self::typed_number_prefix(ui) {

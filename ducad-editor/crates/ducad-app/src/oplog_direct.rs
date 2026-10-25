@@ -669,6 +669,7 @@ mod tests {
     use super::*;
     use crate::model::{BodyGeometry, ReplaceGeometryCommand};
     use crate::types::RoundKind;
+    use eframe::egui;
     use glam::Vec3;
 
     /// Kotak 20 mm di titik asal sebagai op `primitive`.
@@ -880,5 +881,95 @@ mod tests {
         let holed = ducad_kernel::subtract(&shape, &tool).unwrap();
         let faces = DuCADApp::hole_face_indices(&holed, DVec3::new(10.0, 10.0, 10.0), DVec3::Z);
         assert_eq!(faces.len(), 1, "dinding lubang saja, bukan sisi atas/bawah");
+    }
+
+    /// Sisi (face) yang terbentuk dari chamfer harus bisa ditarik (extrude)
+    /// sebagai op `push_pull`, dan chamfer-nya tetap bisa diedit.
+    fn pull_face_at(app: &mut DuCADApp, id: BodyId, ray: PickRay, d: f64) {
+        let shape = &app.model.geometry.get(id).unwrap().shape;
+        let hit = ducad_kernel::pick_face_details(shape, ray).expect("ray mengenai face");
+        app.active_face = Some((id, ray, hit));
+        app.extrude_active_face(d);
+    }
+
+    #[test]
+    fn chamfer_vertex_face_can_be_pulled_as_op() {
+        let (mut app, id) = app_with_box();
+        let ray = PickRay { origin: (30.0, 30.0, 30.0), dir: (-1.0, -1.0, -1.0) };
+        app.active_vertex = Some((id, ray, (20.0, 20.0, 20.0)));
+        app.vertex_gizmo_radius = -4.0;
+        app.commit_round(RoundKind::Vertex);
+        assert_eq!(kinds(&app), ["primitive", "round_vertex"]);
+        let op_id = app.round_markers[0].op_id.clone();
+        let v0 = app.model.geometry.get(id).unwrap().shape.volume();
+
+        pull_face_at(&mut app, id, ray, 3.0);
+        assert_eq!(kinds(&app), ["primitive", "round_vertex", "push_pull"], "status: {:?}", app.model_status);
+        let v1 = app.model.geometry.get(id).unwrap().shape.volume();
+        assert!(v1 > v0 + 1.0, "volume harus bertambah: {v0} -> {v1}");
+        assert!(app.round_op_info(&op_id).is_some(), "chamfer tetap bisa diedit");
+        assert_replays(&app);
+    }
+
+    #[test]
+    fn chamfer_edge_face_can_be_pulled_as_op() {
+        let (mut app, id) = app_with_box();
+        let ray = PickRay { origin: (-5.0, -5.0, 10.0), dir: (1.0, 1.0, 0.0) };
+        app.active_edge = Some((id, ray, (0.0, 0.0, 10.0)));
+        app.edge_gizmo_radius = -3.0;
+        app.commit_round(RoundKind::Edge);
+        assert_eq!(kinds(&app), ["primitive", "chamfer"]);
+        let op_id = app.round_markers[0].op_id.clone();
+        let v0 = app.model.geometry.get(id).unwrap().shape.volume();
+
+        pull_face_at(&mut app, id, ray, 2.0);
+        assert_eq!(kinds(&app), ["primitive", "chamfer", "push_pull"], "status: {:?}", app.model_status);
+        let v1 = app.model.geometry.get(id).unwrap().shape.volume();
+        assert!(v1 > v0 + 1.0, "volume harus bertambah: {v0} -> {v1}");
+        assert!(app.round_op_info(&op_id).is_some(), "chamfer tetap bisa diedit");
+        assert_replays(&app);
+    }
+
+    /// Klik pada face DATAR hasil chamfer memilih face itu (bisa ditarik),
+    /// bukan membuka gizmo rounding; klik di dekat sudut lama pada face
+    /// tetangga atau latar tetap membuka edit op rounding.
+    #[test]
+    fn click_on_chamfer_face_selects_face_not_round_marker() {
+        use crate::viewport::world_to_screen_pos;
+        let (mut app, id) = app_with_box();
+        let ray = PickRay { origin: (30.0, 30.0, 30.0), dir: (-1.0, -1.0, -1.0) };
+        app.active_vertex = Some((id, ray, (20.0, 20.0, 20.0)));
+        app.vertex_gizmo_radius = -4.0;
+        app.commit_round(RoundKind::Vertex);
+        let op_id = app.round_markers[0].op_id.clone();
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+
+        // Face chamfer di bawah kursor → face menang.
+        let shape = &app.model.geometry.get(id).unwrap().shape;
+        let hit = ducad_kernel::pick_face_details(shape, ray).expect("ray mengenai face chamfer");
+        assert_eq!(hit.surface_kind, ducad_kernel::SurfaceKind::Plane);
+        let c = hit.centroid;
+        let pos = world_to_screen_pos(&app.camera, rect, Vec3::new(c.0 as f32, c.1 as f32, c.2 as f32))
+            .expect("face chamfer terlihat");
+        assert_eq!(app.find_round_op_at(rect, pos, Some(&(id, ray, hit))), None);
+
+        // Klik sudut lama tanpa face (latar) → edit op.
+        let a = Vec3::new(20.0, 20.0, 20.0);
+        let pos = world_to_screen_pos(&app.camera, rect, a).expect("sudut terlihat");
+        assert_eq!(app.find_round_op_at(rect, pos, None), Some(op_id.clone()));
+
+        // Klik sudut lama dengan face atas (tetangga) di bawah kursor → edit op.
+        let top_ray = PickRay { origin: (10.0, 10.0, 50.0), dir: (0.0, 0.0, -1.0) };
+        let top = ducad_kernel::pick_face_details(shape, top_ray).expect("face atas");
+        assert_eq!(app.find_round_op_at(rect, pos, Some(&(id, top_ray, top.clone()))), Some(op_id.clone()));
+
+        // Tombol "Edit chamfer": face chamfer → op-nya; face atas → tidak ada.
+        let hit = ducad_kernel::pick_face_details(shape, ray).unwrap();
+        assert_eq!(app.round_op_for_face(rect, id, &hit), Some(op_id.clone()));
+        assert_eq!(app.round_op_for_face(rect, id, &top), None);
+        assert!(app.begin_round_op_edit(&op_id));
+        assert!(app.active_face.is_none());
+        assert!(app.active_vertex.is_some());
+        assert!((app.vertex_gizmo_radius + 4.0).abs() < 1e-9, "chamfer dibuka sebagai nilai negatif");
     }
 }

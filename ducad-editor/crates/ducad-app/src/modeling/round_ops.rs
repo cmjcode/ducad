@@ -137,6 +137,11 @@ impl DuCADApp {
 
     /// Penanda rounding-op di bawah kursor: ikon jangkar (≤ 12 px) atau
     /// permukaan lengkung hasil rounding di dekat rusuknya.
+    ///
+    /// Face DATAR hasil chamfer tidak pernah direbut penanda: di layar sudut
+    /// lama berimpit dengan face pangkas itu, sedangkan face-nya harus tetap
+    /// bisa dipilih lalu ditarik (push/pull). Edit chamfer: klik face
+    /// tetangga di dekat sudut lamanya, atau permukaan lengkung fillet.
     pub fn find_round_op_at(
         &self,
         rect: egui::Rect,
@@ -149,6 +154,15 @@ impl DuCADApp {
             .filter_map(|m| self.round_marker_now(m))
             .filter(|m| self.model.doc.bodies.get(m.body).is_some_and(|b| b.visible))
             .collect();
+        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+        // Face datar yang seluruhnya lahir dari rounding (face chamfer).
+        let planar_round_face = face.is_some_and(|(b_id, _, hit)| {
+            hit.surface_kind == SurfaceKind::Plane
+                && Self::round_op_for_face_in(&markers, *b_id, hit, tol).is_some()
+        });
+        if planar_round_face {
+            return None;
+        }
         let mut best: Option<(&str, f32)> = None;
         for m in &markers {
             let v = Vec3::new(m.anchor.0 as f32, m.anchor.1 as f32, m.anchor.2 as f32);
@@ -166,26 +180,64 @@ impl DuCADApp {
         if hit.surface_kind == SurfaceKind::Plane {
             return None;
         }
-        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
         let hp = DVec3::from(hit.hit_point);
-        let mut near: Option<(&str, f64)> = None;
-        for m in markers.iter().filter(|m| m.body == *b_id) {
-            let mut d = (hp - DVec3::from(m.anchor)).length();
-            for w in m.polyline.windows(2) {
-                let (a, b) = (DVec3::from(w[0]), DVec3::from(w[1]));
-                let ab = b - a;
-                let t = if ab.length_squared() > 1e-12 {
-                    ((hp - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                d = d.min((a + ab * t - hp).length());
-            }
-            if d <= m.info.radius * 1.5 + tol && near.is_none_or(|(_, nd)| d < nd) {
-                near = Some((&m.op_id, d));
-            }
+        markers
+            .iter()
+            .filter(|m| m.body == *b_id)
+            .map(|m| (m, Self::dist_to_round_region(m, hp)))
+            .filter(|(m, d)| *d <= m.info.radius * 1.5 + tol)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(m, _)| m.op_id.clone())
+    }
+
+    /// Op rounding yang melahirkan face `hit` pada body `body` (mis. face
+    /// chamfer): centroid face berada di daerah sudut/rusuk asal penanda.
+    pub fn round_op_for_face(
+        &self,
+        rect: egui::Rect,
+        body: BodyId,
+        hit: &ducad_kernel::FaceHit,
+    ) -> Option<String> {
+        let markers: Vec<RoundMarkerNow> = self
+            .round_markers
+            .iter()
+            .filter_map(|m| self.round_marker_now(m))
+            .collect();
+        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+        Self::round_op_for_face_in(&markers, body, hit, tol)
+    }
+
+    fn round_op_for_face_in(
+        markers: &[RoundMarkerNow],
+        body: BodyId,
+        hit: &ducad_kernel::FaceHit,
+        tol: f64,
+    ) -> Option<String> {
+        let c = DVec3::from(hit.centroid);
+        markers
+            .iter()
+            .filter(|m| m.body == body)
+            .map(|m| (m, Self::dist_to_round_region(m, c)))
+            .filter(|(m, d)| *d <= m.info.radius * 1.5 + tol)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(m, _)| m.op_id.clone())
+    }
+
+    /// Jarak `p` ke daerah rounding penanda `m`: sudut asal (anchor) atau
+    /// rusuk asal (polyline).
+    fn dist_to_round_region(m: &RoundMarkerNow, p: DVec3) -> f64 {
+        let mut d = (p - DVec3::from(m.anchor)).length();
+        for w in m.polyline.windows(2) {
+            let (a, b) = (DVec3::from(w[0]), DVec3::from(w[1]));
+            let ab = b - a;
+            let t = if ab.length_squared() > 1e-12 {
+                ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            d = d.min((a + ab * t - p).length());
         }
-        near.map(|(id, _)| id.to_string())
+        d
     }
 
     /// Shape body tepat sebelum op `info` (replay sebagian), di-cache.

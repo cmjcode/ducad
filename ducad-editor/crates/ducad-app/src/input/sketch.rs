@@ -1952,6 +1952,12 @@ impl DuCADApp {
                                     "Fitur lubang terpilih — klik Hole Wizard untuk ubah dimensi / geser posisi".to_string()
                                 } else if self.tool == ToolKind::HoleWizard {
                                     "Titik lokasi lubang ditempatkan pada titik klik face ✔".to_string()
+                                } else if self
+                                    .active_face
+                                    .as_ref()
+                                    .is_some_and(|(b, _, h)| self.round_op_for_face(rect, *b, h).is_some())
+                                {
+                                    "Face hasil rounding terpilih — tarik panah gizmo = extrude, tombol Edit chamfer/fillet = ubah rounding".to_string()
                                 } else {
                                     "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()
                                 },
