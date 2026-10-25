@@ -3,11 +3,13 @@ set -euo pipefail
 
 # Rilis versi baru DUCAD dari berkas VERSION.
 #
-# Pemakaian: scripts/release-tag.sh [--no-push]
+# Pemakaian: scripts/release-tag.sh [--no-push] [--no-bump]
 #
 # Langkah:
 #   1. Baca versi dari VERSION (root repo), validasi format semver.
-#   2. Pastikan tag `v<versi>` belum ada (lokal maupun di remote `origin`).
+#   2. Bila tag `v<versi>` sudah ada (lokal atau di `origin`), artinya VERSION
+#      belum dinaikkan: patch dinaikkan +1 otomatis (0.7.9 -> 0.7.10) dan
+#      ditulis ke VERSION. Dengan --no-bump, script berhenti dengan error.
 #   3. Set `[workspace.package].version` di ducad-editor/Cargo.toml,
 #      MARKETING_VERSION/CURRENT_PROJECT_VERSION di DUCAD.xcodeproj, dan
 #      segarkan Cargo.lock untuk crate workspace.
@@ -17,10 +19,12 @@ set -euo pipefail
 #      `origin` — tag `v*` memicu workflow release.yml.
 
 PUSH=1
+BUMP=1
 for arg in "$@"; do
   case "$arg" in
     --no-push) PUSH=0 ;;
-    -h|--help) sed -n '4,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-bump) BUMP=0 ;;
+    -h|--help) sed -n '4,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "argumen tidak dikenal: $arg" >&2; exit 2 ;;
   esac
 done
@@ -37,17 +41,37 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   echo "VERSION tidak valid: '$VERSION'" >&2
   exit 1
 fi
-TAG="v$VERSION"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
-if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-  echo "tag $TAG sudah ada secara lokal — naikkan VERSION dulu" >&2
-  exit 1
+# Tag yang sudah ada di remote diambil sekali saja (hindari ls-remote berulang).
+REMOTE_TAGS="$(git ls-remote --tags origin 'refs/tags/v*' 2>/dev/null | awk '{print $2}' || true)"
+tag_exists() {
+  git rev-parse -q --verify "refs/tags/$1" >/dev/null ||
+    grep -qx "refs/tags/$1" <<<"$REMOTE_TAGS"
+}
+
+# Bila tag untuk VERSION sudah ada (VERSION belum dinaikkan sejak rilis
+# terakhir), naikkan patch +1 otomatis sampai menemukan tag yang belum dipakai.
+# Matikan dengan --no-bump.
+if tag_exists "v$VERSION"; then
+  if [[ "$BUMP" == 0 ]]; then
+    echo "tag v$VERSION sudah ada — naikkan VERSION dulu (atau jalankan tanpa --no-bump)" >&2
+    exit 1
+  fi
+  if [[ "$VERSION" == *-* ]]; then
+    echo "tag v$VERSION sudah ada dan versi pre-release tidak bisa dinaikkan otomatis — edit VERSION manual" >&2
+    exit 1
+  fi
+  OLD_VERSION="$VERSION"
+  IFS=. read -r MAJ MIN PAT <<<"$VERSION"
+  while tag_exists "v$MAJ.$MIN.$PAT"; do
+    PAT=$((PAT + 1))
+  done
+  VERSION="$MAJ.$MIN.$PAT"
+  echo "$VERSION" > VERSION
+  echo "==> tag v$OLD_VERSION sudah ada, VERSION dinaikkan otomatis: $OLD_VERSION -> $VERSION"
 fi
-if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-  echo "tag $TAG sudah ada di origin — naikkan VERSION dulu" >&2
-  exit 1
-fi
+TAG="v$VERSION"
 
 # Ganti baris `version = ...` pertama di dalam seksi [workspace.package].
 awk -v ver="$VERSION" '
@@ -104,3 +128,6 @@ if [[ "$PUSH" == 1 ]]; then
 else
   echo "==> --no-push: jalankan 'git push origin $BRANCH && git push origin $TAG' bila siap"
 fi
+
+
+cd ducad-editor && ./build_macos.sh 
