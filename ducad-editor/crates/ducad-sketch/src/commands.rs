@@ -18,6 +18,8 @@ pub type UndoStack = ducad_core::UndoStack<Sketch>;
 pub struct InsertEntities {
     entities: Vec<Entity>,
     inserted_ids: Vec<EntityId>,
+    /// Nama rujukan dari apply pertama; redo memasangnya lagi pada id baru.
+    ref_names: Vec<String>,
     label: &'static str,
     group_name: Option<String>,
 }
@@ -27,6 +29,7 @@ impl InsertEntities {
         Self {
             entities,
             inserted_ids: Vec::new(),
+            ref_names: Vec::new(),
             label,
             group_name: None,
         }
@@ -40,6 +43,7 @@ impl InsertEntities {
         Self {
             entities,
             inserted_ids: Vec::new(),
+            ref_names: Vec::new(),
             label,
             group_name: Some(group_name.into()),
         }
@@ -51,24 +55,33 @@ impl Command<Sketch> for InsertEntities {
         self.label
     }
     fn apply(&mut self, sketch: &mut Sketch) {
+        let first = self.ref_names.is_empty();
         self.inserted_ids = self
             .entities
             .iter()
             .cloned()
-            .map(|e| {
+            .enumerate()
+            .map(|(i, e)| {
                 let id = sketch.entities.insert(e);
                 if let Some(ref g) = self.group_name {
                     sketch.entity_names.insert(id, g.clone());
+                }
+                if let Some(name) = self.ref_names.get(i) {
+                    sketch.set_ref_name(id, name.clone());
                 }
                 sketch.touch(id);
                 id
             })
             .collect();
+        if first {
+            self.ref_names = self.inserted_ids.iter().map(|id| sketch.ref_name(*id)).collect();
+        }
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         for id in self.inserted_ids.drain(..) {
             sketch.entities.remove(id);
             sketch.entity_names.remove(&id);
+            sketch.ref_names.remove(&id);
             sketch.touch(id);
         }
     }
@@ -118,6 +131,8 @@ struct DeletedEntityData {
     old_id: EntityId,
     entity: Entity,
     name: Option<String>,
+    /// Nama rujukan op ([`Sketch::ref_name`]) yang dipasang lagi saat pulih.
+    ref_name: String,
     style: Option<Style>,
     layer: Option<LayerId>,
     group: Option<GroupId>,
@@ -127,8 +142,10 @@ struct DeletedEntityData {
 }
 
 fn remove_single_entity_data(sketch: &mut Sketch, id: EntityId) -> Option<DeletedEntityData> {
+    let ref_name = sketch.ref_name(id);
     let entity = sketch.entities.remove(id)?;
     let name = sketch.entity_names.remove(&id);
+    sketch.ref_names.remove(&id);
     let style = sketch.styles.remove(id);
     let layer = sketch.entity_layer.remove(id);
     let group = sketch.entity_group.remove(id);
@@ -152,6 +169,7 @@ fn remove_single_entity_data(sketch: &mut Sketch, id: EntityId) -> Option<Delete
         old_id: id,
         entity,
         name,
+        ref_name,
         style,
         layer,
         group,
@@ -163,6 +181,7 @@ fn remove_single_entity_data(sketch: &mut Sketch, id: EntityId) -> Option<Delete
 
 fn restore_single_entity_data(sketch: &mut Sketch, data: DeletedEntityData) -> EntityId {
     let new_id = sketch.entities.insert(data.entity);
+    sketch.set_ref_name(new_id, data.ref_name);
     if let Some(name) = data.name {
         sketch.entity_names.insert(new_id, name);
     }
@@ -261,6 +280,8 @@ pub struct ReplaceEntities {
     insert_styles: Vec<Option<Style>>,
     insert_layers: Vec<Option<LayerId>>,
     inserted_ids: Vec<EntityId>,
+    /// Nama rujukan entitas sisipan dari apply pertama (dipakai ulang saat redo).
+    insert_ref_names: Vec<String>,
     insert_name: Option<String>,
 }
 
@@ -275,6 +296,7 @@ impl ReplaceEntities {
             insert_styles: Vec::new(),
             insert_layers: Vec::new(),
             inserted_ids: Vec::new(),
+            insert_ref_names: Vec::new(),
             insert_name: None,
         }
     }
@@ -307,8 +329,10 @@ impl Command<Sketch> for ReplaceEntities {
     fn apply(&mut self, sketch: &mut Sketch) {
         self.removed_data.clear();
         for &id in &self.remove_ids {
+            let ref_name = sketch.ref_name(id);
             if let Some(entity) = sketch.entities.remove(id) {
                 let name = sketch.entity_names.remove(&id);
+                sketch.ref_names.remove(&id);
                 let style = sketch.styles.remove(id);
                 let layer = sketch.entity_layer.remove(id);
                 let group = sketch.entity_group.remove(id);
@@ -329,6 +353,7 @@ impl Command<Sketch> for ReplaceEntities {
                     old_id: id,
                     entity,
                     name,
+                    ref_name,
                     style,
                     layer,
                     group,
@@ -354,10 +379,16 @@ impl Command<Sketch> for ReplaceEntities {
                 if let Some(name) = &self.insert_name {
                     sketch.entity_names.insert(id, name.clone());
                 }
+                if let Some(r) = self.insert_ref_names.get(i) {
+                    sketch.set_ref_name(id, r.clone());
+                }
                 sketch.touch(id);
                 id
             })
             .collect();
+        if self.insert_ref_names.is_empty() {
+            self.insert_ref_names = self.inserted_ids.iter().map(|id| sketch.ref_name(*id)).collect();
+        }
         self.detached = DetachedConstraints::detach_unresolvable(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
@@ -366,6 +397,7 @@ impl Command<Sketch> for ReplaceEntities {
             sketch.styles.remove(id);
             sketch.entity_layer.remove(id);
             sketch.entity_names.remove(&id);
+            sketch.ref_names.remove(&id);
             sketch.touch(id);
         }
         let mut restored = Vec::new();
@@ -373,6 +405,7 @@ impl Command<Sketch> for ReplaceEntities {
         for data in self.removed_data.drain(..) {
             let new_id = sketch.entities.insert(data.entity);
             remap.insert(data.old_id, new_id);
+            sketch.set_ref_name(new_id, data.ref_name);
             if let Some(name) = data.name {
                 sketch.entity_names.insert(new_id, name);
             }

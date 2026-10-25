@@ -35,6 +35,21 @@ impl PlaneKind {
     }
 }
 
+/// Face body tempat bidang ditambatkan ("Sketsa di Face"). Op `sketch`
+/// memakai `{"body", "face"}` sehingga bidang ikut berubah bila body
+/// berubah; frame bidang disegarkan dari hasil replay.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FaceAnchor {
+    /// Nama body saat ditambat (cadangan bila `body_uuid` tidak ditemukan).
+    pub body: String,
+    /// UUID body: nama sekarang dicari lewat UUID, jadi tambatan tetap
+    /// benar setelah body diganti namanya (atau rename di-undo).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub body_uuid: String,
+    /// Selector tepat satu face planar, mis. `">Z"`.
+    pub face: String,
+}
+
 /// Struktur data bidang referensi kustom (Datum Plane).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DatumPlane {
@@ -42,6 +57,9 @@ pub struct DatumPlane {
     pub name: String,
     pub plane: SketchPlane,
     pub visible: bool,
+    /// Tambatan ke face body; `None` = bidang tetap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<FaceAnchor>,
 }
 
 impl DatumPlane {
@@ -51,6 +69,7 @@ impl DatumPlane {
             name: name.into(),
             plane,
             visible: true,
+            face: None,
         }
     }
 }

@@ -330,7 +330,54 @@ impl DuCADApp {
         }
     }
 
+    /// Pilih batas extrude. "Sampai face" menyalakan mode pilih-face: face
+    /// yang diklik sesudahnya menjadi sasaran `up_to`.
+    pub fn set_extrude_extent(&mut self, mode: crate::types::ExtrudeExtentMode) {
+        use crate::types::{ExtrudeExtentMode as M, PickMode};
+        self.extrude_extent = mode;
+        if mode == M::UpToFace {
+            self.picking_mode = PickMode::Face;
+            self.selected_faces.clear();
+            self.model_status = Some(ducad_i18n::t!("extrude-extent-pick-face"));
+        } else if self.picking_mode == PickMode::Face {
+            self.picking_mode = PickMode::None;
+        }
+    }
+
+    /// Pilihan batas extrude di bawah label tinggi gizmo yang menunggu
+    /// konfirmasi.
+    pub(crate) fn show_extrude_extent_choice(&mut self, ctx: &egui::Context, pos: egui::Pos2) {
+        use crate::types::ExtrudeExtentMode as M;
+        let options = [
+            (M::Blind, ducad_i18n::t!("extrude-extent-blind")),
+            (M::Symmetric, ducad_i18n::t!("extrude-extent-symmetric")),
+            (M::UpToFace, ducad_i18n::t!("extrude-extent-up-to")),
+        ];
+        let current = self.extrude_extent;
+        let mut picked = None;
+        egui::Area::new(egui::Id::new("ducad-extrude-extent"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for (mode, label) in options {
+                            if ui.selectable_label(current == mode, label).clicked() {
+                                picked = Some(mode);
+                            }
+                        }
+                    });
+                });
+            });
+        if let Some(mode) = picked {
+            self.set_extrude_extent(mode);
+        }
+    }
+
     fn reset_gizmo_extrusion_state(&mut self) {
+        if self.extrude_extent == crate::types::ExtrudeExtentMode::UpToFace {
+            self.set_extrude_extent(crate::types::ExtrudeExtentMode::Blind);
+        }
         self.extruding_from_gizmo = false;
         self.gizmo_staged = false;
         self.gizmo_dimension_editing = false;

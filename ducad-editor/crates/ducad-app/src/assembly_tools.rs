@@ -220,7 +220,7 @@ impl DuCADApp {
         };
         match ducad_kernel::apply_mate_transform_to_shape(&geo.shape, &tf) {
             Ok(shape) => {
-                self.model.geometry.insert(body, BodyGeometry::from_shape(shape));
+                self.set_assembly_geometry(body, BodyGeometry::from_shape(shape));
                 self.model.doc.dirty = true;
                 self.note_rigid_move(body, &tf);
             }
@@ -302,6 +302,13 @@ impl DuCADApp {
     /// bergerak). `as_built`: B tidak dipindah. Asal joint dari datum sumbu
     /// `assembly_tools.origin_axis` bila dipilih.
     pub fn create_joint(&mut self, kind: JointKind, as_built: bool) -> bool {
+        let mark = self.begin_assembly_step();
+        let ok = self.create_joint_inner(kind, as_built);
+        self.end_assembly_step(mark, "Buat joint");
+        ok
+    }
+
+    fn create_joint_inner(&mut self, kind: JointKind, as_built: bool) -> bool {
         if self.staged_mate_targets.len() < 2 {
             self.model_status = Some(ducad_i18n::t!("asm-joint-need-two"));
             return false;
@@ -408,6 +415,12 @@ impl DuCADApp {
         if !value.is_finite() || k > 2 {
             return;
         }
+        let mark = self.begin_assembly_step_coalesced(u64::from(mate) << 2 | k as u64);
+        self.set_joint_value_inner(mate, k, value);
+        self.end_assembly_step(mark, "Ubah nilai joint");
+    }
+
+    fn set_joint_value_inner(&mut self, mate: u32, k: usize, value: f64) {
         if let Some(js) = self
             .assembly_tree
             .mates
@@ -573,51 +586,88 @@ impl DuCADApp {
             self.model_status = Some(ducad_i18n::t!("timeline-rename-empty"));
             return false;
         }
-        let body = self.instance_body(id);
-        let old = body.and_then(|b| self.model.doc.bodies.get(b).map(|b| b.name.clone()));
-        if let (Some(bid), Some(old)) = (body, old.as_deref()) {
-            if old != name {
-                let taken_by_body = self
-                    .model
-                    .doc
-                    .bodies
-                    .iter()
-                    .any(|(o, b)| o != bid && b.name == name);
-                if taken_by_body {
-                    self.model_status = Some(ducad_i18n::t!("asm-rename-taken", name = name));
-                    return false;
-                }
-                // Oplog harus mutakhir sebelum diubah (seperti `run_gui_ops`).
-                self.sync_agent_meta();
-                let oplog = &self.agent_meta.design.oplog;
-                // Body buatan op bernama id op pembuatnya: id itu ikut diganti,
-                // jadi nama baru harus memenuhi aturan id op.
-                let is_creator_id = oplog.iter().any(|o| o.id() == old);
-                if is_creator_id && !ducad_engine::ops::is_valid_op_id(name) {
-                    self.model_status = Some(ducad_i18n::t!("asm-rename-invalid-id", name = name));
-                    return false;
-                }
-                let taken_by_op = oplog.iter().any(|o| o.id() == name)
-                    || self.agent_meta.sketch_ids.contains_key(name);
-                if taken_by_op {
-                    self.model_status = Some(ducad_i18n::t!("asm-rename-taken", name = name));
-                    return false;
-                }
-                let mark = self.begin_oplog_step();
-                let msg = ducad_i18n::t!("asm-renamed", name = name);
-                self.execute_model_command(
-                    Box::new(crate::model::RenameBodyCommand::new(bid, name)),
-                    &msg,
-                );
-                rename_body_in_design(&mut self.agent_meta.design, old, name);
-                self.oplog_fp_dirty = true;
-                self.sync_design_after_agent();
-                self.end_oplog_step(mark, "Ganti nama komponen");
+        if let Some(bid) = self.instance_body(id) {
+            if !self.rename_body(bid, name) {
+                return false;
             }
         }
         if !self.assembly_tree.rename_instance(id, name) {
             return false;
         }
+        self.model.doc.dirty = true;
+        true
+    }
+
+    /// Ganti nama body `bid` menjadi `name` (teks bebas), satu langkah undo.
+    ///
+    /// - Body buatan op dengan nama baru yang sah sebagai id op: id op
+    ///   pembuat dan semua rujukan ikut diganti (oplog tetap ringkas).
+    /// - Body buatan op dengan nama lain (spasi, huruf besar, …): op
+    ///   `rename` disisipkan tepat sesudah op pembuat dan rujukan sesudahnya
+    ///   memakai nama baru; oplog di-replay.
+    /// - Body tanpa op pembuat: nama dan rujukannya diganti langsung.
+    pub fn rename_body(&mut self, bid: BodyId, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() {
+            self.model_status = Some(ducad_i18n::t!("timeline-rename-empty"));
+            return false;
+        }
+        let Some(old) = self.model.doc.bodies.get(bid).map(|b| b.name.clone()) else {
+            return false;
+        };
+        if old == name {
+            return true;
+        }
+        let taken_by_body = self.model.doc.bodies.iter().any(|(o, b)| o != bid && b.name == name);
+        if taken_by_body {
+            self.model_status = Some(ducad_i18n::t!("asm-rename-taken", name = name));
+            return false;
+        }
+        // Oplog harus mutakhir sebelum diubah (seperti `run_gui_ops`).
+        self.sync_agent_meta();
+        let oplog = &self.agent_meta.design.oplog;
+        let creator = oplog.iter().position(|o| o.id() == old);
+        let taken_by_op = oplog.iter().any(|o| o.id() == name)
+            || self.agent_meta.sketch_ids.contains_key(name);
+        let valid_id = ducad_engine::ops::is_valid_op_id(name);
+        if let Some(at) = creator.filter(|_| !valid_id || taken_by_op) {
+            let mut design = self.agent_meta.design.clone();
+            rename_body_refs(&mut design.oplog[at + 1..], &old, name, false);
+            let id = self.unique_op_id("rename");
+            let op = serde_json::from_value(serde_json::json!({
+                "op": "rename", "id": id, "body": old, "name": name,
+            }));
+            let r = match op {
+                Ok(op) => {
+                    design.oplog.insert(at + 1, op);
+                    self.replay_renames = vec![(old.clone(), name.to_string())];
+                    let r = self.replay_design_as_step(design, "Ganti nama body");
+                    self.replay_renames.clear();
+                    r
+                }
+                Err(e) => Err(ducad_engine::OpError::invalid(format!("op rename tidak valid: {e}"))),
+            };
+            if let Err(e) = r {
+                self.report_gui_op_error("Ganti nama body", &e);
+                return false;
+            }
+        } else {
+            if creator.is_some() && taken_by_op {
+                self.model_status = Some(ducad_i18n::t!("asm-rename-taken", name = name));
+                return false;
+            }
+            let mark = self.begin_oplog_step();
+            let msg = ducad_i18n::t!("asm-renamed", name = name);
+            self.execute_model_command(
+                Box::new(crate::model::RenameBodyCommand::new(bid, name)),
+                &msg,
+            );
+            rename_body_in_design(&mut self.agent_meta.design, &old, name);
+            self.oplog_fp_dirty = true;
+            self.sync_design_after_agent();
+            self.end_oplog_step(mark, "Ganti nama body");
+        }
+        self.model_status = Some(ducad_i18n::t!("asm-renamed", name = name));
         self.model.doc.dirty = true;
         true
     }
@@ -810,13 +860,28 @@ const BODY_REF_KEYS: [&str; 3] = ["body", "bodies", "target"];
 /// pembuat (nama body = id op), field rujukan body di semua op, dan nama
 /// `base_bodies`. Op yang tidak bisa di-serialisasi ulang dibiarkan.
 pub(crate) fn rename_body_in_design(design: &mut ducad_engine::DesignDoc, old: &str, new: &str) {
-    fn walk(v: &mut serde_json::Value, old: &str, new: &str, top: bool) {
+    rename_body_refs(&mut design.oplog, old, new, true);
+    for nb in design.base_bodies.iter_mut() {
+        if nb.name == old {
+            nb.name = new.to_string();
+        }
+    }
+}
+
+/// Ganti rujukan body `old` → `new` di `ops`. `rename_ids` = id op pembuat
+/// (id top-level == nama body) ikut diganti. Field `name` op `rename` juga
+/// rujukan body (nama yang dipakai op sesudahnya).
+pub(crate) fn rename_body_refs(ops: &mut [ducad_engine::ops::Op], old: &str, new: &str, rename_ids: bool) {
+    fn walk(v: &mut serde_json::Value, old: &str, new: &str, top: bool, rename_ids: bool) {
         match v {
             serde_json::Value::Object(map) => {
-                let is_boolean = top && map.get("op").and_then(|o| o.as_str()) == Some("boolean");
+                let kind = if top { map.get("op").and_then(|o| o.as_str()).map(str::to_string) } else { None };
+                let is_boolean = kind.as_deref() == Some("boolean");
+                let is_rename = kind.as_deref() == Some("rename");
                 for (k, val) in map.iter_mut() {
                     let body_key = BODY_REF_KEYS.contains(&k.as_str())
-                        || (top && k == "id")
+                        || (top && rename_ids && k == "id")
+                        || (is_rename && k == "name")
                         || (is_boolean && (k == "a" || k == "b"));
                     match val {
                         serde_json::Value::String(s) if body_key && s == old => {
@@ -830,7 +895,7 @@ pub(crate) fn rename_body_in_design(design: &mut ducad_engine::DesignDoc, old: &
                             }
                         }
                         serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
-                            walk(val, old, new, false)
+                            walk(val, old, new, false, rename_ids)
                         }
                         _ => {}
                     }
@@ -838,24 +903,19 @@ pub(crate) fn rename_body_in_design(design: &mut ducad_engine::DesignDoc, old: &
             }
             serde_json::Value::Array(items) => {
                 for it in items.iter_mut() {
-                    walk(it, old, new, false);
+                    walk(it, old, new, false, rename_ids);
                 }
             }
             _ => {}
         }
     }
-    for op in design.oplog.iter_mut() {
+    for op in ops.iter_mut() {
         let Ok(mut v) = serde_json::to_value(&*op) else {
             continue;
         };
-        walk(&mut v, old, new, true);
+        walk(&mut v, old, new, true, rename_ids);
         if let Ok(renamed) = serde_json::from_value(v) {
             *op = renamed;
-        }
-    }
-    for nb in design.base_bodies.iter_mut() {
-        if nb.name == old {
-            nb.name = new.to_string();
         }
     }
 }
@@ -1186,6 +1246,55 @@ mod tests {
         assert!((min_x(&app, b) + 30.0).abs() < 1e-3, "{}", min_x(&app, b));
     }
 
+    /// Buat joint lalu putar: undo mencabut putaran (satu langkah, drag
+    /// digabung), undo berikutnya mencabut joint; redo memulihkan keduanya.
+    #[test]
+    fn joint_create_and_drive_are_undoable() {
+        let (mut app, a, b) = two_boxes();
+        app.staged_mate_targets = vec![
+            (a, ray(), hit((5.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
+            (b, ray(), hit((35.0, 5.0, 10.0), (0.0, 0.0, 1.0))),
+        ];
+        let x0 = min_x(&app, b);
+        assert!(app.create_joint(JointKind::Revolute, true), "{:?}", app.model_status);
+        let mid = *app.assembly_tree.mates.keys().next().unwrap();
+        app.set_joint_value(mid, 0, 90.0);
+        app.set_joint_value(mid, 0, 180.0);
+        assert!((min_x(&app, b) + 30.0).abs() < 1e-3);
+
+        app.undo();
+        assert!((min_x(&app, b) - x0).abs() < 1e-6, "putaran dicabut: {}", min_x(&app, b));
+        assert_eq!(app.assembly_tree.mates.len(), 1, "joint masih ada");
+        app.undo();
+        assert!(app.assembly_tree.mates.is_empty(), "joint dicabut");
+        app.redo();
+        app.redo();
+        assert_eq!(app.assembly_tree.mates.len(), 1);
+        assert!((min_x(&app, b) + 30.0).abs() < 1e-3, "redo memutar lagi");
+    }
+
+    /// Ground dan sembunyikan komponen bisa di-undo.
+    #[test]
+    fn ground_and_hide_are_undoable() {
+        let (mut app, a, _) = two_boxes();
+        let inst = app.instance_of_body(a).unwrap();
+        let g0 = app.assembly_tree.instances[&inst].is_grounded;
+        let mark = app.begin_assembly_step();
+        app.assembly_tree.set_grounded(inst, !g0);
+        app.end_assembly_step(mark, "Ground komponen");
+        let mark = app.begin_assembly_step();
+        app.model.doc.bodies.get_mut(a).unwrap().visible = false;
+        app.end_assembly_step(mark, "Sembunyikan body");
+        assert!(!app.model.doc.bodies[a].visible);
+        app.undo();
+        assert!(app.model.doc.bodies[a].visible, "hide dicabut");
+        assert_eq!(app.assembly_tree.instances[&inst].is_grounded, !g0);
+        app.undo();
+        assert_eq!(app.assembly_tree.instances[&inst].is_grounded, g0, "ground dicabut");
+        app.redo();
+        assert_eq!(app.assembly_tree.instances[&inst].is_grounded, !g0);
+    }
+
     #[test]
     fn cam_follower_moves_until_contact() {
         let (mut app, a, b) = two_boxes();
@@ -1247,9 +1356,8 @@ mod tests {
         let a_name = app.model.doc.bodies.get(a).unwrap().name.clone();
         let vol = app.model.geometry.get(b).unwrap().shape.volume();
 
-        // Ditolak: nama kembar, bukan id op yang sah, kosong.
+        // Ditolak: nama kembar, kosong.
         assert!(!app.rename_component(ib, &a_name));
-        assert!(!app.rename_component(ib, "Tutup Atas"));
         assert!(!app.rename_component(ib, "   "));
         assert_eq!(app.model.doc.bodies.get(b).unwrap().name, old);
         assert_eq!(app.agent_meta.design.oplog.len(), 3);
@@ -1275,6 +1383,18 @@ mod tests {
         assert!(app.agent_meta.design.oplog.iter().any(|o| o.id() == old));
         assert!(!app.agent_meta.warnings.iter().any(|w| w == "oplog_stale"));
         assert!(replayed_volume(&app, &old).is_some());
+
+        // Nama bebas (bukan id op): op `rename` disisipkan sesudah op
+        // pembuat; op geser sesudahnya merujuk nama baru.
+        assert!(app.rename_component(ib, "Tutup Atas"), "{:?}", app.model_status);
+        assert_eq!(app.model.doc.bodies.get(b).unwrap().name, "Tutup Atas");
+        assert_eq!(app.assembly_tree.instances[&ib].name, "Tutup Atas");
+        let kinds: Vec<&str> = app.agent_meta.design.oplog.iter().map(|o| o.kind()).collect();
+        assert_eq!(kinds.iter().filter(|k| **k == "rename").count(), 1, "{kinds:?}");
+        let json = serde_json::to_string(&app.agent_meta.design.oplog).unwrap();
+        assert!(json.contains("\"body\":\"Tutup Atas\""), "{json}");
+        let re = replayed_volume(&app, "Tutup Atas").expect("replay nama bebas");
+        assert!((re - vol).abs() < 1e-6);
     }
 
     #[test]

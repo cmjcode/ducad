@@ -99,6 +99,8 @@ pub struct DuCADApp {
     pub selected_bodies: indexmap::IndexSet<BodyId>,
     pub model_status: Option<String>,
     pub extrude_distance_input: String,
+    /// Batas extrude profil (satu arah, simetris, sampai face).
+    pub extrude_extent: crate::types::ExtrudeExtentMode,
     pub fillet_radius_input: String,
     pub fillet_radius_end_input: String,
     pub fillet_variable_enabled: bool,
@@ -153,6 +155,14 @@ pub struct DuCADApp {
     /// Slot pemulihan oplog saat undo/redo geometri (Step 1a, lihat
     /// `oplog_undo`).
     pub oplog_slot: crate::oplog_undo::OplogSlot,
+    /// Slot pemulihan pohon perakitan saat undo/redo (lihat `assembly_undo`).
+    pub assembly_slot: crate::assembly_undo::AssemblySlot,
+    /// Rename body `(lama, baru)` untuk replay berikutnya (op `rename`
+    /// disisipkan): body lama dicocokkan ke nama baru agar `BodyId` tetap.
+    pub(crate) replay_renames: Vec<(String, String)>,
+    /// Geometri sebelum digerakkan solver selama satu langkah perakitan
+    /// terbuka (`None` = tidak ada langkah terbuka).
+    pub(crate) assembly_geo_log: Option<Vec<(ducad_core::BodyId, ducad_engine::model::BodyGeometry)>>,
     /// Cache status kendala sketsa aktif (Step 2, `sketch_status_ui`).
     pub sketch_status_cache: crate::sketch_status_ui::StatusCache,
     /// Saran tindakan berikutnya ditutup pengguna untuk sesi ini (Step 5).
@@ -643,6 +653,7 @@ impl DuCADApp {
             selected_bodies: indexmap::IndexSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
+            extrude_extent: Default::default(),
             fillet_radius_input: "2".to_string(),
             fillet_radius_end_input: "5".to_string(),
             fillet_variable_enabled: false,
@@ -682,6 +693,9 @@ impl DuCADApp {
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
             oplog_slot: Default::default(),
+            assembly_slot: Default::default(),
+            replay_renames: Vec::new(),
+            assembly_geo_log: None,
             sketch_status_cache: Default::default(),
             next_action_hidden: false,
             dimension_input_error: None,
@@ -1026,6 +1040,7 @@ impl DuCADApp {
             selected_bodies: indexmap::IndexSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
+            extrude_extent: Default::default(),
             fillet_radius_input: "2".to_string(),
             fillet_radius_end_input: "5".to_string(),
             fillet_variable_enabled: false,
@@ -1065,6 +1080,9 @@ impl DuCADApp {
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
             oplog_slot: Default::default(),
+            assembly_slot: Default::default(),
+            replay_renames: Vec::new(),
+            assembly_geo_log: None,
             sketch_status_cache: Default::default(),
             next_action_hidden: false,
             dimension_input_error: None,
@@ -2800,6 +2818,7 @@ impl eframe::App for DuCADApp {
                     if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, items_drawer_max_h, folder_bottom_y, vector_ctx) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
+                                let mark = self.begin_assembly_step();
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
                                     if id.data().as_ffi() == raw_id {
                                         b.visible = !b.visible;
@@ -2830,6 +2849,7 @@ impl eframe::App for DuCADApp {
                                         break;
                                     }
                                 }
+                                self.end_assembly_step(mark, "Tampil/sembunyikan body");
                             }
                             ItemsDrawerEvent::ToggleEntity2dVisibility(raw_id) => {
                                 for (_, slot) in self.sketch_set.iter_mut() {
@@ -3374,6 +3394,25 @@ impl eframe::App for DuCADApp {
                         self.selected_clash_id,
                     );
                     for ev in evs {
+                        // Edit perakitan = satu langkah undo per event; drag
+                        // nilai mate/limit/explode digabung per mate.
+                        let (label, coalesce) = match &ev {
+                            AssemblyDrawerEvent::ToggleGrounded(_) => ("Ground komponen", None),
+                            AssemblyDrawerEvent::ToggleInstanceVisibility(_) => ("Tampil/sembunyikan komponen", None),
+                            AssemblyDrawerEvent::DeleteInstance(_) => ("Hapus komponen", None),
+                            AssemblyDrawerEvent::AddSubAssembly => ("Tambah sub-assembly", None),
+                            AssemblyDrawerEvent::DeleteSubAssembly(_) => ("Hapus sub-assembly", None),
+                            AssemblyDrawerEvent::ToggleSuppressMate(_) => ("Suppress mate", None),
+                            AssemblyDrawerEvent::DeleteMate(_) => ("Hapus mate", None),
+                            AssemblyDrawerEvent::UpdateMateParam { id, .. } => ("Ubah mate", Some(u64::from(*id) | 1 << 40)),
+                            AssemblyDrawerEvent::UpdateMateLimits { id, .. } => ("Ubah batas mate", Some(u64::from(*id) | 2 << 40)),
+                            AssemblyDrawerEvent::SetExplodeFactor(_) => ("Explode", Some(3 << 40)),
+                            _ => ("Edit perakitan", None),
+                        };
+                        let mark = match coalesce {
+                            Some(k) => self.begin_assembly_step_coalesced(k),
+                            None => self.begin_assembly_step(),
+                        };
                         match ev {
                             AssemblyDrawerEvent::SelectInstance(id) => {
                                 self.selected_assembly_instance = Some(id);
@@ -3563,6 +3602,7 @@ impl eframe::App for DuCADApp {
                                 self.assembly_drawer_open = false;
                             }
                         }
+                        self.end_assembly_step(mark, label);
                     }
                 });
 
@@ -5010,9 +5050,13 @@ impl eframe::App for DuCADApp {
                                         }
                                     }
                                     RenameTarget::Body3d(body_id) => {
-                                        if let Some(b) = self.model.doc.bodies.get_mut(*body_id) {
-                                            b.name = new_name.clone();
-                                            self.model.doc.dirty = true;
+                                        // Satu jalur rename (undo + oplog): nama bebas,
+                                        // tidak harus sah sebagai id op.
+                                        let bid = *body_id;
+                                        if let Some(inst) = self.instance_of_body(bid) {
+                                            self.rename_component(inst, &new_name);
+                                        } else {
+                                            self.rename_body(bid, &new_name);
                                         }
                                     }
                                     RenameTarget::None => {}

@@ -3234,7 +3234,8 @@
                   "$ref": "#/definitions/Num"
                 }
               ],
-              "description": "Distance (> 0). For `direction = symmetric`: TOTAL thickness."
+              "default": 0.0,
+              "description": "Distance (> 0). For `direction = symmetric`: TOTAL thickness. Not used with `up_to`."
             },
             "id": {
               "type": "string"
@@ -3300,10 +3301,20 @@
                 "string",
                 "null"
               ]
+            },
+            "up_to": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/FaceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Extrude up to a planar face parallel to the sketch plane, e.g. `{\"body\":\"base\",\"face\":\">Z\"}`: the distance follows the face when the body changes and the side is taken from the face (`direction` must stay `normal`)."
             }
           },
           "required": [
-            "distance",
             "id",
             "op",
             "sketch"
@@ -3782,6 +3793,36 @@
           "required": [
             "body",
             "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Give a body a new name from this point of the oplog on (any text, e.g. `\"Bracket kiri\"`); later ops refer to the body by `name`. The old name is no longer valid.",
+          "properties": {
+            "body": {
+              "description": "Current name of the body.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "description": "New name: not empty, at most 64 characters, not used by another body.",
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "rename"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "name",
             "op"
           ],
           "type": "object"

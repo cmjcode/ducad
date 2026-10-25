@@ -48,11 +48,25 @@ impl Command<ModelDoc> for SwapModelCommand {
 pub fn apply_model_preserving_ids(
     undo: &mut ducad_core::UndoStack<ModelDoc>,
     model: &mut ModelDoc,
-    mut next: ModelDoc,
+    next: ModelDoc,
     label: &str,
 ) {
+    apply_model_preserving_ids_renamed(undo, model, next, label, &[]);
+}
+
+/// Seperti [`apply_model_preserving_ids`], dengan `renames` `(lama, baru)`:
+/// body lama bernama `lama` dicocokkan ke body replay bernama `baru` (op
+/// `rename` baru disisipkan) sehingga `BodyId`-nya tetap.
+pub fn apply_model_preserving_ids_renamed(
+    undo: &mut ducad_core::UndoStack<ModelDoc>,
+    model: &mut ModelDoc,
+    mut next: ModelDoc,
+    label: &str,
+    renames: &[(String, String)],
+) {
     use ducad_engine::model::{
-        AddSolidCommand, DeleteBodyCommand, ReplaceGeometryCommand, SetBodyMechanicalCommand,
+        AddSolidCommand, DeleteBodyCommand, RenameBodyCommand, ReplaceGeometryCommand,
+        SetBodyMechanicalCommand,
     };
     undo.begin(label.to_string());
     let mut unmatched_old: Vec<ducad_core::BodyId> = model.doc.bodies.keys().collect();
@@ -71,9 +85,19 @@ pub fn apply_model_preserving_ids(
                 .get(*oid)
                 .is_some_and(|b| b.name == nbody.name)
         });
+        let matched = matched.or_else(|| {
+            unmatched_old.iter().position(|oid| {
+                model.doc.bodies.get(*oid).is_some_and(|b| {
+                    renames.iter().any(|(o, n)| *o == b.name && *n == nbody.name)
+                })
+            })
+        });
         match matched {
             Some(pos) => {
                 let oid = unmatched_old.remove(pos);
+                if model.doc.bodies[oid].name != nbody.name {
+                    undo.execute(Box::new(RenameBodyCommand::new(oid, nbody.name.clone())), model);
+                }
                 undo.execute(
                     Box::new(ReplaceGeometryCommand::new("Replay", oid, geo)),
                     model,

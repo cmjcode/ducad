@@ -123,6 +123,28 @@ impl DuCADApp {
     /// titipkan keadaannya ke transaksi geometri yang baru, atau buat
     /// langkah sendiri bila aksi tidak mengubah geometri (mis. op `sketch`).
     pub(crate) fn end_oplog_step(&mut self, mark: OplogMark, label: &str) {
+        let stamp = mark.stamp;
+        let Some(cmd) = self.oplog_step_command(mark, label) else {
+            return;
+        };
+        let new_geometry_step = self.model_undo.top_undo_stamp() != stamp;
+        if new_geometry_step {
+            self.model_undo.attach_to_top(cmd);
+        } else {
+            // `execute` menerapkan command (slot = after); keadaan itu sudah
+            // berlaku, jadi slot langsung dikosongkan.
+            self.model_undo.execute(cmd, &mut self.model);
+            self.oplog_slot.borrow_mut().take();
+        }
+    }
+
+    /// Command keadaan oplog untuk aksi sejak `mark`; `None` bila oplog dan
+    /// slot sketsa terikat tidak berubah. Command-nya belum dicatat di undo.
+    pub(crate) fn oplog_step_command(
+        &mut self,
+        mark: OplogMark,
+        label: &str,
+    ) -> Option<Box<OplogStateCommand>> {
         let mut after = self.restore_snapshot();
         // Slot yang baru terikat/lepas dalam aksi ini ikut tercatat di kedua sisi.
         for (id, _) in &mark.before.sketches {
@@ -141,23 +163,14 @@ impl DuCADApp {
         if same_oplog_state(&before.meta, &after.meta)
             && same_sketches(&before.sketches, &after.sketches)
         {
-            return;
+            return None;
         }
-        let new_geometry_step = self.model_undo.top_undo_stamp() != mark.stamp;
-        let cmd = Box::new(OplogStateCommand {
+        Some(Box::new(OplogStateCommand {
             label: label.to_string(),
             before: Box::new(before),
             after: Box::new(after),
             slot: self.oplog_slot.clone(),
-        });
-        if new_geometry_step {
-            self.model_undo.attach_to_top(cmd);
-        } else {
-            // `execute` menerapkan command (slot = after); keadaan itu sudah
-            // berlaku, jadi slot langsung dikosongkan.
-            self.model_undo.execute(cmd, &mut self.model);
-            self.oplog_slot.borrow_mut().take();
-        }
+        }))
     }
 
     /// Pulihkan oplog (dan slot sketsa terikat) yang ditaruh command saat
@@ -183,6 +196,7 @@ impl DuCADApp {
         self.model_undo.undo(&mut self.model);
         self.selected_bodies.clear();
         self.take_restored_oplog();
+        self.take_restored_assembly();
         self.sync_round_history();
     }
 
@@ -191,6 +205,7 @@ impl DuCADApp {
         self.model_undo.redo(&mut self.model);
         self.selected_bodies.clear();
         self.take_restored_oplog();
+        self.take_restored_assembly();
         self.sync_round_history();
     }
 }

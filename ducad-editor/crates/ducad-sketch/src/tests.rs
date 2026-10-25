@@ -1741,3 +1741,46 @@ fn rect_from_center_mirrors_corner() {
     let c = rect_opposite_corner_from_center(DVec2::new(1.0, 1.0), DVec2::new(4.0, 3.0));
     assert_eq!(c, DVec2::new(-2.0, -1.0));
 }
+
+/// Hapus lalu undo memberi id baru, tetapi nama rujukan op harus sama
+/// supaya `profile.names` fitur sesudahnya tetap menemukan entitasnya.
+#[test]
+fn delete_undo_keeps_ref_name() {
+    let mut sketch = Sketch::default();
+    let mut undo = UndoStack::default();
+    let id = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    let before = sketch.ref_name(id);
+    undo.execute(Box::new(DeleteEntities::new(vec![id])), &mut sketch);
+    undo.undo(&mut sketch);
+    let (new_id, _) = sketch.entities.iter().next().expect("entitas pulih");
+    assert_ne!(new_id, id, "slotmap memberi id baru");
+    assert_eq!(sketch.ref_name(new_id), before);
+    // Hapus lagi + undo lagi: nama tetap yang pertama.
+    undo.execute(Box::new(DeleteEntities::new(vec![new_id])), &mut sketch);
+    undo.undo(&mut sketch);
+    let (id3, _) = sketch.entities.iter().next().unwrap();
+    assert_eq!(sketch.ref_name(id3), before);
+    // Lolos serde (kunci slotmap sebagai pasangan, bukan kunci map JSON).
+    let json = serde_json::to_string(&sketch).unwrap();
+    let back: Sketch = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.ref_name(id3), before);
+}
+
+/// Undo lalu redo sisip: entitas mendapat id baru, nama rujukan tetap.
+#[test]
+fn insert_redo_keeps_ref_name() {
+    let mut sketch = Sketch::default();
+    let mut undo = UndoStack::default();
+    undo.execute(
+        Box::new(InsertEntities::new("Line", vec![Entity::line(DVec2::ZERO, DVec2::X)])),
+        &mut sketch,
+    );
+    let (id, _) = sketch.entities.iter().next().unwrap();
+    let before = sketch.ref_name(id);
+    undo.undo(&mut sketch);
+    undo.redo(&mut sketch);
+    let (id2, _) = sketch.entities.iter().next().unwrap();
+    assert_eq!(sketch.ref_name(id2), before);
+}

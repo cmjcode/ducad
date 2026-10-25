@@ -1220,8 +1220,10 @@ impl DuCADApp {
         let name = format!("{} Mate ({axis_name})", kind.type_name());
         // Konvensi solver: target A = referensi (jangkar grounded), target B
         // = part yang digerakkan.
+        let mark = self.begin_assembly_step();
         self.assembly_tree.add_mate(&name, kind, reference, moving);
         self.solve_and_apply_assembly();
+        self.end_assembly_step(mark, "Mate ke sumbu datum");
         self.staged_mate_targets.clear();
         self.staged_mate_kind = None;
         self.active_face = None;

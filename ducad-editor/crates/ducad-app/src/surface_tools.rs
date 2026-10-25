@@ -8,6 +8,7 @@ use ducad_core::BodyId;
 use ducad_kernel::surface::{self, RuledDir};
 use ducad_kernel::KernelShape;
 use glam::DVec3;
+use serde_json::json;
 
 use crate::app::DuCADApp;
 use crate::model::{AddSolidCommand, BodyGeometry, ReplaceGeometryCommand};
@@ -148,6 +149,12 @@ impl DuCADApp {
     pub fn surface_extrude(&mut self) {
         let Some(c) = self.need_chains() else { return };
         let (a, b) = (self.surface_tools.start, self.surface_tools.end);
+        let r = self.surface_sketch_via_oplog("Surface Extrude", |sk| {
+            json!({ "extrude": { "sketch": sk, "start": a, "end": b } })
+        });
+        if self.surface_handled("Surface Extrude", r) {
+            return;
+        }
         let r = surface::extrude_sheet(self.active_frame(), &c, a, b);
         self.surface_add("Surface Extrude", r);
     }
@@ -159,6 +166,14 @@ impl DuCADApp {
         } else {
             (1.0, 0.0)
         };
+        let axis = if self.surface_tools.revolve_v { "v" } else { "u" };
+        let angle = self.surface_tools.angle;
+        let r = self.surface_sketch_via_oplog("Surface Revolve", |sk| {
+            json!({ "revolve": { "sketch": sk, "axis": axis, "angle_deg": angle } })
+        });
+        if self.surface_handled("Surface Revolve", r) {
+            return;
+        }
         let r = surface::revolve_sheet(
             self.active_frame(),
             &c,
@@ -184,6 +199,12 @@ impl DuCADApp {
             self.model_status = Some(ducad_i18n::t!("direct-need-edges"));
             return;
         }
+        let r = self.surface_sketch_via_oplog("Surface Sweep", |sk| {
+            json!({ "sweep": { "sketch": sk, "path": { "points": path } } })
+        });
+        if self.surface_handled("Surface Sweep", r) {
+            return;
+        }
         let r = surface::sweep_sheet(self.active_frame(), &c, &path);
         self.surface_add("Surface Sweep", r);
     }
@@ -198,12 +219,25 @@ impl DuCADApp {
     }
 
     pub fn surface_patch(&mut self) {
-        let Some((_, s, e)) = self.with_edges() else { return };
+        let Some((id, s, e)) = self.with_edges() else { return };
+        let r = self.surface_edges_via_oplog("Patch", id, &e, |b, sel| {
+            json!({ "patch": { "body": b, "edges": sel } })
+        });
+        if self.surface_handled("Patch", r) {
+            return;
+        }
         self.surface_add("Patch", surface::patch(&s, &e));
     }
 
     pub fn surface_ruled(&mut self) {
-        let Some((_, s, e)) = self.with_edges() else { return };
+        let Some((id, s, e)) = self.with_edges() else { return };
+        let (d, tangent) = (self.surface_tools.distance, self.surface_tools.ruled_tangent);
+        let r = self.surface_edges_via_oplog("Ruled", id, &e, |b, sel| {
+            json!({ "ruled": { "body": b, "edges": sel, "distance": d, "tangent": tangent } })
+        });
+        if self.surface_handled("Ruled", r) {
+            return;
+        }
         let dir = if self.surface_tools.ruled_tangent {
             RuledDir::Tangent
         } else {
@@ -215,6 +249,13 @@ impl DuCADApp {
 
     pub fn surface_extend(&mut self) {
         let Some((id, s, e)) = self.with_edges() else { return };
+        let d = self.surface_tools.distance;
+        let r = self.surface_edges_via_oplog("Extend", id, &e, |b, sel| {
+            json!({ "extend": { "body": b, "edges": sel, "distance": d } })
+        });
+        if self.surface_handled("Extend", r) {
+            return;
+        }
         let r = surface::extend(&s, &e, self.surface_tools.distance);
         self.surface_replace("Extend", id, r);
     }
@@ -228,6 +269,10 @@ impl DuCADApp {
             .collect();
         if curves.len() < 2 {
             self.model_status = Some(ducad_i18n::t!("surface-need-two-edges"));
+            return;
+        }
+        let r = self.surface_plain_via_oplog("Boundary", json!({ "boundary": { "u": curves } }));
+        if self.surface_handled("Boundary", r) {
             return;
         }
         self.surface_add("Boundary", surface::boundary(&curves, &[]));
@@ -249,34 +294,71 @@ impl DuCADApp {
     }
 
     pub fn surface_offset(&mut self) {
-        let Some((_, s, f)) = self.with_faces() else { return };
+        let Some((id, s, f)) = self.with_faces() else { return };
+        let d = self.surface_tools.distance;
+        let r = self.surface_faces_via_oplog("Offset Surface", id, &f, |b, sel| {
+            json!({ "offset": { "body": b, "faces": sel, "distance": d } })
+        });
+        if self.surface_handled("Offset Surface", r) {
+            return;
+        }
         let r = surface::offset_surface(&s, &f, self.surface_tools.distance);
         self.surface_add("Offset Surface", r);
     }
 
     pub fn surface_copy(&mut self) {
-        let Some((_, s, f)) = self.with_faces() else { return };
+        let Some((id, s, f)) = self.with_faces() else { return };
+        let r = self.surface_faces_via_oplog("Copy Faces", id, &f, |b, sel| {
+            json!({ "copy_faces": { "body": b, "faces": sel } })
+        });
+        if self.surface_handled("Copy Faces", r) {
+            return;
+        }
         self.surface_add("Copy Faces", surface::copy_faces(&s, &f));
     }
 
     pub fn surface_reverse(&mut self) {
         let Some((id, s, f)) = self.with_faces() else { return };
+        let r = self.surface_faces_via_oplog("Reverse Normal", id, &f, |b, sel| {
+            json!({ "reverse": { "body": b, "faces": sel } })
+        });
+        if self.surface_handled("Reverse Normal", r) {
+            return;
+        }
         self.surface_replace("Reverse Normal", id, surface::reverse_normals(&s, &f));
     }
 
     pub fn surface_fair(&mut self) {
         let Some((id, s, f)) = self.with_faces() else { return };
+        let r = self.surface_faces_via_oplog("Fair", id, &f, |b, sel| {
+            json!({ "fair": { "body": b, "faces": sel } })
+        });
+        if self.surface_handled("Fair", r) {
+            return;
+        }
         self.surface_replace("Fair", id, surface::fair(&s, &f));
     }
 
     pub fn surface_untrim(&mut self) {
         let Some((id, s, f)) = self.with_faces() else { return };
         let Some(&face) = f.first() else { return };
+        let r = self.surface_faces_via_oplog("Untrim", id, &[face], |b, sel| {
+            json!({ "untrim": { "body": b, "face": sel } })
+        });
+        if self.surface_handled("Untrim", r) {
+            return;
+        }
         self.surface_replace("Untrim", id, surface::untrim(&s, face));
     }
 
     pub fn surface_unstitch(&mut self) {
         let Some((id, s, f)) = self.with_faces() else { return };
+        let r = self.surface_faces_via_oplog("Unstitch", id, &f, |b, sel| {
+            json!({ "unstitch": { "body": b, "faces": sel } })
+        });
+        if self.surface_handled("Unstitch", r) {
+            return;
+        }
         match surface::unstitch(&s, &f) {
             Ok((pieces, rest)) => {
                 if let Some(rest) = rest {
@@ -311,6 +393,13 @@ impl DuCADApp {
         let Some(id) = self.selected_body_list().first().copied() else {
             return;
         };
+        let (t, sym) = (self.surface_tools.thickness, self.surface_tools.symmetric);
+        let r = self.surface_bodies_via_oplog("Thicken", &[id], |b| {
+            json!({ "thicken": { "body": b[0], "thickness": t, "symmetric": sym } })
+        });
+        if self.surface_handled("Thicken", r) {
+            return;
+        }
         let Some(g) = self.model.geometry.get(id) else {
             return;
         };
@@ -322,6 +411,11 @@ impl DuCADApp {
         let ids = self.selected_body_list();
         if ids.len() < 2 {
             self.model_status = Some(ducad_i18n::t!("surface-need-two-bodies"));
+            return;
+        }
+        let r = self.surface_bodies_via_oplog("Stitch", &ids, |b| json!({ "stitch": { "bodies": b } }));
+        if self.surface_handled("Stitch", r) {
+            self.selected_bodies.clear();
             return;
         }
         let shapes: Vec<&KernelShape> = ids
@@ -352,17 +446,28 @@ impl DuCADApp {
         let Some(id) = self.selected_body_list().first().copied() else {
             return;
         };
+        let (n, base) = match self.surface_tools.trim_plane {
+            1 => (DVec3::Y, "XZ"),
+            2 => (DVec3::X, "YZ"),
+            _ => (DVec3::Z, "XY"),
+        };
+        let offset = self.surface_tools.trim_offset;
+        let p = n * offset;
+        let side = if self.surface_tools.trim_keep_positive { 1.0 } else { -1.0 };
+        let keep = p + n * side * 1e6;
+        let r = self.surface_bodies_via_oplog("Trim", &[id], |b| {
+            json!({ "trim": {
+                "body": b[0],
+                "plane": { "base": base, "offset": offset },
+                "keep": keep.to_array(),
+            } })
+        });
+        if self.surface_handled("Trim", r) {
+            return;
+        }
         let Some(g) = self.model.geometry.get(id) else {
             return;
         };
-        let n = match self.surface_tools.trim_plane {
-            1 => DVec3::Y,
-            2 => DVec3::X,
-            _ => DVec3::Z,
-        };
-        let p = n * self.surface_tools.trim_offset;
-        let side = if self.surface_tools.trim_keep_positive { 1.0 } else { -1.0 };
-        let keep = p + n * side * 1e6;
         let r = surface::trim_by_plane(&g.shape, p, n, keep);
         self.surface_replace("Trim", id, r);
     }

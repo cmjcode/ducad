@@ -457,6 +457,7 @@ impl DuCADApp {
     /// Simpan `design` hasil agent ke dokumen GUI supaya ikut tersimpan ke
     /// berkas `.ducad`.
     pub(crate) fn sync_design_after_agent(&mut self) {
+        self.refresh_face_datums();
         self.agent_meta.design.fingerprint = ducad_engine::session::fingerprint(&self.model);
         self.design = serde_json::to_value(&self.agent_meta.design).ok();
     }
@@ -782,11 +783,13 @@ impl DuCADApp {
     ) {
         // BodyId/UUID body yang sama dipertahankan agar assembly dan
         // seleksi tidak putus setiap kali oplog di-replay.
-        crate::modeling::apply_model_preserving_ids(
+        let renames = std::mem::take(&mut self.replay_renames);
+        crate::modeling::apply_model_preserving_ids_renamed(
             &mut self.model_undo,
             &mut self.model,
             model,
             what,
+            &renames,
         );
         // Replay di sesi salinan membangun slot sketsa sendiri; op `sketch`
         // yang terikat ke slot GUI (ADR 0010) dipetakan kembali ke slot GUI.

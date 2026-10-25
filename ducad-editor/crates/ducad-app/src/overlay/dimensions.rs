@@ -2550,6 +2550,8 @@ impl DuCADApp {
                             Self::format_gizmo_input(self.unit, self.gizmo_distance);
                     }
                     if self.gizmo_staged {
+                        let below = pill_resp.rect.left_bottom() + egui::vec2(0.0, 6.0);
+                        self.show_extrude_extent_choice(ui.ctx(), below);
                         match CanvasHud::render_gizmo_confirm_buttons(
                             ui,
                             "extrude-profile",

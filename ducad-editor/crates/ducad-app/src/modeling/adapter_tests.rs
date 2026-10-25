@@ -1252,3 +1252,67 @@ fn starting_gizmos_from_sketch_mode_keeps_them_active() {
     assert!(app.extruding_from_gizmo, "drag extrude profil tetap aktif");
     assert!(!app.is_sketching);
 }
+
+/// Sketsa di face atas pelat bertebal `$t`, extrude boss 5 mm, lalu `t`
+/// diubah: bidang sketsa ditambat ke face (`{"body","face"}`) sehingga boss
+/// ikut naik dan bidang datum GUI mengikuti frame hasil replay.
+#[test]
+fn sketch_on_face_follows_body_after_param_change() {
+    use serde_json::json;
+    let mut app = DuCADApp::new_for_test();
+    let run = |app: &mut DuCADApp, tool: &str, args: serde_json::Value| {
+        let out = app.agent_call_local(tool, args).unwrap();
+        assert!(!out.is_error, "{}", out.payload);
+    };
+    run(&mut app, "set_params", json!({ "params": { "t": 8 } }));
+    run(
+        &mut app,
+        "run_ops",
+        json!({ "ops": [
+            {"op":"sketch","id":"base","plane":"XY","entities":[
+                {"rect":{"center":[0,0],"w":60,"h":40,"name":"outline"}}]},
+            {"op":"extrude","id":"plate","sketch":"base","distance":"$t"}
+        ] }),
+    );
+    let id = app.model.doc.bodies.keys().next().unwrap();
+    let ray = top_face_ray(10.0, 5.0);
+    let hit = ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+    app.active_face = Some((id, ray, hit));
+    app.sketch_on_active_face();
+    let did = match app.active_plane.kind {
+        ducad_render::PlaneKind::Custom(d) => d,
+        k => panic!("{k:?}"),
+    };
+    assert!(
+        app.datum_planes.iter().find(|d| d.id == did).unwrap().face.is_some(),
+        "bidang ditambat ke face"
+    );
+    app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+        "Circle",
+        vec![Entity::circle(DVec2::ZERO, 3.0)],
+    )));
+    app.selected = app.sketch().entities.keys().filter(|k| {
+        matches!(app.sketch().entities[*k], Entity::Circle { .. })
+    }).collect();
+    app.extrude_distance_input = "5".into();
+    app.extrude_selected();
+    assert!(!app.error_card.open, "{:?}", app.error_card);
+    let sketch_json = serde_json::to_value(
+        app.agent_meta.design.oplog.iter().rev().find(|o| o.kind() == "sketch").unwrap(),
+    )
+    .unwrap();
+    assert!(sketch_json["plane"]["face"].is_string(), "{sketch_json}");
+
+    let top = |app: &DuCADApp| {
+        app.model
+            .geometry
+            .values()
+            .map(|g| g.shape.bounding_box().unwrap().1[2])
+            .fold(f64::MIN, f64::max)
+    };
+    assert!((top(&app) - 13.0).abs() < 1e-4, "{}", top(&app));
+    run(&mut app, "set_params", json!({ "params": { "t": 12 } }));
+    assert!((top(&app) - 17.0).abs() < 1e-4, "boss ikut naik: {}", top(&app));
+    let plane = app.datum_planes.iter().find(|d| d.id == did).unwrap().plane;
+    assert!((plane.origin.z - 12.0).abs() < 1e-4, "datum ikut: {:?}", plane.origin);
+}

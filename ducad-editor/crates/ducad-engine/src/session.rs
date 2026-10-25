@@ -964,6 +964,46 @@ impl SessionCore<'_> {
         clone_shape(&self.body(name)?.1.shape)
     }
 
+    /// Extrude `up_to`: jarak bertanda dari bidang sketsa `sketch` ke face
+    /// planar `face` yang sejajar bidang itu.
+    fn up_to_extent(
+        &self,
+        sketch: &str,
+        face: &crate::ops::FaceRef,
+        direction: ExtrudeDir,
+        params: &Params,
+    ) -> OpResult<ExtrudeExtent> {
+        if direction != ExtrudeDir::Normal {
+            return Err(OpError::invalid("extrude 'up_to' tidak bisa digabung dengan 'direction'")
+                .with_hint("hapus 'direction': sisi extrude diambil dari letak face"));
+        }
+        let frame = *self.sketch(sketch)?.1;
+        let lookup = |name: &str| self.body_shape_clone(name);
+        let (f, _) = crate::compute::datum::one_face(&face.body, &face.face, &self.datum_ctx(params, &lookup))?;
+        if f.kind != SurfaceKind::Plane {
+            return Err(OpError::invalid(format!(
+                "face 'up_to' \"{}\" pada body '{}' bukan bidang datar (jenis {:?})",
+                face.face, face.body, f.kind
+            )));
+        }
+        let n = frame.normal_v();
+        if DVec3::from(f.normal).cross(n).length() > 1e-6 {
+            return Err(OpError::invalid(format!(
+                "face 'up_to' \"{}\" tidak sejajar bidang sketsa '{sketch}'",
+                face.face
+            ))
+            .with_hint("pilih face yang sejajar bidang sketsa, atau pakai 'distance'"));
+        }
+        let d = (DVec3::from(f.centroid) - frame.origin_v()).dot(n);
+        if d.abs() < 1e-9 {
+            return Err(OpError::invalid(format!(
+                "face 'up_to' \"{}\" terletak di bidang sketsa (jarak 0)",
+                face.face
+            )));
+        }
+        Ok(ExtrudeExtent::Blind(d))
+    }
+
     /// Konteks resolusi datum (Fase 1): param, pencari body, sumbu & titik
     /// datum yang sudah dibuat.
     fn datum_ctx<'c>(
@@ -1070,6 +1110,7 @@ impl SessionCore<'_> {
                 profile,
                 distance,
                 direction,
+                up_to,
                 mode,
                 target,
                 per_object,
@@ -1080,8 +1121,10 @@ impl SessionCore<'_> {
                     return Err(OpError::invalid("per_object hanya untuk body baru"));
                 }
                 validate_material(material)?;
-                let d = eval(distance, &params)?;
-                let extent = extent_for(*direction, d);
+                let extent = match up_to {
+                    Some(face) => self.up_to_extent(sketch, face, *direction, &params)?,
+                    None => extent_for(*direction, eval(distance, &params)?),
+                };
                 compute::validate_extent(extent)?;
 
                 if *per_object {
@@ -1939,6 +1982,23 @@ impl SessionCore<'_> {
                 self.exec(Box::new(DeleteBodyCommand::new(bid)));
                 self.meta.consumed.insert(body.clone(), id.clone());
                 out.removed.push(body.clone());
+            }
+            Op::Rename { id, body, name } => {
+                let name = name.trim();
+                if name.is_empty() || name.chars().count() > 64 {
+                    return Err(OpError::invalid("nama body baru harus 1..64 karakter"));
+                }
+                let (bid, _) = self.body(body)?;
+                if name != body && find_body(self.model, name).is_some() {
+                    return Err(OpError::invalid(format!("nama body '{name}' sudah dipakai body lain"))
+                        .with_hint("pilih nama lain"));
+                }
+                self.exec(Box::new(crate::model::RenameBodyCommand::new(bid, name)));
+                if name != body {
+                    self.meta.consumed.insert(body.clone(), id.clone());
+                }
+                self.meta.consumed.remove(name);
+                out.modified.push(name.to_string());
             }
             Op::Loft {
                 id,

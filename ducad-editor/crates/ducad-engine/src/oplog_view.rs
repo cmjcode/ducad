@@ -135,6 +135,11 @@ fn summary(
         .and_then(|b| b.as_str());
     let mut out = match (kind, &val) {
         ("fillet", Some(x)) => format!("R{x}"),
+        ("extrude", _) if v.get("up_to").is_some() => format!(
+            "sampai {}",
+            v["up_to"].get("face").and_then(|f| f.as_str()).unwrap_or("face")
+        ),
+        ("rename", _) => format!("nama baru \"{}\"", v.get("name").and_then(|n| n.as_str()).unwrap_or("")),
         ("chamfer", Some(x)) | ("extrude", Some(x)) | ("shell", Some(x)) => format!("{x} mm"),
         ("revolve", Some(x)) | ("revolve_face", Some(x)) => format!("{x} deg"),
         ("revolve_face", None) => "360 deg".to_string(),

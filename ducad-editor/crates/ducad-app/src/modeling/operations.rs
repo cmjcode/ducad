@@ -1367,9 +1367,28 @@ impl DuCADApp {
             .iter()
             .map(|p| glam::DVec3::new(p.0, p.1, p.2))
             .collect();
-        let plane = match super::face_sketch::longest_straight_edge_dir(&boundary) {
-            Some(u_hint) => SketchPlane::from_origin_normal_u(origin, normal, u_hint),
-            None => SketchPlane::from_origin_normal(origin, normal),
+        // Tambatan ke face (op `sketch` `{"body","face"}`): bidang ikut
+        // berubah bila body berubah. Frame-nya harus sama dengan frame
+        // engine (`PlaneFrame::on_face`) supaya replay tidak menggeser sketsa.
+        let anchor = hit.face_index.and_then(|fi| {
+            let shape = &self.model.geometry.get(target_id)?.shape;
+            let f = ducad_kernel::enumerate_faces(shape).into_iter().nth(fi)?;
+            let face = self.face_selector(target_id, &[fi])?;
+            let b = self.model.doc.bodies.get(target_id)?;
+            let (body, body_uuid) = (b.name.clone(), b.uuid.clone());
+            let frame = ducad_engine::PlaneFrame::on_face(f.centroid, f.normal);
+            Some((ducad_render::plane::FaceAnchor { body, body_uuid, face }, frame))
+        });
+        let plane = match (&anchor, super::face_sketch::longest_straight_edge_dir(&boundary)) {
+            (Some((_, f)), _) => {
+                let v = |a: [f64; 3]| Vec3::new(a[0] as f32, a[1] as f32, a[2] as f32);
+                let mut p = SketchPlane::from_origin_normal(v(f.origin), v(f.normal));
+                p.u_axis = v(f.u_axis);
+                p.v_axis = v(f.v_axis);
+                p
+            }
+            (None, Some(u_hint)) => SketchPlane::from_origin_normal_u(origin, normal, u_hint),
+            (None, None) => SketchPlane::from_origin_normal(origin, normal),
         };
 
         let existing = self
@@ -1384,7 +1403,11 @@ impl DuCADApp {
             Some(id) => (id, false),
             None => {
                 let name = format!("Sisi {}", self.datum_plane_counter + 1);
-                (self.create_datum_plane(name, plane), true)
+                let id = self.create_datum_plane(name, plane);
+                if let Some(d) = self.datum_planes.iter_mut().find(|d| d.id == id) {
+                    d.face = anchor.map(|(a, _)| a);
+                }
+                (id, true)
             }
         };
         self.set_sketch_plane(ducad_render::PlaneKind::Custom(id));
@@ -2377,7 +2400,7 @@ impl DuCADApp {
                             ducad_kernel::apply_mate_transform_to_shape(&geo.shape, &tf)
                         {
                             let new_geo = BodyGeometry::from_shape(new_shape);
-                            self.model.geometry.insert(body_id, new_geo);
+                            self.set_assembly_geometry(body_id, new_geo);
                             self.model.doc.dirty = true;
                             self.note_rigid_move(body_id, &tf);
                         }

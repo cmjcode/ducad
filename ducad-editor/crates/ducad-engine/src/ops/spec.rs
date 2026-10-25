@@ -58,11 +58,17 @@ pub enum Op {
         /// (smallest region containing the point).
         #[serde(default)]
         profile: ProfileSel,
-        /// Distance (> 0). For `direction = symmetric`: TOTAL thickness.
+        /// Distance (> 0). For `direction = symmetric`: TOTAL thickness. Not used with `up_to`.
+        #[serde(default)]
         distance: Num,
         /// `normal` (default, along the plane normal), `reverse`, `symmetric`.
         #[serde(default)]
         direction: ExtrudeDir,
+        /// Extrude up to a planar face parallel to the sketch plane, e.g.
+        /// `{"body":"base","face":">Z"}`: the distance follows the face when the body changes and the
+        /// side is taken from the face (`direction` must stay `normal`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        up_to: Option<FaceRef>,
         /// `new` (default), `add`, `cut`. `add`/`cut` require `target`.
         #[serde(default)]
         mode: BodyMode,
@@ -220,6 +226,15 @@ pub enum Op {
         id: String,
         /// Name of the body to delete.
         body: String,
+    },
+    /// Give a body a new name from this point of the oplog on (any text, e.g. `"Bracket kiri"`);
+    /// later ops refer to the body by `name`. The old name is no longer valid.
+    Rename {
+        id: String,
+        /// Current name of the body.
+        body: String,
+        /// New name: not empty, at most 64 characters, not used by another body.
+        name: String,
     },
     /// Loft a solid through ≥ 2 ordered sketches (one closed region per sketch; any plane, e.g.
     /// `{"base":"XY","offset":30}`).
@@ -879,6 +894,7 @@ impl Op {
             | Op::Pattern { id, .. }
             | Op::Transform { id, .. }
             | Op::Delete { id, .. }
+            | Op::Rename { id, .. }
             | Op::Loft { id, .. }
             | Op::Sweep { id, .. }
             | Op::Helix { id, .. }
@@ -939,6 +955,7 @@ impl Op {
             Op::Pattern { .. } => "pattern",
             Op::Transform { .. } => "transform",
             Op::Delete { .. } => "delete",
+            Op::Rename { .. } => "rename",
             Op::Loft { .. } => "loft",
             Op::Sweep { .. } => "sweep",
             Op::Helix { .. } => "helix",

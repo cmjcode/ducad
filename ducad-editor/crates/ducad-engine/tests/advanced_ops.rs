@@ -190,3 +190,66 @@ fn variable_fillet_and_replay() {
     let json = serde_json::to_string(&s.design().oplog).unwrap();
     assert!(json.contains("\"radius_end\":3"), "{json}");
 }
+
+/// Extrude `up_to` face bawah blok: tinggi extrude = jarak bidang sketsa ke
+/// face itu, dan mengikuti bila blok dipindah (replay). `direction` selain
+/// `normal` ditolak; face tak sejajar ditolak.
+#[test]
+fn extrude_up_to_face_follows_the_face() {
+    let mut s = Session::new();
+    block(&mut s, [0.0, 0.0, 20.0], [40.0, 40.0, 5.0]);
+    let bottom = bbox(&s, "b")[0][2];
+    run(
+        &mut s,
+        r#"[
+        {"op":"sketch","id":"s","plane":"XY","entities":[{"circle":{"center":[0,0],"r":3}}]},
+        {"op":"extrude","id":"post","sketch":"s","up_to":{"body":"b","face":"<Z"}}
+    ]"#,
+    );
+    let bb = bbox(&s, "post");
+    assert!((bb[1][2] - bottom).abs() < 1e-6, "{bb:?} vs {bottom}");
+    assert!(near(volume(&s, "post"), PI * 9.0 * bottom, 1e-3));
+
+    // Blok dipindah naik 10 → replay: tiang ikut memanjang.
+    let mut design = s.meta().design.clone();
+    design.oplog.insert(
+        1,
+        serde_json::from_str(r#"{"op":"transform","id":"up","body":"b","translate":[0,0,10]}"#).unwrap(),
+    );
+    design.fingerprint.clear();
+    design.geometry.clear();
+    let s2 = Session::replay(design).expect("replay");
+    let bb2 = bbox(&s2, "post");
+    assert!((bb2[1][2] - (bottom + 10.0)).abs() < 1e-6, "{bb2:?}");
+
+    let r = s.run(
+        ops(r#"[{"op":"extrude","id":"x","sketch":"s","direction":"symmetric","up_to":{"body":"b","face":"<Z"}}]"#),
+        true,
+    );
+    assert!(!r.committed);
+    let r = s.run(ops(r#"[{"op":"extrude","id":"x","sketch":"s","up_to":{"body":"b","face":">X"}}]"#), true);
+    assert!(!r.committed, "face tak sejajar ditolak");
+}
+
+/// Op `rename` memberi body nama bebas (spasi, huruf besar); op sesudahnya
+/// merujuk nama baru, nama lama ditolak, dan replay identik.
+#[test]
+fn rename_gives_body_a_free_name() {
+    let mut s = Session::new();
+    block(&mut s, [0.0, 0.0, 0.0], [20.0, 20.0, 10.0]);
+    run(
+        &mut s,
+        r#"[
+        {"op":"rename","id":"rn","body":"b","name":"Blok Utama"},
+        {"op":"fillet","id":"f","body":"Blok Utama","edges":"|Z","radius":2}
+    ]"#,
+    );
+    assert!(s.body("Blok Utama").is_ok());
+    assert!(s.body("b").is_err(), "nama lama tidak berlaku");
+    let r = s.run(ops(r#"[{"op":"delete","id":"d","body":"b"}]"#), true);
+    assert!(!r.committed);
+    let s2 = Session::replay(s.meta().design.clone()).expect("replay");
+    assert!(near(volume(&s2, "Blok Utama"), volume(&s, "Blok Utama"), 1e-9));
+    let r = s.run(ops(r#"[{"op":"rename","id":"rn2","body":"Blok Utama","name":"  "}]"#), true);
+    assert!(!r.committed, "nama kosong ditolak");
+}

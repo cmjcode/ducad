@@ -800,6 +800,16 @@ pub enum PickMode {
     Face,
 }
 
+/// Batas extrude profil dari GUI (op `extrude`): satu arah sejauh jarak,
+/// simetris (jarak = tebal total), atau sampai face sasaran (`up_to`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ExtrudeExtentMode {
+    #[default]
+    Blind,
+    Symmetric,
+    UpToFace,
+}
+
 pub type InspectorContentSig = (
     std::mem::Discriminant<SelectedEntityData>,
     bool,

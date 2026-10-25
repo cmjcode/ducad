@@ -32,10 +32,10 @@ pub struct SketchSpecs {
 /// hidup. Nama kembar (mis. semua glyph teks berlabel "Teks: AO") tidak bisa
 /// dipakai sebagai nama spec karena `build_sketch` menolak nama ganda.
 pub fn entity_spec_name(sketch: &Sketch, id: EntityId) -> String {
-    let derived = || format!("g{:x}", slotmap::Key::data(&id).as_ffi());
     match sketch.entity_names.get(&id) {
         Some(n) if sketch.entity_names.values().filter(|m| *m == n).count() == 1 => n.clone(),
-        _ => derived(),
+        // Nama rujukan dipertahankan lintas hapus/undo (id baru, nama lama).
+        _ => sketch.ref_name(id),
     }
 }
 

@@ -114,6 +114,14 @@ pub struct Sketch {
     #[serde(default, with = "crate::link::pairs", skip_serializing_if = "HashMap::is_empty")]
     pub linked: HashMap<EntityId, crate::link::LinkSource>,
 
+    /// Nama rujukan op yang harus dipertahankan saat entitas dipulihkan
+    /// dengan id baru (hapus lalu undo, undo lalu redo sisip). Tanpa entri
+    /// ini nama spec diturunkan dari id ([`Sketch::ref_name`]), sehingga
+    /// entitas yang dikembalikan mendapat nama baru dan `profile.names`
+    /// fitur sesudahnya tidak lagi menemukan entitasnya.
+    #[serde(default, with = "ref_pairs", skip_serializing_if = "HashMap::is_empty")]
+    pub ref_names: HashMap<EntityId, String>,
+
     /// Revisi per entitas; naik setiap kali entitas berubah lewat command.
     #[serde(skip)]
     pub rev: slotmap::SecondaryMap<EntityId, u64>,
@@ -128,7 +136,50 @@ pub struct Sketch {
     pub(crate) spatial_cache: SpatialCache,
 }
 
+/// Serde `HashMap<EntityId, String>` sebagai daftar pasangan (kunci slotmap
+/// bukan string, jadi tidak bisa jadi kunci map JSON).
+mod ref_pairs {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(map: &HashMap<EntityId, String>, s: S) -> Result<S::Ok, S::Error> {
+        let mut v: Vec<(&EntityId, &String)> = map.iter().collect();
+        v.sort_by_key(|(id, _)| **id);
+        v.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<HashMap<EntityId, String>, D::Error> {
+        let v: Vec<(EntityId, String)> = Vec::deserialize(d)?;
+        Ok(v.into_iter().collect())
+    }
+}
+
+/// Nama turunan id entitas (`g<ffi hex>`), unik selama dokumen hidup karena
+/// versi slot slotmap selalu naik.
+pub fn derived_ref_name(id: EntityId) -> String {
+    format!("g{:x}", slotmap::Key::data(&id).as_ffi())
+}
+
 impl Sketch {
+    /// Nama rujukan op entitas `id`: nama yang dipertahankan dari pemulihan,
+    /// atau nama turunan id.
+    pub fn ref_name(&self, id: EntityId) -> String {
+        self.ref_names
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| derived_ref_name(id))
+    }
+
+    /// Pasang nama rujukan `name` pada entitas `id` (mis. id baru hasil
+    /// pemulihan). Nama yang sama dengan turunan id tidak perlu disimpan.
+    pub fn set_ref_name(&mut self, id: EntityId, name: String) {
+        if name == derived_ref_name(id) {
+            self.ref_names.remove(&id);
+        } else {
+            self.ref_names.insert(id, name);
+        }
+    }
+
     /// Wajib dipanggil setiap command yang mengubah geometri entitas `id`.
     pub fn touch(&mut self, id: EntityId) {
         self.global_rev = self.global_rev.wrapping_add(1);
