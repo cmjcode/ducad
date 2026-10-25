@@ -53,6 +53,10 @@ pub struct MobileState {
     pub touch_pointer_active: bool,
     /// Sentuhan yang berlangsung berasal dari Apple Pencil (ada tekanan).
     pub pencil_touch_active: bool,
+    /// Tekanan pointer primer terakhir berasal dari layar sentuh (jari atau
+    /// Pencil), bukan mouse/trackpad. Tetap benar pada frame pelepasan, saat
+    /// `touch_pointer_active` sudah padam — klik egui baru lahir di frame itu.
+    pub press_from_touch: bool,
     /// Keypad ringkas pengganti keyboard sistem (hanya aktif di iPad).
     pub keyboard: ducad_ui::CompactKeyboard,
     /// Keyboard sistem sedang diminta tampil (bukan keypad ringkas).
@@ -64,10 +68,14 @@ impl MobileState {
     /// tidak melaporkan tekanan (`force == None`), Pencil melaporkan `> 0`
     /// sejak ujungnya menyentuh layar.
     pub fn observe_touch_events(&mut self, events: &[egui::Event], any_touches: bool) {
+        // egui-winit mengirim `Touch{Start}` lalu `PointerButton{pressed}` untuk
+        // sentuhan yang sama dalam satu frame; tekanan mouse datang tanpa `Touch`.
+        let mut touch_started = false;
         for ev in events {
-            if let egui::Event::Touch { phase, force, .. } = ev {
-                match phase {
+            match ev {
+                egui::Event::Touch { phase, force, .. } => match phase {
                     egui::TouchPhase::Start => {
+                        touch_started = true;
                         self.touch_pointer_active = true;
                         if force.is_some_and(|f| f > 0.0) {
                             self.pencil_touch_active = true;
@@ -79,7 +87,11 @@ impl MobileState {
                         }
                     }
                     egui::TouchPhase::End | egui::TouchPhase::Cancel => {}
+                },
+                egui::Event::PointerButton { pressed: true, .. } => {
+                    self.press_from_touch = touch_started;
                 }
+                _ => {}
             }
         }
         if !any_touches {
@@ -424,6 +436,37 @@ mod tests {
         app.touch_config.set_mode(ducad_ui::TouchDesignMode::PencilAndFinger);
         app.mobile.observe_touch_events(&[touch(egui::TouchPhase::Start, None)], true);
         assert!(!app.finger_navigation_active(), "mode hibrida: jari mendesain");
+    }
+
+    #[test]
+    fn press_from_touch_follows_the_latest_press() {
+        let touch_start = egui::Event::Touch {
+            device_id: egui::TouchDeviceId(0),
+            id: egui::TouchId(1),
+            phase: egui::TouchPhase::Start,
+            pos: egui::pos2(10.0, 10.0),
+            force: None,
+        };
+        let press = egui::Event::PointerButton {
+            pos: egui::pos2(10.0, 10.0),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let release = egui::Event::PointerButton {
+            pos: egui::pos2(10.0, 10.0),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut m = MobileState::default();
+        m.observe_touch_events(&[touch_start, press.clone()], true);
+        assert!(m.press_from_touch, "sentuhan → tekanan dari layar sentuh");
+        // Frame pelepasan: `any_touches` sudah false, tapi asal tekanan tetap tercatat.
+        m.observe_touch_events(&[release, egui::Event::PointerGone], false);
+        assert!(m.press_from_touch);
+        m.observe_touch_events(&[press], false);
+        assert!(!m.press_from_touch, "tekanan mouse tanpa Touch");
     }
 
     #[test]

@@ -259,6 +259,14 @@ pub struct DuCADApp {
     /// Pelacak "tahan diam" selama seretan pembuat entitas: (jangkar layar,
     /// waktu mulai diam, sudah menaruh titik). Lihat `dwell_tick`.
     pub drag_dwell: Option<(egui::Pos2, f64, bool)>,
+    /// Tekanan primer di kanvas yang sedang/baru berlangsung: (asal tekanan,
+    /// jarak terjauh dari asal dalam px layar). Dipakai `track_canvas_tap`.
+    pub canvas_press: Option<(egui::Pos2, f32)>,
+    /// Frame ini kanvas "diketuk": `clicked()` egui ATAU seretan pendek yang
+    /// baru berakhir (ketukan Pencil/jari yang tergelincir > 6 pt).
+    pub canvas_tap: bool,
+    /// Frame ini seretan pendek (≤ `TAP_SLOP_PX`) baru berakhir.
+    pub canvas_short_drag_ended: bool,
 
     pub measurements: Vec<crate::types::Measurement>,
 
@@ -731,6 +739,9 @@ impl DuCADApp {
             two_finger_tap_press: None,
             drag_create_active: false,
             drag_dwell: None,
+            canvas_press: None,
+            canvas_tap: false,
+            canvas_short_drag_ended: false,
 
             measurements: Vec::new(),
 
@@ -1111,6 +1122,9 @@ impl DuCADApp {
             two_finger_tap_press: None,
             drag_create_active: false,
             drag_dwell: None,
+            canvas_press: None,
+            canvas_tap: false,
+            canvas_short_drag_ended: false,
 
             measurements: Vec::new(),
 
@@ -1653,9 +1667,14 @@ impl DuCADApp {
         // dilepas (egui mengirim `PointerGone`), padahal `clicked()` /
         // `drag_stopped()` baru terjadi di frame itu. `interact_pointer_pos()`
         // masih menyimpan posisi sentuhan terakhir, jadi dipakai sebagai cadangan.
+        // Pencil 2/Pro yang melayang di atas layar tidak mengirim event pointer
+        // ke egui sama sekali; posisinya datang dari `UIHoverGestureRecognizer`
+        // (`mobile.pencil_hover`) supaya pratinjau/snap mengikuti ujung Pencil
+        // sebelum menyentuh.
         let raw_cursor = response
             .hover_pos()
             .or_else(|| response.interact_pointer_pos())
+            .or(self.mobile.pencil_hover)
             .and_then(|p| screen_to_plane_point(&self.camera, rect, p, &self.active_plane));
 
         self.handle_radial_menu(ui, &response);

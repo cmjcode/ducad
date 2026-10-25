@@ -8,7 +8,9 @@ use crate::viewport::{pixel_tolerance_to_world, screen_to_ray};
 impl DuCADApp {
     /// Klik viewport saat `picking_mode` aktif (Fase 8)
     pub fn handle_3d_picking(&mut self, response: &egui::Response, rect: egui::Rect) {
-        if !response.clicked() {
+        // Ketukan (klik egui atau seretan pendek Pencil/jari), lihat
+        // `track_canvas_tap`.
+        if !self.canvas_tap {
             return;
         }
         let Some(pos) = response.interact_pointer_pos() else {

@@ -26,7 +26,7 @@ impl DuCADApp {
             .then(|| self.hit_test_hover(rect, response, tol))
             .flatten()
             .filter(|id| self.sketch().entities.get(*id).is_some_and(is_breakable));
-        if response.clicked() {
+        if self.canvas_tap {
             if let Some(id) = self.hovered {
                 self.break_entity_at(id, raw);
                 self.hovered = None;

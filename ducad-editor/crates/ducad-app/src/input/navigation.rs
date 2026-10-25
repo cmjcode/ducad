@@ -55,7 +55,13 @@ impl DuCADApp {
         }
 
         if let Some(touch) = ui.input(|i| i.multi_touch()) {
-            if modifiers.shift {
+            // Layar sentuh tidak punya klik kanan (pan) maupun Shift. Dua jari
+            // di tampilan 3D memutar; saat menggambar sketsa 2D memutar hanya
+            // memiringkan bidang gambar, jadi dua jari menggeser. Tiga jari
+            // (atau Shift) selalu menggeser; orbit di sketsa tetap tersedia
+            // lewat satu jari pada tool Pilih / mode Hanya Pencil.
+            let pan = modifiers.shift || self.is_sketching || touch.num_touches >= 3;
+            if pan {
                 self.camera
                     .pan(touch.translation_delta.x, touch.translation_delta.y, rect.height());
             } else {

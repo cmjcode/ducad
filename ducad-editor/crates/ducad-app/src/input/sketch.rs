@@ -356,7 +356,14 @@ impl DuCADApp {
     ) -> Option<EntityId> {
         // Hover Apple Pencil (sebelum ujung menyentuh) dipakai bila tidak
         // ada pointer sungguhan di atas kanvas.
-        let pos = response.hover_pos().or(self.mobile.pencil_hover)?;
+        // Frame pelepasan sentuhan: `hover_pos()` sudah kosong (PointerGone)
+        // padahal `clicked()` baru lahir di frame itu; `interact_pointer_pos()`
+        // masih menyimpan posisi ketukan. Tanpa ini Trim/Extend/Break/
+        // Fillet 2D/Offset tidak pernah "mengenai" entitas lewat ketukan.
+        let pos = response
+            .hover_pos()
+            .or_else(|| response.interact_pointer_pos())
+            .or(self.mobile.pencil_hover)?;
         let p = screen_to_plane_point(&self.camera, rect, pos, &self.active_plane)?;
         hit_test_cycled(self.sketch(), p, tolerance, 0)
     }
@@ -428,24 +435,18 @@ impl DuCADApp {
         }
         // Satu gerakan bisa menaruh banyak titik: tekan = titik pertama, tahan
         // diam sejenak selagi menggeser = titik berikutnya, lepas = titik
-        // terakhir. Spline juga menerima seretan lanjutan saat rantainya
-        // sudah berisi titik.
-        let is_spline = self.tool == ToolKind::Spline;
+        // terakhir. Seretan lanjutan (rantai sudah berisi titik) menaruh titik
+        // berikutnya saat dilepas — lihat `begin_drag_create`.
         if response.drag_started_by(egui::PointerButton::Primary) {
-            self.drag_dwell = None;
-            if self.pending_points.is_empty() {
-                let origin = ui.input(|i| i.pointer.press_origin());
-                if let Some(p0) = origin.and_then(|o| screen_to_plane_point(&self.camera, rect, o, &self.active_plane)) {
-                    let p0 = self
-                        .find_current_snap(p0, tol, grid_step, None)
+            let origin = ui
+                .input(|i| i.pointer.press_origin())
+                .and_then(|o| screen_to_plane_point(&self.camera, rect, o, &self.active_plane))
+                .map(|p0| {
+                    self.find_current_snap(p0, tol, grid_step, None)
                         .map(|s| s.point)
-                        .unwrap_or(p0);
-                    self.drag_create_active = true;
-                    self.push_drag_point(p0, tol);
-                }
-            } else if is_spline {
-                self.drag_create_active = true;
-            }
+                        .unwrap_or(p0)
+                });
+            self.begin_drag_create(origin, tol);
         }
         if self.drag_create_active && response.dragged_by(egui::PointerButton::Primary) {
             if let Some(pos) = response.interact_pointer_pos() {
@@ -460,10 +461,79 @@ impl DuCADApp {
             ui.ctx().request_repaint();
         }
         if response.drag_stopped() && self.drag_create_active {
-            self.drag_create_active = false;
-            self.drag_dwell = None;
-            self.push_drag_point_if_moved(self.snapped_or(raw), tol);
+            self.end_drag_create(self.snapped_or(raw), tol);
         }
+    }
+
+    /// Mulai seretan pembuat titik. Rantai kosong: asal tekanan (`origin`)
+    /// menjadi titik pertama — kecuali tool satu titik (Teks), yang menaruh
+    /// titiknya saat dilepas. Rantai sudah berisi: seretan hanya "menarik"
+    /// titik berikutnya, ditaruh saat dilepas (atau saat diam, lihat dwell).
+    ///
+    /// Ini yang membuat titik ke-3 persegi 3 titik, busur, slot, dan lingkaran
+    /// 3 titik bisa dibuat di iPad: dua titik pertama ditarik dalam satu
+    /// seretan, lalu pengguna wajar menarik titik ketiga sambil melihat
+    /// pratinjau. egui hanya melaporkan `clicked()` bila Pencil/jari dilepas
+    /// < 6 pt dari asal tekanan dalam < 0,8 s; selebihnya seretan, dan dulu
+    /// seretan dengan rantai berisi diabaikan sama sekali.
+    pub fn begin_drag_create(&mut self, origin: Option<DVec2>, tol: f64) {
+        self.drag_dwell = None;
+        self.drag_create_active = true;
+        if self.pending_points.is_empty() && self.required_points_now() != 1 {
+            match origin {
+                Some(p0) => self.push_drag_point(p0, tol),
+                None => self.drag_create_active = false,
+            }
+        }
+    }
+
+    /// Akhiri seretan pembuat titik: posisi pelepasan menjadi titik berikutnya
+    /// (titik pertama bagi tool satu titik).
+    pub fn end_drag_create(&mut self, p: DVec2, tol: f64) {
+        self.drag_create_active = false;
+        self.drag_dwell = None;
+        if self.pending_points.is_empty() {
+            self.push_drag_point(p, tol);
+        } else {
+            self.push_drag_point_if_moved(p, tol);
+        }
+    }
+
+    /// Ambang (px layar) seretan primer yang masih dihitung ketukan.
+    pub const TAP_SLOP_PX: f32 = 14.0;
+
+    /// Perbarui `canvas_tap` / `canvas_short_drag_ended` untuk frame ini;
+    /// dipanggil sekali di awal `handle_sketch_input`.
+    ///
+    /// egui hanya melaporkan `clicked()` bila pointer dilepas < 6 pt dari asal
+    /// tekanan (`max_click_dist`); ketukan Pencil/jari yang sedikit tergelincir
+    /// menjadi seretan dan — pada tool yang hanya mendengarkan `clicked()` —
+    /// hilang tanpa jejak. Seretan primer yang berakhir ≤ [`Self::TAP_SLOP_PX`]
+    /// dari asalnya dihitung ketukan juga. Tool pembuat titik
+    /// (`drag_creates_points`) tidak memakainya: seretan di sana sudah bermakna.
+    fn track_canvas_tap(&mut self, ui: &egui::Ui, response: &egui::Response) {
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            self.canvas_press = ui.input(|i| i.pointer.press_origin()).map(|o| (o, 0.0));
+        }
+        if let (Some((origin, max)), Some(pos)) =
+            (self.canvas_press.as_mut(), response.interact_pointer_pos())
+        {
+            *max = max.max(origin.distance(pos));
+        }
+        self.canvas_short_drag_ended = false;
+        if response.drag_stopped_by(egui::PointerButton::Primary) {
+            if let Some((origin, max)) = self.canvas_press.take() {
+                let release = response.interact_pointer_pos().unwrap_or(origin);
+                self.canvas_short_drag_ended = Self::short_drag_is_tap(origin, max, release);
+            }
+        }
+        self.canvas_tap = response.clicked() || self.canvas_short_drag_ended;
+    }
+
+    /// Seretan dari `origin` yang paling jauh menempuh `max_travel` px dan
+    /// dilepas di `release` dihitung ketukan bila keduanya ≤ `TAP_SLOP_PX`.
+    pub fn short_drag_is_tap(origin: egui::Pos2, max_travel: f32, release: egui::Pos2) -> bool {
+        max_travel <= Self::TAP_SLOP_PX && origin.distance(release) <= Self::TAP_SLOP_PX
     }
 
     /// Lama pointer harus diam selagi diseret agar posisinya menjadi titik.
@@ -507,12 +577,15 @@ impl DuCADApp {
         }
     }
 
-    /// Tool yang menerima tekan-geser-lepas sebagai dua titik pertama: semua
-    /// tool berjumlah titik tetap ≥ 2 (persegi, lingkaran, …, juga slot dan
-    /// busur 3 titik: titik ketiga diketuk setelahnya) dan Spline. Garis
-    /// berantai dikecualikan karena seretan di sana adalah pindah-entitas.
+    /// Tool yang menerima tekan-geser-lepas sebagai titik: semua tool
+    /// berjumlah titik tetap (persegi, lingkaran, …, slot dan busur 3 titik —
+    /// titik ketiga ditarik atau diketuk setelahnya; Teks satu titik di
+    /// pelepasan), Spline, dan Garis (tekan = awal, lepas = ujung segmen,
+    /// rantai berlanjut dari ujung itu). Garis dulu dikecualikan dengan alasan
+    /// seretan = pindah-entitas, padahal pemindahan memakai gagang overlay
+    /// sendiri; di iPad garis yang tak bisa "ditarik" terasa mati.
     pub fn drag_creates_points(tool: ToolKind) -> bool {
-        tool == ToolKind::Spline || required_points(tool) >= 2
+        matches!(tool, ToolKind::Spline | ToolKind::Line) || required_points(tool) >= 1
     }
 
     /// Titik kurva pratinjau Spline: titik yang sudah ditaruh, ditambah
@@ -528,6 +601,8 @@ impl DuCADApp {
     fn push_drag_point(&mut self, p: DVec2, tol: f64) {
         if self.tool == ToolKind::Spline {
             self.handle_spline_click(p, tol);
+        } else if self.tool == ToolKind::Line && !self.line_uses_two_clicks() {
+            self.handle_line_chain_click(p, tol);
         } else {
             self.on_click_point(p);
         }
@@ -1190,6 +1265,7 @@ impl DuCADApp {
         rect: egui::Rect,
         raw_cursor: Option<DVec2>,
     ) {
+        self.track_canvas_tap(ui, response);
         if self.picking_mode != PickMode::None {
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.picking_mode = PickMode::None;
@@ -1514,7 +1590,7 @@ impl DuCADApp {
                     .or_else(|| ui.input(|i| i.pointer.latest_pos()))
                     .is_some_and(|p| self.check_near_gizmo(rect, Some(p)));
 
-                if response.clicked()
+                if self.canvas_tap
                     && !is_finger_navigating
                     && !suppress_click_from_radial
                     && !click_hits_body_dim_pill
@@ -1528,16 +1604,23 @@ impl DuCADApp {
                     self.sketch_move_target = None;
                     self.body_move_armed = false;
                     self.body_move_target = None;
-                    let shift = ui.input(|i| i.modifiers.shift);
+                    let shift_key = ui.input(|i| i.modifiers.shift);
                     let cmd = ui.input(|i| i.modifiers.command);
-                    let is_multi = shift || cmd;
+                    let is_multi = shift_key || cmd;
+                    // Layar sentuh tidak punya Shift. Di mode sketsa, ketukan
+                    // jari/Pencil pada entitas menambah/melepasnya dari seleksi
+                    // (konvensi iPad: ketuk lagi = lepas); ketukan di ruang
+                    // kosong tetap mengosongkan seleksi. Pemilihan sudut/vertex/
+                    // rusuk dan mate 3D tetap memakai tombol Shift sungguhan.
+                    let touch_additive = self.is_sketching && self.mobile.press_from_touch;
+                    let shift = shift_key || touch_additive;
                     let click_pos = response
                         .hover_pos()
                         .or_else(|| ui.input(|i| i.pointer.latest_pos()))
                         .or_else(|| ui.input(|i| i.pointer.interact_pos()));
 
                     // Prioritas 1: Jika mengklik sudut pertemuan 2 garis sketsa 2D
-                    let corner_pick_2d = if !shift && self.is_sketching && !self.sketch().entities.is_empty() {
+                    let corner_pick_2d = if !shift_key && self.is_sketching && !self.sketch().entities.is_empty() {
                         find_corner_lines_at_point(self.sketch(), raw, tol * 2.5)
                     } else {
                         None
@@ -1701,13 +1784,13 @@ impl DuCADApp {
                         }
                     }
 
-                    let vertex_pick_3d = if !self.is_sketching && !shift {
+                    let vertex_pick_3d = if !self.is_sketching && !shift_key {
                         click_pos.and_then(|pos| self.pick_body_vertex_at_cursor(rect, pos))
                     } else {
                         None
                     };
 
-                    let edge_pick_3d = if vertex_pick_3d.is_none() && !self.is_sketching && !shift {
+                    let edge_pick_3d = if vertex_pick_3d.is_none() && !self.is_sketching && !shift_key {
                         click_pos.and_then(|pos| self.pick_body_edge_at_cursor(rect, pos))
                     } else {
                         None
@@ -1717,7 +1800,7 @@ impl DuCADApp {
                     let round_op_edit = if vertex_pick_3d.is_none()
                         && edge_pick_3d.is_none()
                         && !self.is_sketching
-                        && !shift
+                        && !shift_key
                     {
                         click_pos.and_then(|pos| self.find_round_op_at(rect, pos, face_pick_3d.as_ref()))
                     } else {
@@ -1727,7 +1810,7 @@ impl DuCADApp {
                         && vertex_pick_3d.is_none()
                         && edge_pick_3d.is_none()
                         && !self.is_sketching
-                        && !shift
+                        && !shift_key
                     {
                         click_pos
                             .and_then(|pos| self.find_round_feature_at_cursor(rect, pos))
@@ -2011,7 +2094,7 @@ impl DuCADApp {
                                     self.pending_sweep_path = None;
                                 }
                             }
-                        } else if !shift {
+                        } else if !shift_key {
                             self.selected.clear();
                             self.pending_sweep_path = None;
                             self.sweep_path_plane_idx = None;
@@ -2199,7 +2282,13 @@ impl DuCADApp {
                                     }
                                 }
                             }
-                            (None, true) => {}
+                            (None, true) => {
+                                // Ketukan sentuh di ruang kosong (tanpa Shift)
+                                // mengosongkan seleksi, seperti klik mouse biasa.
+                                if touch_additive && !shift_key {
+                                    self.selected.clear();
+                                }
+                            }
                         }
                     }
                     self.constraint_status = None;
@@ -2232,7 +2321,7 @@ impl DuCADApp {
                         let min = p1.min(p2);
                         let max = p1.max(p2);
                         let drag_dist = (p1 - p2).length();
-                        if drag_dist > 2.0 {
+                        if drag_dist > 2.0 && !self.canvas_short_drag_ended {
                             let matched_ids: Vec<EntityId> = self
                                 .sketch()
                                 .entities
@@ -2341,6 +2430,9 @@ impl DuCADApp {
                         self.handle_line_chain_click(effective, tol);
                     }
                 }
+                if !is_finger_navigating {
+                    self.handle_drag_create(ui, response, rect, raw, tol, grid_step);
+                }
             }
             ToolKind::Point => {
                 // Paritas 1.1: satu klik = satu titik (lihat `sketch_points.rs`).
@@ -2349,7 +2441,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() && !is_finger_navigating {
+                if self.canvas_tap && !is_finger_navigating {
                     self.place_sketch_point(raw);
                 }
             }
@@ -2407,7 +2499,10 @@ impl DuCADApp {
                         let effective = self.snapped_or(raw);
                         self.on_click_point(effective);
                     }
-                } else if response.clicked() && !is_finger_navigating {
+                    if !is_finger_navigating {
+                        self.handle_drag_create(ui, response, rect, raw, tol, grid_step);
+                    }
+                } else if self.canvas_tap && !is_finger_navigating {
                     self.open_revolve_dialog();
                 }
             }
@@ -2419,13 +2514,13 @@ impl DuCADApp {
                             .hovered()
                             .then(|| self.hit_test_hover(rect, response, tol))
                             .flatten();
-                        if response.clicked() {
+                        if self.canvas_tap {
                             self.offset_source = self.hovered;
                         }
                     }
                     Some(source_id) => {
                         self.hovered = None;
-                        if response.clicked() {
+                        if self.canvas_tap {
                             if let Some(entity) = self.sketch().entities.get(source_id) {
                                 if let Some(new_entity) = offset_entity(entity, raw) {
                                     self.execute_sketch_command(Box::new(InsertEntities::new(
@@ -2448,7 +2543,7 @@ impl DuCADApp {
                     .filter(|id| {
                         matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. }))
                     });
-                if response.clicked() {
+                if self.canvas_tap {
                     if let Some(id) = self.hovered {
                         if let Some(Entity::Line { start, end, .. }) =
                             self.sketch().entities.get(id).cloned()
@@ -2484,7 +2579,7 @@ impl DuCADApp {
                     .filter(|id| {
                         matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. }))
                     });
-                if response.clicked() {
+                if self.canvas_tap {
                     if let Some(id) = self.hovered {
                         if let Some(extended_line) = extend_segment(self.sketch(), id, raw) {
                             self.execute_sketch_command(Box::new(ReplaceEntities::new(
@@ -2516,7 +2611,7 @@ impl DuCADApp {
                             matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. }))
                         });
                 }
-                if response.clicked() {
+                if self.canvas_tap {
                     if let Some((id1, id2, _corner)) = corner_hit {
                         if let (
                             Some(Entity::Line { start: s1, end: e1, .. }),
@@ -2590,7 +2685,7 @@ impl DuCADApp {
                             matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. }))
                         });
                 }
-                if response.clicked() {
+                if self.canvas_tap {
                     if let Some((id1, id2, _corner)) = corner_hit {
                         if let (
                             Some(Entity::Line { start: s1, end: e1, .. }),
@@ -2658,7 +2753,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if self.canvas_tap {
                     if let Some(source) = self.last_snap.and_then(|s| s.source) {
                         self.pending_point_refs.push(source);
                         if self.pending_point_refs.len() >= 2 {
@@ -2677,7 +2772,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if self.canvas_tap {
                     if let Some(hit) = self.last_snap {
                         if let Some(source) = hit.source {
                             self.apply_constraint(Constraint::Fixed {
@@ -2696,7 +2791,7 @@ impl DuCADApp {
                         .hovered()
                         .then(|| find_snap(self.sketch(), raw, tol, grid_step, Some(axis_id)))
                         .flatten();
-                    if response.clicked() {
+                    if self.canvas_tap {
                         if let Some(source) = self.last_snap.and_then(|s| s.source) {
                             self.pending_point_refs.push(source);
                             if self.pending_point_refs.len() >= 2 {
@@ -2734,7 +2829,7 @@ impl DuCADApp {
             }
             ToolKind::Eyedropper => {
                 self.last_snap = None;
-                if response.clicked() {
+                if self.canvas_tap {
                     let tol = pixel_tolerance_to_world(&self.camera, rect);
                     let click_pos = response.interact_pointer_pos().unwrap_or_default();
                     if let Some((_plane_idx, hit_id)) = hit_test_multi_plane(
@@ -2919,9 +3014,78 @@ mod tests {
         ] {
             assert!(crate::app::DuCADApp::drag_creates_points(tool), "{tool:?}");
         }
-        for tool in [ToolKind::Line, ToolKind::Select, ToolKind::Freehand, ToolKind::Text] {
+        // Garis dan Teks menyusul: di iPad garis ditarik, teks ditaruh saat lepas.
+        for tool in [ToolKind::Line, ToolKind::Text] {
+            assert!(crate::app::DuCADApp::drag_creates_points(tool), "{tool:?}");
+        }
+        for tool in [ToolKind::Select, ToolKind::Freehand, ToolKind::Trim, ToolKind::Offset] {
             assert!(!crate::app::DuCADApp::drag_creates_points(tool), "{tool:?}");
         }
+    }
+
+    #[test]
+    fn third_point_of_three_point_rect_can_be_dragged() {
+        // Laporan iPad: "kotak 3 titik belum bisa". Dua titik pertama ditarik,
+        // lalu Pencil menarik titik ketiga; egui melihatnya sebagai seretan
+        // (bukan klik) dan dulu seretan dengan rantai berisi diabaikan.
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Rectangle);
+        app.set_draw_mode_index(2);
+        assert_eq!(app.required_points_now(), 3, "mode 3 titik aktif");
+        let before = app.sketch().entities.len();
+
+        app.begin_drag_create(Some(DVec2::new(0.0, 0.0)), 0.5);
+        app.end_drag_create(DVec2::new(40.0, 0.0), 0.5);
+        assert_eq!(app.pending_points.len(), 2, "sisi pertama dari satu seretan");
+
+        app.begin_drag_create(None, 0.5);
+        assert!(app.drag_create_active, "seretan lanjutan harus diterima");
+        assert_eq!(app.pending_points.len(), 2, "mulai seretan lanjutan tidak menaruh titik");
+        app.end_drag_create(DVec2::new(40.0, 25.0), 0.5);
+        assert!(app.pending_points.is_empty());
+        assert_eq!(app.sketch().entities.len(), before + 4, "persegi 3 titik = 4 garis");
+    }
+
+    #[test]
+    fn line_chain_grows_segment_per_drag() {
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Line);
+        let before = app.sketch().entities.len();
+
+        app.begin_drag_create(Some(DVec2::new(0.0, 0.0)), 0.5);
+        assert_eq!(app.pending_points, vec![DVec2::new(0.0, 0.0)]);
+        app.end_drag_create(DVec2::new(30.0, 0.0), 0.5);
+        assert_eq!(app.sketch().entities.len(), before + 1, "lepas = segmen pertama");
+        assert_eq!(app.pending_points, vec![DVec2::new(30.0, 0.0)], "rantai lanjut dari ujung");
+
+        app.begin_drag_create(None, 0.5);
+        app.end_drag_create(DVec2::new(30.0, 20.0), 0.5);
+        assert_eq!(app.sketch().entities.len(), before + 2, "seretan berikutnya = segmen kedua");
+    }
+
+    #[test]
+    fn one_point_tool_places_point_on_release() {
+        // Teks: tekan-geser-lepas menaruh titik sisip di pelepasan, bukan di
+        // asal tekanan (pengguna menggeser untuk membidik).
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Text);
+        assert_eq!(app.required_points_now(), 1);
+        app.begin_drag_create(Some(DVec2::new(0.0, 0.0)), 0.5);
+        assert!(app.drag_create_active);
+        assert!(app.pending_points.is_empty(), "tool satu titik belum menaruh apa pun saat tekan");
+    }
+
+    #[test]
+    fn short_drag_counts_as_tap() {
+        use crate::app::DuCADApp;
+        let o = egui::pos2(100.0, 100.0);
+        assert!(DuCADApp::short_drag_is_tap(o, 8.0, egui::pos2(107.0, 101.0)), "Pencil tergelincir 8 px");
+        assert!(!DuCADApp::short_drag_is_tap(o, 40.0, egui::pos2(102.0, 100.0)), "pergi jauh lalu kembali = seretan");
+        assert!(!DuCADApp::short_drag_is_tap(o, 30.0, egui::pos2(130.0, 100.0)));
+        assert!(DuCADApp::short_drag_is_tap(o, DuCADApp::TAP_SLOP_PX, o));
     }
 
     #[test]
