@@ -125,6 +125,8 @@ pub enum TopBarEvent {
     ToggleChat,
     /// Buka tutorial selamat datang dari awal (tombol bantuan).
     StartTutorial,
+    /// Periksa pembaruan rilis terbaru dari GitHub.
+    CheckForUpdates,
     /// Jalankan perintah palette; nilainya `TopBarCommand::index`.
     RunCommand(usize),
 }
@@ -203,6 +205,9 @@ pub struct TopBarState {
     /// Semua perintah command palette, per grup — dirender sebagai submenu
     /// burger menu supaya tiap perintah punya jalur klik di GUI.
     pub command_groups: Vec<TopBarCommandGroup>,
+    /// Updater desktop aktif — menu "Periksa Pembaruan" hanya tampil bila
+    /// true (di iPad/tablet pembaruan lewat App Store).
+    pub updates_enabled: bool,
 }
 
 pub struct TopBar;
@@ -1106,6 +1111,16 @@ fn settings_menu_items(
             *event = Some(TopBarEvent::OpenCommandPalette);
             ui.close();
         }
+        if state.updates_enabled {
+            ui.separator();
+            if ui
+                .button(format!("{} {}", ICON_SYNC.codepoint, t!("menu-check-updates")))
+                .clicked()
+            {
+                *event = Some(TopBarEvent::CheckForUpdates);
+                ui.close();
+            }
+        }
         ui.separator();
         // Language selector
         ui.menu_button(
@@ -1318,6 +1333,7 @@ mod tests {
             section_view_active: false,
             is_measure_active: false,
             command_groups: Vec::new(),
+            updates_enabled: true,
             zebra_view_active: false,
             studio_lighting_active: false,
             active_plane_name: "Top".to_string(),

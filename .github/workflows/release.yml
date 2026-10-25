@@ -20,9 +20,11 @@ name: release
 # memasang per-user ke folder yang sama-sama bisa ditimpa updater.
 #
 # macOS TIDAK dibangun di CI: DMG harus ditandatangani Developer ID dan
-# dinotarisasi, dan itu dilakukan di mesin lokal. Karena itu workflow ini
-# hanya mengisi rilis DRAFT; updater (yang membaca `latest`) tidak melihat
-# rilis sebelum paket macOS ikut masuk. Setelah workflow selesai:
+# dinotarisasi, dan itu dilakukan di mesin lokal (`build_macos.sh macos`,
+# yang mengunggah DMG ke rilis DRAFT yang sama). Rilis baru diterbitkan
+# setelah paket Windows, Linux, DAN macOS lengkap — oleh pihak yang selesai
+# terakhir (job `publish` di bawah atau `build_macos.sh`) — supaya updater
+# (yang membaca `latest`) tidak pernah melihat rilis tanpa paket untuk OS-nya. Setelah workflow selesai:
 #   cd ducad-editor && make bundle-macos && ./notarize.sh
 #   mv dist/macos/DUCAD-X.Y.Z.dmg dist/macos/DUCAD-X.Y.Z-macos-arm64.dmg
 #   (cd dist/macos && shasum -a 256 DUCAD-X.Y.Z-macos-arm64.dmg > DUCAD-X.Y.Z-macos-arm64.dmg.sha256)
@@ -246,5 +248,17 @@ jobs:
             gh release create "$TAG" --draft --generate-notes --title "DUCAD $TAG"
           fi
           gh release upload "$TAG" dist/* --clobber
-          gh release view "$TAG" --json assets -q '.assets[].name'
-          echo "::notice::Rilis $TAG masih draft — unggah DMG macOS ternotarisasi lalu terbitkan."
+          ASSETS=$(gh release view "$TAG" --json assets -q '.assets[].name')
+          echo "$ASSETS"
+          # DMG macOS (dari `build_macos.sh`) sudah ada → semua paket lengkap,
+          # terbitkan sekarang. Bila belum, `build_macos.sh` yang menerbitkan
+          # setelah mengunggah DMG.
+          IS_DRAFT=$(gh release view "$TAG" --json isDraft -q '.isDraft')
+          if grep -qE "^DUCAD-${TAG#v}(-macos-[a-z0-9_]+)?\.dmg$" <<<"$ASSETS"; then
+            if [ "$IS_DRAFT" = "true" ]; then
+              gh release edit "$TAG" --draft=false --latest
+              echo "::notice::Rilis $TAG diterbitkan (paket Windows, Linux, macOS lengkap)."
+            fi
+          else
+            echo "::notice::Rilis $TAG masih draft — unggah DMG macOS ternotarisasi (build_macos.sh) untuk menerbitkannya."
+          fi

@@ -184,6 +184,15 @@ impl DuCADApp {
                 ui.close();
             }
 
+            if self.update.enabled() {
+                ui.separator();
+                let label = format!("{} {}", egui_icons::icons::ICON_SYNC.codepoint, t!("menu-check-updates"));
+                if ui.button(label).clicked() {
+                    self.update.check_now();
+                    ui.close();
+                }
+            }
+
             ui.separator();
             ui.collapsing(t!("menu-shortcuts"), |ui| {
                 egui::Grid::new("settings-keyboard-shortcuts")

@@ -1149,7 +1149,7 @@ mod tests {
             crate::types::HoleHistory {
                 base,
                 features: vec![crate::types::HoleFeature {
-                    spec: spec.clone(),
+                    spec,
                     pos,
                     normal,
                     face_hit: hit,

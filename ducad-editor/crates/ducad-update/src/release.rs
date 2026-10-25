@@ -112,12 +112,25 @@ struct ApiRelease {
     assets: Vec<Asset>,
 }
 
+/// Normalisasi nama repositori (`pemilik/nama`), menerima format slug atau URL lengkap.
+pub fn normalize_repo(raw: &str) -> String {
+    let raw = raw.trim();
+    if let Some(pos) = raw.find("github.com/") {
+        let after = &raw[pos + "github.com/".len()..];
+        let parts: Vec<&str> = after.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.len() >= 2 {
+            return format!("{}/{}", parts[0], parts[1]);
+        }
+    }
+    raw.to_string()
+}
+
 /// Repositori yang dipakai: env [`REPO_ENV`] bila valid, selain itu
 /// [`DEFAULT_REPO`].
 pub fn repo() -> String {
     std::env::var(REPO_ENV)
         .ok()
-        .map(|r| r.trim().to_string())
+        .map(|r| normalize_repo(&r))
         .filter(|r| r.split('/').count() == 2 && !r.contains(char::is_whitespace))
         .unwrap_or_else(|| DEFAULT_REPO.to_string())
 }
@@ -126,9 +139,13 @@ pub(crate) fn user_agent() -> String {
     format!("DUCAD-updater/{}", env!("CARGO_PKG_VERSION"))
 }
 
-/// Rilis final terbaru (`GET /repos/{repo}/releases/latest`). Memblokir —
+/// Rilis final terbaru. Mencoba GitHub REST API terlebih dahulu untuk
+/// metadata lengkap (catatan rilis, ukuran aset), dan otomatis beralih ke
+/// pemeriksaan web `https://github.com/{repo}/releases/latest` bila terkena
+/// rate limit GitHub (HTTP 403/429) atau galat API lainnya. Memblokir —
 /// panggil dari thread latar.
 pub fn fetch_latest(repo: &str) -> Result<Release, UpdateError> {
+    let repo = normalize_repo(repo);
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let agent = ureq::AgentBuilder::new().timeout(API_TIMEOUT).build();
     let response = agent
@@ -137,15 +154,97 @@ pub fn fetch_latest(repo: &str) -> Result<Release, UpdateError> {
         .set("Accept", "application/vnd.github+json")
         .set("X-GitHub-Api-Version", "2022-11-28")
         .call();
-    let api: ApiRelease = match response {
-        Ok(r) => r.into_json().map_err(|e| UpdateError::Network(e.to_string()))?,
+    match response {
+        Ok(r) => match r.into_json::<ApiRelease>() {
+            Ok(api) => return parse_release(api),
+            Err(e) => {
+                log::warn!("Gagal parse JSON API rilis ({e}), beralih ke pemeriksaan web...");
+            }
+        },
         Err(ureq::Error::Status(404, _)) => return Err(UpdateError::NoRelease),
         Err(ureq::Error::Status(403 | 429, _)) => {
-            return Err(UpdateError::Network("GitHub API rate limit".to_string()))
+            log::info!("GitHub API rate limit tercapai, memeriksa lewat web releases/latest...");
         }
-        Err(e) => return Err(UpdateError::Network(e.to_string())),
+        Err(e) => {
+            log::warn!("GitHub API error ({e}), memeriksa lewat web releases/latest...");
+        }
+    }
+    // Fallback kuat ke https://github.com/{repo}/releases/latest
+    fetch_latest_from_web(&repo)
+}
+
+/// Rilis terbaru dari halaman web GitHub Releases (`https://github.com/{repo}/releases/latest`).
+/// Tidak terpengaruh pembatasan rate limit GitHub REST API (60 req/jam).
+pub fn fetch_latest_from_web(repo: &str) -> Result<Release, UpdateError> {
+    let repo = normalize_repo(repo);
+    let url = format!("https://github.com/{repo}/releases/latest");
+    let agent = ureq::AgentBuilder::new()
+        .timeout(API_TIMEOUT)
+        .redirects(5)
+        .build();
+    let response = agent
+        .get(&url)
+        .set("User-Agent", &user_agent())
+        .call()
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+
+    // Tanpa rilis, GitHub mengalihkan ke `/releases` (tanpa `/tag/…`).
+    let final_url = response.get_url().to_string();
+    let tag = tag_from_release_url(&final_url).ok_or(UpdateError::NoRelease)?.to_string();
+    let version = Version::parse(&tag).ok_or(UpdateError::NoRelease)?;
+
+    // Daftar aset dari fragmen HTML `expanded_assets`. Bila gagal, rilis
+    // tetap dilaporkan tanpa aset: UI lalu menawarkan halaman unduhan alih-alih
+    // menebak nama berkas (tebakan yang salah = unduhan 404).
+    let assets_url = format!("https://github.com/{repo}/releases/expanded_assets/{tag}");
+    let assets = match agent.get(&assets_url).set("User-Agent", &user_agent()).call() {
+        Ok(resp) => match resp.into_string() {
+            Ok(html) => parse_expanded_assets_html(&html, &repo, &tag),
+            Err(e) => {
+                log::warn!("Daftar aset rilis {tag} tidak terbaca: {e}");
+                Vec::new()
+            }
+        },
+        Err(e) => {
+            log::warn!("Daftar aset rilis {tag} tidak terbaca: {e}");
+            Vec::new()
+        }
     };
-    parse_release(api)
+
+    Ok(Release {
+        version,
+        title: tag.clone(),
+        tag,
+        notes: String::new(),
+        page_url: final_url,
+        assets,
+    })
+}
+
+/// Tag dari URL halaman rilis (`…/releases/tag/v0.7.9` → `v0.7.9`).
+fn tag_from_release_url(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("/releases/tag/")?;
+    rest.split(['/', '?', '#']).next().filter(|t| !t.is_empty())
+}
+
+/// Aset dari fragmen HTML `releases/expanded_assets/{tag}` (tautan
+/// `/{repo}/releases/download/{tag}/{nama}`).
+pub(crate) fn parse_expanded_assets_html(html: &str, repo: &str, tag: &str) -> Vec<Asset> {
+    let prefix = format!("/{repo}/releases/download/{tag}/");
+    let mut assets: Vec<Asset> = Vec::new();
+    for chunk in html.split(prefix.as_str()).skip(1) {
+        let Some(end) = chunk.find(['"', '\'', '<', ' ']) else { continue };
+        let name = &chunk[..end];
+        if name.is_empty() || name.contains('/') || assets.iter().any(|a| a.name == name) {
+            continue;
+        }
+        assets.push(Asset {
+            name: name.to_string(),
+            browser_download_url: format!("https://github.com{prefix}{name}"),
+            size: 0,
+        });
+    }
+    assets
 }
 
 fn parse_release(api: ApiRelease) -> Result<Release, UpdateError> {
@@ -307,5 +406,74 @@ mod tests {
             parse_release(serde_json::from_str(pre).unwrap()),
             Err(UpdateError::NoRelease)
         ));
+    }
+
+    #[test]
+    fn test_normalize_repo() {
+        assert_eq!(normalize_repo("cmjcode/ducad"), "cmjcode/ducad");
+        assert_eq!(
+            normalize_repo("https://github.com/cmjcode/ducad/releases/latest"),
+            "cmjcode/ducad"
+        );
+        assert_eq!(
+            normalize_repo("https://github.com/cmjcode/ducad"),
+            "cmjcode/ducad"
+        );
+    }
+
+    #[test]
+    fn test_parse_expanded_assets_html() {
+        let html = r#"
+            <div>
+              <a href="/cmjcode/ducad/releases/download/v0.7.9/DUCAD-0.7.9.dmg">DUCAD-0.7.9.dmg</a>
+              <a href="/cmjcode/ducad/releases/download/v0.7.9/DUCAD-0.7.9.dmg.sha256">DUCAD-0.7.9.dmg.sha256</a>
+            </div>
+        "#;
+        let assets = parse_expanded_assets_html(html, "cmjcode/ducad", "v0.7.9");
+        assert_eq!(assets.len(), 2);
+        assert_eq!(assets[0].name, "DUCAD-0.7.9.dmg");
+        assert_eq!(
+            assets[0].browser_download_url,
+            "https://github.com/cmjcode/ducad/releases/download/v0.7.9/DUCAD-0.7.9.dmg"
+        );
+        assert_eq!(assets[1].name, "DUCAD-0.7.9.dmg.sha256");
+    }
+
+    #[test]
+    fn tag_from_release_url_handles_redirects() {
+        assert_eq!(
+            tag_from_release_url("https://github.com/cmjcode/ducad/releases/tag/v0.7.9"),
+            Some("v0.7.9")
+        );
+        assert_eq!(tag_from_release_url("https://github.com/o/r/releases/tag/v1.0.0?x=1"), Some("v1.0.0"));
+        // Repo tanpa rilis: GitHub mengalihkan ke daftar rilis.
+        assert_eq!(tag_from_release_url("https://github.com/cmjcode/ducad/releases"), None);
+        assert_eq!(tag_from_release_url("https://github.com/o/r/releases/tag/"), None);
+    }
+
+    #[test]
+    fn expanded_assets_feed_package_selection() {
+        let html = r#"<a href="/o/r/releases/download/v1.2.3/ducad-1.2.3-windows-x86_64.zip" rel="nofollow">
+            <a href="/o/r/releases/download/v1.2.3/ducad-1.2.3-windows-x86_64.zip.sha256">
+            <a href="/o/r/releases/download/v1.2.3/ducad-1.2.3-linux-x86_64.tar.gz">
+            <a href="/o/r/releases/download/v1.2.3/DUCAD-1.2.3.dmg">
+            <a href="/o/r/archive/refs/tags/v1.2.3.zip">"#;
+        let list = parse_expanded_assets_html(html, "o/r", "v1.2.3");
+        assert_eq!(list.len(), 4);
+        let win = select_package(&list, &Target { os: Os::Windows, arch: "x86_64" }).unwrap();
+        assert_eq!(win.name, "ducad-1.2.3-windows-x86_64.zip");
+        let lin = select_package(&list, &Target { os: Os::Linux, arch: "x86_64" }).unwrap();
+        assert_eq!(lin.name, "ducad-1.2.3-linux-x86_64.tar.gz");
+        let mac = select_package(&list, &Target { os: Os::MacOs, arch: "aarch64" }).unwrap();
+        assert_eq!(mac.name, "DUCAD-1.2.3.dmg");
+    }
+
+    #[test]
+    #[ignore]
+    fn live_web_latest_release_fetch() {
+        let release = fetch_latest_from_web(DEFAULT_REPO).unwrap();
+        println!("Web check tag: {}, assets: {}", release.tag, release.assets.len());
+        assert!(!release.tag.is_empty());
+        assert!(!release.assets.is_empty());
     }
 }

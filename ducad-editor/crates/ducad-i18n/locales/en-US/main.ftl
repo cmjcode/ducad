@@ -37,6 +37,7 @@ menu-reduce-transparency = Reduce transparency
 settings-icon-size = Icon Size
 menu-shortcuts = Keyboard Shortcuts
 menu-command-palette = Command Palette
+menu-check-updates = Check for Updates…
 cmd-no-match = No matching command
 cmd-search-hint = Search commands…
 cmd-hint-navigate = navigate

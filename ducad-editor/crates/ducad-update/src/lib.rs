@@ -20,7 +20,10 @@ mod settings;
 mod version;
 
 pub use install::{cleanup_leftovers, install, Installation, Installed, Progress, Unsupported};
-pub use release::{fetch_latest, repo, select_package, Asset, Os, Release, Target, DEFAULT_REPO, REPO_ENV};
+pub use release::{
+    fetch_latest, fetch_latest_from_web, normalize_repo, repo, select_package, Asset, Os, Release, Target,
+    DEFAULT_REPO, REPO_ENV,
+};
 pub use settings::{now_unix, UpdateSettings, CHECK_INTERVAL_SECS};
 pub use version::Version;
 

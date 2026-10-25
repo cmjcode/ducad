@@ -265,12 +265,14 @@ upload_github_release() {
     # Tentukan tag release
     local release_tag="${RELEASE_TAG:-v$VERSION}"
 
-    # Kumpulkan berkas artifact yang akan di-upload dari dist
+    # Kumpulkan berkas artifact VERSI INI dari dist. Berkas versi lama yang
+    # tertinggal di dist/ tidak boleh ikut: updater macOS memilih dmg pertama
+    # yang cocok, jadi dmg lama di rilis baru bisa terpasang sebagai "update".
     local candidate_files=()
     if [ -d "dist" ]; then
         while IFS= read -r -d '' file; do
             candidate_files+=("$file")
-        done < <(find dist -type f \( -name "*.dmg" -o -name "*.pkg" -o -name "*.tar.gz" -o -name "*.zip" -o -name "*.msi" \) -print0 2>/dev/null)
+        done < <(find dist -type f -name "*${VERSION}*" \( -name "*.dmg" -o -name "*.pkg" -o -name "*.tar.gz" -o -name "*.zip" -o -name "*.msi" \) -print0 2>/dev/null)
     fi
 
     if [ ${#candidate_files[@]} -eq 0 ]; then
@@ -321,7 +323,11 @@ upload_github_release() {
             is_draft=true
         fi
     else
-        print_status "Release $release_tag belum ada. Membuat release baru..."
+        # Dibuat sebagai DRAFT: rilis yang terbit sebelum paket Windows/Linux
+        # dari CI (release.yml) masuk membuat updater di Windows/Linux melihat
+        # versi baru tanpa paket. Rilis diterbitkan di bawah ini, atau oleh CI,
+        # begitu semua paket lengkap.
+        print_status "Release $release_tag belum ada. Membuat release DRAFT baru..."
         local target_args=()
         local head_sha
         head_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
@@ -332,6 +338,7 @@ upload_github_release() {
         if ! gh release create "$release_tag" \
             --repo "$github_repo" \
             --title "DUCAD $release_tag" \
+            --draft \
             --generate-notes \
             "${target_args[@]}"; then
             if gh release view "$release_tag" --repo "$github_repo" >/dev/null 2>&1; then
@@ -341,8 +348,9 @@ upload_github_release() {
                 return 1
             fi
         else
-            print_success "Release $release_tag berhasil dibuat."
+            print_success "Release $release_tag (draft) berhasil dibuat."
         fi
+        is_draft=true
     fi
 
     # Upload berkas dengan --clobber
@@ -354,16 +362,35 @@ upload_github_release() {
         return 1
     fi
 
-    # Publikasikan jika --publish diminta, atau beri petunjuk jika masih draft
-    if [ "$PUBLISH_RELEASE" = true ]; then
-        print_status "Mempublikasikan release $release_tag (--publish aktif)..."
+    # Terbitkan bila --publish diminta, atau otomatis bila rilis masih draft
+    # dan paket Windows/Linux dari CI sudah lengkap. Selain itu biarkan draft:
+    # job `publish` di release.yml menerbitkannya setelah paketnya terunggah.
+    local release_assets missing=()
+    release_assets=$(gh release view "$release_tag" --repo "$github_repo" --json assets -q '.assets[].name' 2>/dev/null || echo "")
+    local ver="${release_tag#v}"
+    for required in "ducad-${ver}-linux-x86_64.tar.gz" "ducad-${ver}-windows-x86_64.zip"; do
+        if ! grep -qxF "$required" <<<"$release_assets"; then
+            missing+=("$required")
+        fi
+    done
+
+    if [ "$is_draft" != true ] && [ "$PUBLISH_RELEASE" != true ]; then
+        [ ${#missing[@]} -gt 0 ] && print_warning "Rilis $release_tag sudah terbit tetapi belum berisi: ${missing[*]}"
+        return 0
+    fi
+
+    if [ "$PUBLISH_RELEASE" = true ] || [ ${#missing[@]} -eq 0 ]; then
+        if [ ${#missing[@]} -gt 0 ]; then
+            print_warning "--publish: menerbitkan walau paket berikut belum ada: ${missing[*]}"
+        fi
+        print_status "Menerbitkan release $release_tag sebagai latest..."
         gh release edit "$release_tag" --repo "$github_repo" --draft=false --latest
         print_success "Release $release_tag telah dipublikasikan dan berstatus latest!"
-    elif [ "$is_draft" = true ]; then
+    else
         echo ""
-        print_status "ℹ️  Release $release_tag saat ini masih berstatus DRAFT."
-        print_status "Untuk mempublikasikannya ke pengguna / updater, jalankan:"
-        echo "   gh release edit $release_tag --draft=false --latest"
+        print_status "Release $release_tag masih DRAFT; paket belum lengkap: ${missing[*]}"
+        print_status "CI (release.yml) akan menerbitkannya otomatis setelah paket Windows/Linux terunggah."
+        print_status "Terbitkan manual (paksa): gh release edit $release_tag --repo $github_repo --draft=false --latest"
     fi
 }
 

@@ -47,6 +47,7 @@ pub fn default_socket() -> PathBuf {
     }
 }
 
+#[cfg(unix)]
 fn no_socket(path: &std::path::Path, e: &std::io::Error) -> OpError {
     OpError::new(
         OpErrorCode::Io,

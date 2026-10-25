@@ -37,6 +37,7 @@ menu-reduce-transparency = Kurangi transparansi
 settings-icon-size = Ukuran Ikon
 menu-shortcuts = Pintasan Keyboard
 menu-command-palette = Palet Perintah
+menu-check-updates = Periksa Pembaruan…
 cmd-no-match = Tidak ada perintah cocok
 cmd-search-hint = Cari perintah…
 cmd-hint-navigate = navigasi

@@ -2294,6 +2294,7 @@ impl eframe::App for DuCADApp {
             checks_panel_open: self.checks.panel_open,
             chat_open: self.chat.panel.open,
             bridge_clients: self.bridge.enabled.then(|| self.bridge.client_count()),
+            updates_enabled: self.update.enabled(),
             ai_on_device: (!crate::assist_ui::backend_name().is_empty()).then_some(
                 self.ai.privacy == crate::assist_ui::AiPrivacy::OfflineOnly,
             ),
@@ -2449,6 +2450,7 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::OpenAssist => self.open_assist_dialog(),
                             TopBarEvent::ToggleChat => self.toggle_chat(),
                             TopBarEvent::StartTutorial => self.start_onboarding(),
+                            TopBarEvent::CheckForUpdates => self.update.check_now(),
                             TopBarEvent::RunCommand(idx) => {
                                 if let Some((_, _, action)) = palette_actions.get(idx) {
                                     self.run_palette_action(&ctx, *action);
