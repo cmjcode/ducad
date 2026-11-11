@@ -67,7 +67,7 @@ image = { workspace = true }
 rusqlite = { workspace = true }
 chrono = { workspace = true }
 usvg = { version = "0.48", default-features = false }
-resvg = { version = "0.48" }
+resvg = { version = "0.49" }
 
 # `rfd` (dialog file native) TIDAK COMPILE di iOS — tidak ada backend
 # UIKit sama sekali (dibuktikan lewat probe crate terpisah saat Fase 6).
