@@ -914,11 +914,8 @@ mod tests {
                 reduce_motion: true,
             },
         );
-        let mut toolbar = LeftToolbar {
-            is_sketching: false,
-            show_labels: true,
-            ..Default::default()
-        };
+        let mut toolbar = LeftToolbar::default();
+        toolbar.is_sketching = false;
         let mut out = ctx.run_ui(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let _ = toolbar.show(ui, ToolbarTool::Select);
