@@ -1731,7 +1731,7 @@ name = "ducad-app"
 version = "0.8.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "block2 0.6.2",
  "chrono",
  "ducad-assist",
@@ -1797,7 +1797,7 @@ name = "ducad-chat"
 version = "0.8.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "log",
  "security-framework",
  "serde",
@@ -1920,7 +1920,7 @@ name = "ducad-io"
 version = "0.8.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ducad-core",
  "ducad-ink",
  "ducad-kernel",
@@ -1954,7 +1954,7 @@ name = "ducad-mcp"
 version = "0.8.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dirs",
  "ducad-engine",
  "ducad-kernel",
@@ -2050,7 +2050,7 @@ dependencies = [
 name = "ducad-update"
 version = "0.8.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "hex",
  "log",
  "ring",
