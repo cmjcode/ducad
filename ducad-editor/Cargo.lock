@@ -1799,7 +1799,7 @@ dependencies = [
  "chrono",
  "dirs",
  "ducad-core",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hex",
  "log",
  "objc2 0.6.5",
