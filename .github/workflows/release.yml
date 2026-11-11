@@ -227,7 +227,7 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "msiexec /x gagal: $($p.ExitCode)" }
           if (Test-Path (Join-Path $dir "ducad.exe")) { throw "copot tidak membersihkan folder instalasi" }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ducad-${{ matrix.platform }}
           if-no-files-found: error
