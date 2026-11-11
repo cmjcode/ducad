@@ -57,7 +57,7 @@ criterion = "0.5"
 proptest = "1"
 i_overlay = "9.0"
 
-glam = { version = "0.33", features = ["bytemuck", "serde"] }
+glam = { version = "0.34", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }
 # `default-features = false` + daftar ulang manual: fitur default eframe
 # TERMASUK "glow" (backend OpenGL lewat egui_glow/glutin) walau kita HANYA
