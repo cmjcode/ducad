@@ -119,8 +119,9 @@ pub struct ChatSettings {
     #[serde(default)]
     pub provider: ProviderConfig,
     /// Ubah `run_ops` menjadi `propose_ops` sehingga pengguna menyetujui
-    /// setiap perubahan geometri.
-    #[serde(default)]
+    /// setiap perubahan geometri. Bawaan `true` (juga untuk berkas pengaturan
+    /// lama yang belum punya field ini): penerapan langsung harus dipilih sadar.
+    #[serde(default = "default_confirm_writes")]
     pub confirm_writes: bool,
     #[serde(default = "default_rounds")]
     pub max_rounds: usize,
@@ -211,11 +212,18 @@ fn default_rounds() -> usize {
     crate::turn::DEFAULT_MAX_ROUNDS
 }
 
+fn default_confirm_writes() -> bool {
+    true
+}
+
 impl Default for ChatSettings {
     fn default() -> Self {
         Self {
             provider: ProviderConfig::default(),
-            confirm_writes: false,
+            // Bawaan aman: penulisan agen (`run_ops` tanpa `dry_run`) menjadi
+            // proposal yang harus disetujui pengguna. Penerapan langsung adalah
+            // pilihan yang dinyalakan pengguna (lihat `auto_apply` di Brief Studio).
+            confirm_writes: default_confirm_writes(),
             max_rounds: default_rounds(),
             allow_external: false,
             backend: ChatBackend::Api,
@@ -290,5 +298,22 @@ mod tests {
             ChatSettings::default()
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Penjaga: penulisan agen tidak boleh langsung diterapkan secara bawaan.
+    #[test]
+    fn default_requires_confirmation() {
+        assert!(ChatSettings::default().confirm_writes);
+    }
+
+    /// Berkas pengaturan lama tanpa field `confirm_writes` juga harus aman,
+    /// sedangkan pilihan eksplisit pengguna tetap dihormati.
+    #[test]
+    fn missing_confirm_writes_field_deserializes_as_confirm() {
+        let s: ChatSettings = serde_json::from_str("{}").expect("pengaturan kosong valid");
+        assert!(s.confirm_writes);
+        let s: ChatSettings =
+            serde_json::from_str(r#"{"confirm_writes": false}"#).expect("field eksplisit");
+        assert!(!s.confirm_writes);
     }
 }

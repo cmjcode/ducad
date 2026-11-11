@@ -88,9 +88,9 @@
   },
   "byte_hashes": {
     "macos-aarch64": {
-      "flange.dxf": "317d87bf11b4ee4b:293135",
-      "flange.pdf": "e40d4620a4d52426:109917",
-      "flange.svg": "ebbd50050e0ae6c1:306797"
+      "flange.dxf": "4ffc015abe6d036b:293135",
+      "flange.pdf": "570ebc7c02e7e999:109917",
+      "flange.svg": "e2c77f1ed6e27669:306797"
     }
   }
 }

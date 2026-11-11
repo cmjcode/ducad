@@ -562,28 +562,42 @@ fn title_block(sheet: &DrawingSheet) -> Group {
         l,
     );
 
-    // Simbol proyeksi sudut ketiga: kerucut terpancung + dua lingkaran.
+    // Simbol proyeksi sudut ketiga (ISO 128-30 / ASME Y14.3): tampak ujung
+    // (dua lingkaran) diletakkan di sisi UJUNG KECIL kerucut terpancung, karena
+    // pada sudut ketiga tiap tampak digambar di sisi tempat ia dilihat. Pada
+    // sudut pertama lingkaran berada di sisi ujung besar. Tata letak tampak di
+    // `drawing.rs` (Atas di atas Depan, Kanan di kanan Depan) adalah sudut
+    // ketiga, jadi simbol ini harus sudut ketiga juga.
     let (cx, cy) = (x0 + 117.0, y0 + 38.5);
-    let xc = cx - 9.0;
-    let cone = [
-        [xc, cy - 2.0],
-        [xc + 7.0, cy - 4.0],
-        [xc + 7.0, cy + 4.0],
-        [xc, cy + 2.0],
-    ];
+    let (cone, circle_center) = third_angle_symbol(cx, cy);
     for i in 0..4 {
         g.line(cone[i], cone[(i + 1) % 4], PEN_TITLE_THIN);
     }
     for r in [2.0, 4.0] {
         g.items.push(Item::Circle {
-            center: [cx + 6.0, cy],
+            center: circle_center,
             radius: r,
             pen: PEN_TITLE_THIN,
             fill: None,
         });
     }
-    g.line([xc - 4.0, cy], [cx + 13.0, cy], PEN_CENTER);
+    g.line([cx - 13.0, cy], [cx + 13.0, cy], PEN_CENTER);
     g.done("title_block")
+}
+
+/// Geometri simbol proyeksi sudut ketiga di sekitar `(cx, cy)` (mm kertas):
+/// lingkaran di kiri, kerucut terpancung di kanan dengan ujung kecilnya
+/// menghadap lingkaran. Dikembalikan sebagai `(sudut kerucut, pusat lingkaran)`.
+fn third_angle_symbol(cx: f32, cy: f32) -> ([[f32; 2]; 4], [f32; 2]) {
+    let xs = cx + 2.0; // ujung kecil (tinggi 4 mm), menghadap lingkaran
+    let xl = xs + 7.0; // ujung besar (tinggi 8 mm)
+    let cone = [
+        [xs, cy - 2.0],
+        [xl, cy - 4.0],
+        [xl, cy + 4.0],
+        [xs, cy + 2.0],
+    ];
+    (cone, [cx - 5.0, cy])
 }
 
 fn push_arc(g: &mut G, xf: &ViewXf<'_>, arc: &HlrArc2D, pen: Pen) {
@@ -1005,4 +1019,73 @@ fn balloons(sheet: &DrawingSheet) -> Group {
 /// Lebar perkiraan teks (mm) — dipakai eksportir untuk jangkar tengah/akhir.
 pub fn text_width(text: &str, size_mm: f32) -> f32 {
     text_width_mm(text, size_mm)
+}
+
+#[cfg(test)]
+mod projection_symbol_tests {
+    use super::*;
+
+    /// Penjaga: lingkaran harus berada di sisi ujung kecil kerucut (sudut ketiga).
+    /// Bila lingkaran pindah ke sisi ujung besar, simbol berubah menjadi sudut
+    /// pertama dan bertentangan dengan tata letak tampak.
+    #[test]
+    fn symbol_is_third_angle() {
+        let (cone, circles) = third_angle_symbol(0.0, 0.0);
+        let small_end_x = cone[0][0];
+        let large_end_x = cone[1][0];
+        let small_h = (cone[3][1] - cone[0][1]).abs();
+        let large_h = (cone[2][1] - cone[1][1]).abs();
+        assert!(small_h < large_h, "ujung kecil harus lebih pendek");
+        let d_small = (circles[0] - small_end_x).abs();
+        let d_large = (circles[0] - large_end_x).abs();
+        assert!(
+            d_small < d_large,
+            "lingkaran ({}) harus lebih dekat ke ujung kecil ({small_end_x}) \
+             daripada ujung besar ({large_end_x}); ini syarat simbol sudut ketiga",
+            circles[0]
+        );
+        // Lingkaran terbesar (r=4) tidak boleh menyentuh kerucut.
+        assert!(
+            d_small > 4.0,
+            "lingkaran r=4 menabrak kerucut (jarak {d_small})"
+        );
+    }
+
+    #[test]
+    fn title_block_contains_two_concentric_circles_left_of_cone() {
+        let sheet = crate::drawing::pages::blank_sheet(
+            PaperSize::A4Landscape,
+            crate::drawing::TitleBlockInfo::default(),
+        );
+        let group = title_block(&sheet);
+        let circles: Vec<[f32; 2]> = group
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                Item::Circle { center, .. } => Some(*center),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(circles.len(), 2, "simbol proyeksi memakai dua lingkaran");
+        assert_eq!(circles[0], circles[1], "kedua lingkaran harus konsentris");
+        // Ruas miring hanya dimiliki kerucut (pembatas kolom kepala gambar
+        // semuanya sejajar sumbu); semuanya harus berada di kanan lingkaran.
+        let cone_min_x = group
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                Item::Line { a, b, .. } if a[0] != b[0] && a[1] != b[1] => Some(a[0].min(b[0])),
+                _ => None,
+            })
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            cone_min_x.is_finite(),
+            "ruas miring kerucut tidak ditemukan"
+        );
+        assert!(
+            cone_min_x > circles[0][0],
+            "kerucut (x min {cone_min_x}) harus di kanan lingkaran (x {})",
+            circles[0][0]
+        );
+    }
 }
