@@ -237,26 +237,70 @@ pub(crate) fn render_headless_gpu(
     camera: &PhotoCamera,
     options: &PhotoOptions,
 ) -> Result<PhotoImage, PhotoError> {
-    let instance = wgpu::Instance::default();
-    let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        ..Default::default()
-    }))
-    .map_err(|e| PhotoError::Gpu(format!("tidak ada adapter: {e}")))?;
-    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-        .map_err(|e| PhotoError::Gpu(format!("tidak ada device: {e}")))?;
-    let mut gpu = GpuPhoto::new(&device, &queue)?;
-    let total = options.samples.max(1);
-    // Beberapa sampel per pekerjaan pada render kecil, kira-kira satu pada
-    // 1080p — pekerjaan GPU tetap pendek.
-    let pixels = (options.width.max(1) * options.height.max(1)).max(1);
-    let chunk = (16_000_000 / pixels).clamp(1, 16);
-    let mut done = 0;
-    while done < total {
-        done = gpu.step(&device, &queue, scene, camera, options, chunk.min(total - done))?;
+    // Perangkat dan pipeline dibuat sekali per proses lalu dipakai ulang:
+    // membuatnya (termasuk kompilasi shader) memakan beberapa detik, dan
+    // server MCP bisa dipanggil `render_view` berkali-kali. Mutex juga
+    // membuat render serentak antre, bukan berebut memori GPU.
+    static SHARED: std::sync::Mutex<Option<Headless>> = std::sync::Mutex::new(None);
+    let mut guard = SHARED.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        *guard = Some(Headless::new()?);
     }
-    gpu.read_back(&device, &queue)
-        .ok_or_else(|| PhotoError::Gpu("gambar tidak terbaca balik dari GPU".into()))
+    let Some(h) = guard.as_mut() else {
+        return Err(PhotoError::Gpu("perangkat GPU tidak tersedia".into()));
+    };
+    let result = h.render(scene, camera, options);
+    if result.is_err() {
+        // Perangkat yang gagal (mis. hilang/reset) tidak dipakai lagi.
+        *guard = None;
+    }
+    result
+}
+
+/// Perangkat GPU tanpa jendela beserta sesi path tracer-nya.
+struct Headless {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    gpu: GpuPhoto,
+}
+
+impl Headless {
+    fn new() -> Result<Headless, PhotoError> {
+        let instance = wgpu::Instance::default();
+        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            ..Default::default()
+        }))
+        .map_err(|e| PhotoError::Gpu(format!("tidak ada adapter: {e}")))?;
+        let (device, queue) =
+            block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .map_err(|e| PhotoError::Gpu(format!("tidak ada device: {e}")))?;
+        let gpu = GpuPhoto::new(&device, &queue)?;
+        Ok(Headless { device, queue, gpu })
+    }
+
+    fn render(
+        &mut self,
+        scene: &PhotoScene,
+        camera: &PhotoCamera,
+        options: &PhotoOptions,
+    ) -> Result<PhotoImage, PhotoError> {
+        let (device, queue, gpu) = (&self.device, &self.queue, &mut self.gpu);
+        // Render baru selalu mulai dari nol, walau scene/kamera sama dengan
+        // panggilan sebelumnya.
+        gpu.restart();
+        let total = options.samples.max(1);
+        // Beberapa sampel per pekerjaan pada render kecil, kira-kira satu
+        // pada 1080p — pekerjaan GPU tetap pendek.
+        let pixels = (options.width.max(1) * options.height.max(1)).max(1);
+        let chunk = (16_000_000 / pixels).clamp(1, 16);
+        let mut done = 0;
+        while done < total {
+            done = gpu.step(device, queue, scene, camera, options, chunk.min(total - done))?;
+        }
+        gpu.read_back(device, queue)
+            .ok_or_else(|| PhotoError::Gpu("gambar tidak terbaca balik dari GPU".into()))
+    }
 }
 
 /// Jalankan future wgpu yang di native selesai tanpa menunggu I/O.

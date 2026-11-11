@@ -307,3 +307,26 @@ fn kamera_tampak_memuat_seluruh_kotak() {
         }
     }
 }
+
+#[test]
+fn render_gpu_berulang_memakai_ulang_perangkat_dan_mulai_dari_nol() {
+    // Perangkat GPU tanpa jendela disimpan per proses. Render kedua dengan
+    // masukan sama harus identik dengan yang pertama: akumulasi sampel
+    // render sebelumnya tidak boleh terbawa.
+    let s = scene(PhotoMaterial::default());
+    let cam = iso_camera(&s, 96.0 / 72.0);
+    let opts = small(16);
+    let (a, backend) = render_headless(&s, &cam, &opts);
+    if backend == Backend::Cpu {
+        eprintln!("dilewati: tidak ada adapter GPU yang sanggup");
+        return;
+    }
+    let start = std::time::Instant::now();
+    let (b, _) = render_headless(&s, &cam, &opts);
+    let second = start.elapsed();
+    assert_eq!(a, b, "render berulang harus identik");
+    // Ukuran berbeda lewat perangkat yang sama tetap benar.
+    let (c, _) = render_headless(&s, &cam, &PhotoOptions { width: 48, height: 36, ..opts });
+    assert_eq!((c.width, c.height), (48, 36));
+    eprintln!("render GPU kedua (perangkat dipakai ulang): {second:?}");
+}
