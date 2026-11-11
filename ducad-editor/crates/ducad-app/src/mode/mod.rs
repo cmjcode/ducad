@@ -44,9 +44,9 @@ impl AppMode {
     pub fn label(self) -> &'static str {
         match self {
             AppMode::Sketch => "Mode Sketsa CAD",
-            AppMode::Vector => "Mode Vektor",
+            AppMode::Vector => "Mode Vektor (Eksperimental)",
             AppMode::Solid => "Mode 3D Solid",
-            AppMode::Ink => "Mode Sketsa Tinta",
+            AppMode::Ink => "Mode Sketsa Tinta (Eksperimental)",
         }
     }
 }

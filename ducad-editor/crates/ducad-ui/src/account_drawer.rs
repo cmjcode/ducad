@@ -85,6 +85,8 @@ pub struct CloudView<'a> {
     pub conflict: Option<&'a str>,
     /// Id berkas yang menunggu konfirmasi hapus.
     pub confirm_delete: Option<&'a str>,
+    /// Menunggu konfirmasi penghapusan akun permanen.
+    pub confirm_account_delete: bool,
 }
 
 /// Event yang dihasilkan oleh `AccountDrawer`
@@ -94,6 +96,10 @@ pub enum AccountDrawerEvent {
     /// Pengguna tanpa foto profil memilih untuk mengunggah foto sendiri.
     UploadPhoto,
     Logout,
+    /// Minta konfirmasi penghapusan akun permanen.
+    RequestDeleteAccount,
+    ConfirmDeleteAccount,
+    CancelDeleteAccount,
     CancelLogin,
     Close,
     /// Muat ulang daftar berkas cloud dan tier akun.
@@ -312,6 +318,71 @@ impl AccountDrawer {
         if logout_btn.clicked() {
             *event = Some(AccountDrawerEvent::Logout);
         }
+
+        ui.add_space(8.0);
+        if cloud.confirm_account_delete {
+            Frame::new()
+                .fill(ACCENT_RED.gamma_multiply(0.12))
+                .corner_radius(CornerRadius::same(6))
+                .stroke(Stroke::new(1.0, ACCENT_RED.gamma_multiply(0.55)))
+                .inner_margin(Margin::same(8))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(
+                        RichText::new(format!(
+                            "{}  Hapus permanen akun {}?",
+                            ICON_WARNING.codepoint, account.email
+                        ))
+                        .size(11.5)
+                        .strong()
+                        .color(TEXT_PRIMARY),
+                    );
+                    ui.label(
+                        RichText::new(
+                            "Seluruh profil, sesi perangkat, berkas Cloud Sync, dan preferensi di server akan dihapus dan tidak dapat dipulihkan.",
+                        )
+                        .size(10.5)
+                        .color(TEXT_SECONDARY),
+                    );
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        let yes = ui.add_enabled(
+                            !cloud.busy,
+                            egui::Button::new(
+                                RichText::new(format!("{} Ya, Hapus Akun", ICON_DELETE.codepoint))
+                                    .size(11.5)
+                                    .strong()
+                                    .color(ACCENT_RED),
+                            )
+                            .fill(ACCENT_RED.gamma_multiply(0.18))
+                            .stroke(Stroke::new(1.0, ACCENT_RED.gamma_multiply(0.6)))
+                            .corner_radius(CornerRadius::same(6)),
+                        );
+                        if yes.clicked() {
+                            *event = Some(AccountDrawerEvent::ConfirmDeleteAccount);
+                        }
+                        if ui.button(RichText::new("Batal").size(11.5).color(TEXT_SECONDARY)).clicked() {
+                            *event = Some(AccountDrawerEvent::CancelDeleteAccount);
+                        }
+                    });
+                });
+        } else {
+            let del_btn = ui.add_enabled(
+                !cloud.busy,
+                egui::Button::new(
+                    RichText::new(format!("{} Hapus Akun Permanen", ICON_DELETE.codepoint))
+                        .size(11.5)
+                        .color(TEXT_SECONDARY),
+                )
+                .fill(BG_CARD_DARK)
+                .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+                .corner_radius(CornerRadius::same(6))
+                .min_size(Vec2::new(ui.available_width(), 28.0)),
+            );
+            if del_btn.clicked() {
+                *event = Some(AccountDrawerEvent::RequestDeleteAccount);
+            }
+        }
     }
 
     /// Kartu tier: nama tier, lalu fitur Pro yang terbuka atau terkunci.
@@ -365,7 +436,7 @@ impl AccountDrawer {
     fn render_cloud(ui: &mut Ui, cloud: CloudView<'_>, event: &mut Option<AccountDrawerEvent>) {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("{}  Cloud Sync", ICON_CLOUD.codepoint))
+                RichText::new(format!("{}  Cloud Sync (Eksperimental)", ICON_CLOUD.codepoint))
                     .size(12.0)
                     .strong()
                     .color(TEXT_PRIMARY),

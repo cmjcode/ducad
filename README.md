@@ -7,7 +7,11 @@
 [![Agent](https://img.shields.io/badge/Agent-MCP%20%2B%20CLI%20headless-black.svg)](#9--headless-engine-agent-tooling--on-device-ai)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-lightgrey.svg)](LICENSE)
 
-**DuCAD** is a modern, parametric, and high-performance 2D/3D Computer-Aided Design (CAD) software written entirely in **Rust**. DuCAD combines **AutoCAD**-style 2D technical drafting precision with **Shapr3D**-style intuitive direct modeling, powered by a pure-Rust B-rep solid modeling kernel (**SolidCraft** on **truck**, vendored in-tree) and modern **WebGPU (wgpu)** graphics acceleration.
+**DuCAD** is a deterministic, agent-native parametric 2D/3D CAD system written in pure **Rust** — *parametric CAD built by your agent and verified by you*. The GUI, `ducad-cli`, and the `ducad-mcp` Model Context Protocol server share one atomic oplog engine over a pure-Rust B-rep solid modeling kernel (**SolidCraft** on **truck**, vendored in-tree) and **WebGPU (`wgpu`)** viewport rendering, targeting prismatic mechanical parts of roughly 10–20 features.
+
+> **Scope freeze & experimental surfaces (0.8.x)**: Active release targets are **Linux (`x86_64`)**, **Windows (`x86_64`)**, and **macOS (`arm64`)**. The Android shell (`ducad-android`) and the Arch AUR package (`aur/ducad`) are **paused** and excluded from active releases. Path-traced photo rendering (`ducad-photoreal`), modal/buckling/thermal FEA studies, freehand/ink sketching (`ducad-ink`), 2D Vector mode, and Cloud Sync (`ducad-cloud`) are shipped as **Experimental** while engineering focus stays on parametric engine reliability, kernel robustness, and agent verification.
+>
+> 📖 **Quick Links**: [English User, CLI & MCP Guide](ducad-editor/docs/GUIDE_EN.md) · [Format & Unit Matrix](ducad-editor/docs/FORMAT_MATRIX.md) · [Changelog](CHANGELOG.md) · [Security Policy](SECURITY.md)
 
 ---
 
@@ -20,7 +24,7 @@
 * **Smart Snapping System**: Tiered priority (*Endpoint* > *Midpoint* > *Center* > *Intersection* > *Grid*) with interactive visual glyphs.
 * **Geometric & Dimensional Constraint Solver**: Coincident, Fixed, Horizontal, Vertical, Parallel, Perpendicular, Equal Length/Radius, Distance, Radius, Tangent, Angle, and Symmetric.
 * **Sketch Curve Modification**: Interactive Trim with red highlighting, Extend curve to nearest boundary, parallel Offset (multi-tangent bi-arc), and symmetric Mirror reflection.
-* **Freehand (Apple Pencil / mouse)**: a single stroke is recognized as a line, circle, arc, ellipse, rectangle, polyline or spline, then constraints are inferred and committed as **one undo step** — no manual gap patching before extruding.
+* **Freehand (Apple Pencil / mouse)** *(experimental)*: a single stroke is recognized as a line, circle, arc, ellipse, rectangle, polyline or spline, then constraints are inferred and committed as **one undo step** — no manual gap patching before extruding.
 
 ### 2. 🧊 3D B-Rep Solid Modeling (SolidCraft / truck)
 * **Extrude & Revolve Operations**: Extrude (Blind in either direction; Symmetric through the oplog only — "Up to Face" is not available yet), Revolve around an axis lying in the sketch plane (sketch on a datum plane to place it anywhere in 3D; datum axes through the oplog), multi-profile Loft, and Sweep along a guide curve.
@@ -190,11 +194,7 @@ same modeling code the application does.
   inertia tensor, principal axes and radius of gyration per body and per
   assembly; a 13-entry material library (plastics, aluminium, steels, …) or
   custom properties, assigned with the `set_material` op.
-* **Structural simulation (FEA)**: linear static stress, natural frequencies,
-  linear buckling, steady-state heat conduction and thermal stress. Hex voxel
-  mesh by default, quadratic tetrahedra (`mesh.kind: "tet"`) for curved parts.
-  Results are **engineering estimates**, not certification numbers — measured
-  accuracy is in [SIM_VALIDATION.md](ducad-editor/docs/SIM_VALIDATION.md).
+* **Structural simulation (FEA)**: linear static stress (`static`), plus *experimental* natural frequencies (`frequency`), linear buckling (`buckling`), steady-state heat conduction (`thermal`) and thermal stress (`thermal_stress`). Hex voxel mesh by default, quadratic tetrahedra (`mesh.kind: "tet"`) for curved parts. Results are **engineering estimates**, not certification numbers — measured accuracy is in [SIM_VALIDATION.md](ducad-editor/docs/SIM_VALIDATION.md).
 * **Configurations (design variants)**: parameter overrides, suppressed ops and
   material overrides on top of one base design, plus CSV design tables.
 * **Sheet metal**: base flange, edge flange, hem, jog, fold/unfold and a flat

@@ -1,12 +1,96 @@
 {
-  "aarch64": {
-    "flange.dxf": "5c5def9ac371784b:293143",
-    "flange.pdf": "37bb4e3e6630ebc0:109925",
-    "flange.svg": "44b9b99dd26ec8e5:306805"
+  "structural": {
+    "flange": {
+      "views": [
+        "Front",
+        "Right",
+        "Top",
+        "Section('A')",
+        "Isometric"
+      ],
+      "auto_dimensions": [
+        "Ø40",
+        "Ø80",
+        "25",
+        "1×45°",
+        "Ø20",
+        "6×Ø6.6 PCD Ø60",
+        "Ø6.6"
+      ],
+      "company_name": "DUCAD Studio",
+      "notes": [],
+      "scene_texts": [
+        "1",
+        "1",
+        "1 / 1",
+        "1:1",
+        "1×45°",
+        "2",
+        "2",
+        "2026-01-01",
+        "25",
+        "3",
+        "3",
+        "4",
+        "4",
+        "5",
+        "5",
+        "6",
+        "6",
+        "6×Ø6.6 PCD Ø60",
+        "7",
+        "7",
+        "8",
+        "8",
+        "A",
+        "A",
+        "A",
+        "A",
+        "A",
+        "B",
+        "B",
+        "C",
+        "C",
+        "D",
+        "D",
+        "DIGAMBAR:",
+        "DUCAD Studio",
+        "E",
+        "E",
+        "F",
+        "F",
+        "F-001",
+        "Flange",
+        "ISO 2768-m | mm",
+        "JUDUL GAMBAR / PART TITLE:",
+        "LEMBAR KERJA GAMBAR TEKNIK - ISO 5457",
+        "LEMBAR:",
+        "MATERIAL:",
+        "NO. GAMBAR / DWG NO:",
+        "REV",
+        "S235",
+        "SKALA / SCALE:",
+        "TAMPAK ATAS | TOP VIEW",
+        "TAMPAK DEPAN | FRONT VIEW",
+        "TAMPAK ISOMETRIK 3D | ISOMETRIC 3D VIEW",
+        "TAMPAK POTONGAN A-A | SECTION A-A",
+        "TAMPAK SAMPING KANAN | RIGHT SIDE VIEW",
+        "TANGGAL:",
+        "TOLERANSI & SATUAN:",
+        "ducad",
+        "Ø20",
+        "Ø40",
+        "Ø6.6",
+        "Ø80"
+      ],
+      "visible_line_len_mm": 2015.9
+    }
   },
-  "x86_64": {
-    "flange.dxf": "6e119ce62ec6cdf0:292447",
-    "flange.pdf": "010bf92135c56e39:109653",
-    "flange.svg": "731a077e71ae0821:305988"
+  "byte_hashes": {
+    "macos-aarch64": {
+      "flange.dxf": "317d87bf11b4ee4b:293135",
+      "flange.pdf": "e40d4620a4d52426:109917",
+      "flange.svg": "ebbd50050e0ae6c1:306797"
+    }
   }
 }

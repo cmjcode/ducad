@@ -3109,7 +3109,7 @@ fn render_title_block_screen<F>(
     // A. Row 1: Perusahaan & Proyeksi
     if !is_editing_field(TitleBlockFieldId::CompanyName) {
         let p_comp = mm_to_screen(tb[0] + 3.0, tb[1] + 39.5);
-        let comp_name = if info.company_name.is_empty() { "DUCAD Studio CAD/CAM" } else { &info.company_name };
+        let comp_name = if info.company_name.is_empty() { "DUCAD Studio" } else { &info.company_name };
         painter.text(p_comp, Align2::LEFT_CENTER, comp_name, font_val_md.clone(), col_val);
     }
     let p_comp_sub = mm_to_screen(tb[0] + 3.0, tb[1] + 35.0);

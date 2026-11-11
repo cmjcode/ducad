@@ -1971,8 +1971,10 @@ dependencies = [
 name = "ducad-update"
 version = "0.8.0"
 dependencies = [
+ "base64 0.22.1",
  "hex",
  "log",
+ "ring",
  "serde",
  "serde_json",
  "sha2",

@@ -4,17 +4,10 @@
 //! di pojok kanan bawah kanvas secara kontekstual hanya saat tool tersebut aktif.
 
 pub mod body_tools_popup;
-pub mod boolean_popup;
 pub mod draft_popup;
-pub mod entity_popup;
-pub mod extrude_popup;
 pub mod helix_popup;
 pub mod history_popup;
 pub mod hole_popup;
-pub mod loft_popup;
-pub mod measure_popup;
-pub mod revolve_popup;
-pub mod shell_popup;
 pub mod text_popup;
 
 use ducad_i18n::t;
@@ -23,32 +16,16 @@ use egui_icons::icons::ICON_CLOSE;
 
 use crate::theme::{glass_frame, TEXT_SECONDARY};
 
-pub use boolean_popup::{BooleanPopup, BooleanPopupState};
 pub use draft_popup::{DraftAnalysisPopup, DraftPopupState};
-pub use entity_popup::{Entity2dPopup, Entity2dPopupState};
-pub use extrude_popup::{ExtrudePopup, ExtrudePopupState};
 pub use helix_popup::{HelixPopup, HelixPopupState, HelixPreset, HelixSectionType};
 pub use history_popup::{HistoryPopup, HistoryPopupState};
 pub use hole_popup::{HoleOperationMode, HolePopup, HolePopupState};
-pub use loft_popup::{LoftPopup, LoftPopupState};
-pub use measure_popup::{MeasurePopup, MeasurePopupState};
-pub use revolve_popup::{RevolvePopup, RevolvePopupState};
-pub use shell_popup::{ShellPopup, ShellPopupState};
 pub use text_popup::{TextPopup, TextPopupState};
 
-/// Event umum yang dihasilkan oleh berbagai Tool Popup.
+/// Event umum yang dihasilkan oleh berbagai Tool Popup aktif.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ToolPopupEvent {
     Close,
-    // Extrude
-    ApplyExtrude {
-        distance: f64,
-        per_object: bool,
-        material_from_style: bool,
-        outline_only: bool,
-    },
-    ApplyFaceExtrude { distance: f64 },
-    SketchOnFace,
     // Helix / Coil (Fase 10.2)
     ApplyHelix {
         params: ducad_kernel::HelixParams,
@@ -64,22 +41,6 @@ pub enum ToolPopupEvent {
         is_construction: bool,
     },
     PickCustomFont,
-    // Revolve
-    ApplyRevolvePreset { preset_idx: u8, angle_deg: f64 },
-    StartManualRevolve,
-    // Loft
-    StageLoftBottom,
-    ApplyLoft { height: f64 },
-    // Shell
-    ToggleFacePicking,
-    /// `depth`: kedalaman rongga dari sisi terbuka (0 = rongga penuh).
-    ApplyShell { thickness: f64, depth: f64 },
-    // Draft Angle (Fase 2.1 — Manufaktur Plastik)
-    ApplyDraftAngle {
-        angle_deg: f64,
-        /// Arah bukaan cetakan sebagai vektor (x, y, z).
-        pull_dir: (f64, f64, f64),
-    },
     // Draft Heatmap Inspector (Fase 3.2 — Analisis Sudut Lepas)
     UpdateDraftInspection {
         pull_dir: [f32; 3],
@@ -87,57 +48,11 @@ pub enum ToolPopupEvent {
         blend: f32,
     },
     CloseDraftInspection,
-    // Boolean
-    ApplyBooleanUnion,
-    ApplyBooleanSubtract,
-    ApplyBooleanIntersect,
     // Hole Wizard (Fase 9.2)
     ApplyHole(ducad_core::hole::HoleSpec),
     // History
     UndoModel,
     RedoModel,
-    // Measure
-    ToggleShowAllDimensions,
-    RemoveMeasurement(usize),
-    ClearMeasurements,
-    // Entity 2D
-    UpdateEntityLine {
-        id_raw: u64,
-        start_x: f64,
-        start_y: f64,
-        end_x: f64,
-        end_y: f64,
-    },
-    UpdateEntityCircle {
-        id_raw: u64,
-        center_x: f64,
-        center_y: f64,
-        radius: f64,
-    },
-    UpdateEntityArc {
-        id_raw: u64,
-        center_x: f64,
-        center_y: f64,
-        radius: f64,
-        start_angle_deg: f64,
-        end_angle_deg: f64,
-    },
-    UpdateEntityEllipse {
-        id_raw: u64,
-        center_x: f64,
-        center_y: f64,
-        radius_x: f64,
-        radius_y: f64,
-    },
-    UpdateEntityRectangle {
-        entity_ids: [u64; 4],
-        length_p: f64,
-        length_l: f64,
-        anchor: crate::feature_inspector::InspectorRectAnchor,
-    },
-    ApplyConstraint(crate::feature_inspector::InspectorConstraintAction),
-    DeleteSelectedEntities,
-    DeleteSelectedBodies,
 }
 
 /// Helper pembungkus kartu popup mengambang di pojok kanan bawah bawaan (auto-close saat klik luar).

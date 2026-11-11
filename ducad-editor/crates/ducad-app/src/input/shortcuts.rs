@@ -3,7 +3,7 @@ use ducad_sketch::DeleteEntities;
 use eframe::egui;
 
 use crate::app::DuCADApp;
-use crate::types::{FileOp, PaletteAction, PaletteGroup, ToolKind, RADIAL_TOOLS};
+use crate::types::{FileOp, PaletteAction, PaletteGroup, ToolKind};
 
 impl DuCADApp {
     pub fn palette_actions(&self) -> Vec<(String, String, PaletteAction)> {
@@ -395,11 +395,6 @@ impl DuCADApp {
                 PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::FingerDesign),
             ),
             (
-                "Toggle Palm Rejection (Tolak Telapak Tangan)".to_string(),
-                String::new(),
-                PaletteAction::TogglePalmRejection,
-            ),
-            (
                 ducad_i18n::t!("hud-close-objects"),
                 String::new(),
                 PaletteAction::ConvertToClosedObjects,
@@ -619,15 +614,6 @@ impl DuCADApp {
             PaletteAction::CheckForUpdates => self.update.check_now(),
             PaletteAction::ExtrudeSelection => self.extrude_from_palette(),
             PaletteAction::Parity(cmd) => self.run_parity_cmd(cmd, ctx),
-            PaletteAction::TogglePalmRejection => {
-                self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
-                let st = if self.touch_config.palm_rejection {
-                    "Aktif"
-                } else {
-                    "Nonaktif"
-                };
-                self.model_status = Some(format!("Palm Rejection: {}", st));
-            }
             PaletteAction::File(op) => match op {
                 FileOp::New => self.new_document(),
                 FileOp::Open => self.open_native(),
@@ -648,40 +634,6 @@ impl DuCADApp {
                 FileOp::OpenDrawingSheet => self.open_drawing_sheet(),
             },
         }
-    }
-
-    pub fn handle_radial_menu(&mut self, ui: &egui::Ui, _response: &egui::Response) {
-        if self.radial_menu.is_open() {
-            if !self.selected.is_empty() {
-                let items = vec![
-                    "Gabung",
-                    "Potong",
-                    "Grup",
-                    "Ungroup",
-                    "Bawa ke Depan",
-                    "Kirim ke Belakang",
-                    "Ekstrusi",
-                ];
-                if let Some(idx) = self.radial_menu.show(ui.ctx(), &items) {
-                    match idx {
-                        0 => self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Union),
-                        1 => self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Difference),
-                        2 => self.group_selected_entities(),
-                        3 => self.ungroup_selected_entities(),
-                        4 => self.apply_context_action(ducad_ui::ContextAction::BringToFront),
-                        5 => self.apply_context_action(ducad_ui::ContextAction::SendToBack),
-                        6 => self.extrude_selected(),
-                        _ => {}
-                    }
-                }
-            } else {
-                let items: Vec<&str> = RADIAL_TOOLS.iter().map(|(_, label)| *label).collect();
-                if let Some(idx) = self.radial_menu.show(ui.ctx(), &items) {
-                    self.set_tool(RADIAL_TOOLS[idx].0);
-                }
-            }
-        }
-        self.radial_press = None;
     }
 
     pub fn status_text(&self) -> String {

@@ -167,6 +167,7 @@ enum Job {
     Upload { name: String, bytes: Vec<u8>, base_revision: i64, force: bool },
     Download { file: CloudFile },
     Delete { file: CloudFile },
+    DeleteAccount,
     PullPrefs,
     PushPrefs(Value),
 }
@@ -176,6 +177,7 @@ enum Outcome {
     Uploaded(CloudFile),
     Downloaded { file: CloudFile, bytes: Vec<u8> },
     Deleted(CloudFile),
+    AccountDeleted(String),
     PrefsPulled(RemotePrefs),
     PrefsPushed(RemotePrefs),
 }
@@ -205,6 +207,7 @@ fn run_job(server_url: &str, account: DucadAccount, job: Job) -> Done {
         }
         Job::Download { file } => s.download_file(&file.id).map(|bytes| Outcome::Downloaded { file, bytes }),
         Job::Delete { file } => s.delete_file(&file.id).map(|_| Outcome::Deleted(file)),
+        Job::DeleteAccount => s.delete_account().map(Outcome::AccountDeleted),
         Job::PullPrefs => s
             .refresh_profile()
             .and_then(|_| s.get_prefs())
@@ -224,6 +227,7 @@ pub struct CloudCtl {
     /// Unggahan yang ditolak karena konflik: (nama, isi).
     pub conflict: Option<(String, Vec<u8>)>,
     pub confirm_delete: Option<String>,
+    pub confirm_account_delete: bool,
     known: KnownRevisions,
     /// Pekerjaan berkas (satu per waktu, supaya tombol tidak saling balap).
     files_job: Option<Receiver<Done>>,
@@ -419,6 +423,19 @@ impl DuCADApp {
                 self.cloud.conflict = None;
                 self.cloud.status = None;
             }
+            E::RequestDeleteAccount => {
+                self.cloud.confirm_account_delete = true;
+            }
+            E::CancelDeleteAccount => {
+                self.cloud.confirm_account_delete = false;
+            }
+            E::ConfirmDeleteAccount => {
+                self.cloud.confirm_account_delete = false;
+                if !self.cloud.busy() {
+                    self.cloud.set_status("Menghapus akun DUCAD...", false);
+                    self.cloud.files_job = Some(spawn(&self.server_url, &acc, Job::DeleteAccount));
+                }
+            }
             _ => {}
         }
     }
@@ -525,6 +542,21 @@ impl DuCADApp {
                 self.cloud.set_status(format!("{} dihapus dari cloud.", file.name), false);
                 self.cloud_refresh();
             }
+            Ok(Outcome::AccountDeleted(email)) => {
+                let _ = ducad_cloud::clear_account();
+                ducad_cloud::clear_avatar_cache();
+                let _ = std::fs::remove_file(KnownRevisions::path());
+                self.account = None;
+                self.cloud_on_logout();
+                self.auth_status = ducad_cloud::AuthStatus::LoggedOut;
+                self.account_drawer_open = false;
+                let msg = if email.is_empty() {
+                    "Akun DUCAD berhasil dihapus permanen.".to_string()
+                } else {
+                    format!("Akun {email} berhasil dihapus permanen.")
+                };
+                self.model_status = Some(msg);
+            }
             Ok(Outcome::PrefsPulled(remote)) => match self.prefs.reconcile(&remote) {
                 PrefsAction::Apply(p, revision) => {
                     self.apply_user_prefs(&p);
@@ -584,6 +616,7 @@ impl DuCADApp {
                 .and_then(|n| n.to_str()),
             conflict: self.cloud.conflict.as_ref().map(|(n, _)| n.as_str()),
             confirm_delete: self.cloud.confirm_delete.as_deref(),
+            confirm_account_delete: self.cloud.confirm_account_delete,
         }
     }
 }

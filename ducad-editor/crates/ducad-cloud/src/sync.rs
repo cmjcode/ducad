@@ -236,6 +236,26 @@ impl CloudSession {
             json_data(resp)
         })
     }
+
+    /// `DELETE /api/v1/users/me`: hapus permanen akun, seluruh sesi perangkat,
+    /// berkas Cloud Sync, dan preferensi di server. Mengembalikan alamat email
+    /// yang dihapus.
+    pub fn delete_account(&mut self) -> Result<String, SyncError> {
+        #[derive(Deserialize)]
+        struct DeletedAccount {
+            deleted: bool,
+            #[serde(default)]
+            email: String,
+        }
+        let res: DeletedAccount = self.authed(|agent, base, token| {
+            let resp = send(agent.delete(&format!("{base}/api/v1/users/me")), token, Body::Empty)?;
+            json_data(resp)
+        })?;
+        if !res.deleted {
+            return Err(SyncError::Other("Server tidak mengonfirmasi penghapusan akun".to_string()));
+        }
+        Ok(res.email)
+    }
 }
 
 fn failed(msg: String) -> Attempt {
@@ -408,5 +428,18 @@ mod tests {
     fn path_segment_strips_traversal() {
         assert_eq!(path_segment("../../users/me"), "usersme");
         assert_eq!(path_segment("3f2a-11"), "3f2a-11");
+    }
+
+    #[test]
+    fn delete_account_calls_users_me_and_returns_email() {
+        let (url, server) = scripted_server(vec![(
+            200,
+            r#"{"success":true,"data":{"deleted":true,"email":"teknisi@ducad.app"}}"#.into(),
+        )]);
+        let mut s = CloudSession::new(&url, test_account());
+        let email = s.delete_account().unwrap();
+        assert_eq!(email, "teknisi@ducad.app");
+        let seen = server.join().unwrap();
+        assert!(seen[0].starts_with("DELETE /api/v1/users/me") && seen[0].contains("Bearer lama"));
     }
 }

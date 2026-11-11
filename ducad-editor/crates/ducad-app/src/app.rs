@@ -4,19 +4,14 @@ use std::path::PathBuf;
 use ducad_core::{BodyId, LengthUnit};
 use ducad_kernel::{FaceHit, PickRay};
 use ducad_render::{OrbitCamera, PlaneKind, SceneRenderer, SketchPlane, ViewPreset};
-use ducad_sketch::constraint::Constraint;
-use ducad_sketch::{
-    detect_rectangle, DeleteEntities, Entity, EntityId, RectAnchor, RenameEntities,
-    ResizeRectangle, Sketch, SnapHit, UpdateEntity,
-};
+use ducad_sketch::{DeleteEntities, Entity, EntityId, RenameEntities, Sketch, SnapHit};
 use ducad_ui::{
     ActivityItemInfo, ActivityKindUi, AssemblyDrawer, AssemblyDrawerEvent, BodyItemInfo, CanvasHud,
     CanvasHudEvent, CmfDrawer, CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar,
-    DraftAnalysisPopup, Entity2dItemInfo, FeatureTreeDrawer, FeatureTreeEvent, HistoryDrawer,
-    HistoryPopup, HistoryPopupState, InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer,
-    ItemsDrawerEvent, LeftToolbar, LightingDrawer, PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent,
-    RadialMenu, RenamePopupEvent, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
-    TopBarFileOp, TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
+    DraftAnalysisPopup, Entity2dItemInfo, FeatureTreeDrawer, FeatureTreeEvent, HistoryPopup,
+    HistoryPopupState, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, LightingDrawer, PlaneItemInfo,
+    PlanesDrawer, PlanesDrawerEvent, RenamePopupEvent, ThemeMode, ToolPopupEvent, ToolbarEvent,
+    TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -24,10 +19,8 @@ use glam::{DVec2, Vec3};
 use slotmap::Key;
 
 use crate::import_worker::ImportWorker;
-use crate::model::{BooleanKind, ModelDoc};
-use crate::types::{
-    InspectorContentSig, PickMode, PickedEdge, RoundHistory, SectionAxis, ToolKind,
-};
+use crate::model::ModelDoc;
+use crate::types::{PickMode, PickedEdge, RoundHistory, SectionAxis, ToolKind};
 use crate::viewport::{pixel_tolerance_to_world, screen_to_plane_point, ViewportCallback};
 
 /// Isi cache pratinjau fillet/chamfer: jenis rounding, radius bertanda,
@@ -259,9 +252,6 @@ pub struct DuCADApp {
     pub glass_gpu_ready: bool,
     pub icon_size: f32,
     pub palette: CommandPalette,
-    pub radial_menu: RadialMenu,
-    pub radial_press: Option<(egui::Pos2, f64)>,
-    pub radial_suppress_click: bool,
     pub two_finger_tap_press: Option<egui::MultiTouchInfo>,
     /// Seret (tekan-geser-lepas) sedang membuat entitas dua titik; titik
     /// kedua dikunci saat pointer dilepas.
@@ -312,7 +302,6 @@ pub struct DuCADApp {
 
     pub left_toolbar: LeftToolbar,
     pub items_drawer: ItemsDrawer,
-    pub history_drawer: HistoryDrawer,
     pub cmf_drawer: CmfDrawer,
     pub lighting_drawer: LightingDrawer,
     pub planes_drawer: PlanesDrawer,
@@ -320,7 +309,6 @@ pub struct DuCADApp {
     pub assembly_drawer: AssemblyDrawer,
     pub viewcube: ViewCube,
     pub items_drawer_open: bool,
-    pub history_drawer_open: bool,
     pub cmf_drawer_open: bool,
     pub lighting_drawer_open: bool,
     /// Mode Render foto-realistis (path tracing) di viewport.
@@ -373,19 +361,6 @@ pub struct DuCADApp {
     /// Pembaruan otomatis dari GitHub Releases (desktop); lihat `update_ui.rs`.
     pub update: crate::update_ui::UpdateCtl,
     pub left_toolbar_content_sig: Option<bool>,
-    pub inspector_content_sig: Option<InspectorContentSig>,
-    pub prop_input_p1_x: String,
-    pub prop_input_p1_y: String,
-    pub prop_input_p2_x: String,
-    pub prop_input_p2_y: String,
-    pub prop_input_val_1: String,
-    pub prop_input_val_2: String,
-    /// Diameter Circle — sinkron dua-arah dgn `prop_input_val_1` (radius).
-    pub prop_input_val_3: String,
-    pub prop_input_rect_p: String,
-    pub prop_input_rect_l: String,
-    pub rect_anchor: InspectorRectAnchor,
-    pub last_inspected_entity_id: Option<u64>,
 
     // Fase 4: resize body 3D via pill dimensi langsung di viewport (bukan panel —
     // lihat `editing_body_dim_axis` di overlay/dimensions.rs).
@@ -749,9 +724,6 @@ impl DuCADApp {
             glass_gpu_ready: true,
             icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
-            radial_menu: RadialMenu::default(),
-            radial_press: None,
-            radial_suppress_click: false,
             two_finger_tap_press: None,
             drag_create_active: false,
             drag_dwell: None,
@@ -785,7 +757,6 @@ impl DuCADApp {
 
             left_toolbar: LeftToolbar::default(),
             items_drawer: ItemsDrawer::default(),
-            history_drawer: HistoryDrawer::default(),
             cmf_drawer: CmfDrawer::default(),
             lighting_drawer: LightingDrawer::default(),
             planes_drawer: PlanesDrawer::default(),
@@ -793,7 +764,6 @@ impl DuCADApp {
             assembly_drawer: AssemblyDrawer::default(),
             viewcube: ViewCube::default(),
             items_drawer_open: false,
-            history_drawer_open: false,
             cmf_drawer_open: false,
             lighting_drawer_open: false,
             photo: Default::default(),
@@ -822,18 +792,6 @@ impl DuCADApp {
             activity_cache,
             plane_menu_open: false,
             left_toolbar_content_sig: None,
-            inspector_content_sig: None,
-            prop_input_p1_x: String::new(),
-            prop_input_p1_y: String::new(),
-            prop_input_p2_x: String::new(),
-            prop_input_p2_y: String::new(),
-            prop_input_val_1: String::new(),
-            prop_input_val_2: String::new(),
-            prop_input_val_3: String::new(),
-            prop_input_rect_p: String::new(),
-            prop_input_rect_l: String::new(),
-            rect_anchor: InspectorRectAnchor::Center,
-            last_inspected_entity_id: None,
 
             editing_body_dim_axis: None,
             editing_body_dim_input: String::new(),
@@ -1142,9 +1100,6 @@ impl DuCADApp {
             glass_gpu_ready: false,
             icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
-            radial_menu: RadialMenu::default(),
-            radial_press: None,
-            radial_suppress_click: false,
             two_finger_tap_press: None,
             drag_create_active: false,
             drag_dwell: None,
@@ -1178,7 +1133,6 @@ impl DuCADApp {
 
             left_toolbar: LeftToolbar::default(),
             items_drawer: ItemsDrawer::default(),
-            history_drawer: HistoryDrawer::default(),
             cmf_drawer: CmfDrawer::default(),
             lighting_drawer: LightingDrawer::default(),
             planes_drawer: PlanesDrawer::default(),
@@ -1186,7 +1140,6 @@ impl DuCADApp {
             assembly_drawer: AssemblyDrawer::default(),
             viewcube: ViewCube::default(),
             items_drawer_open: false,
-            history_drawer_open: false,
             cmf_drawer_open: false,
             lighting_drawer_open: false,
             photo: Default::default(),
@@ -1215,18 +1168,6 @@ impl DuCADApp {
             activity_cache: Vec::new(),
             plane_menu_open: false,
             left_toolbar_content_sig: None,
-            inspector_content_sig: None,
-            prop_input_p1_x: String::new(),
-            prop_input_p1_y: String::new(),
-            prop_input_p2_x: String::new(),
-            prop_input_p2_y: String::new(),
-            prop_input_val_1: String::new(),
-            prop_input_val_2: String::new(),
-            prop_input_val_3: String::new(),
-            prop_input_rect_p: String::new(),
-            prop_input_rect_l: String::new(),
-            rect_anchor: InspectorRectAnchor::Center,
-            last_inspected_entity_id: None,
 
             editing_body_dim_axis: None,
             editing_body_dim_input: String::new(),
@@ -1733,8 +1674,6 @@ impl DuCADApp {
             .or(self.mobile.pencil_hover)
             .and_then(|p| screen_to_plane_point(&self.camera, rect, p, &self.active_plane));
 
-        self.handle_radial_menu(ui, &response);
-
         let is_near_gizmo = self.check_near_gizmo(rect, response.hover_pos());
         if is_near_gizmo || self.gizmo_pointer_dragging() {
             let arrow_opt = if let Some(c) = self.selected_closed_region_centroid() {
@@ -1848,7 +1787,6 @@ impl DuCADApp {
             }
         }
 
-        let radial_active = self.radial_menu.is_open() || self.radial_press.is_some();
         let allow_primary_orbit = (matches!(
             self.tool,
             ToolKind::Select
@@ -1862,7 +1800,6 @@ impl DuCADApp {
                 | ToolKind::Shell
                 | ToolKind::Rib
         ) || self.finger_navigation_active())
-            && !radial_active
             && !is_near_gizmo
             && !self.gizmo_pointer_dragging();
         self.handle_navigation(ui, &response, rect, allow_primary_orbit);
@@ -2452,11 +2389,6 @@ impl eframe::App for DuCADApp {
                                 ducad_ui::apply_with_touch(&ctx, self.theme, self.touch_config.touch_target_size);
                                 self.model_status = Some(format!("Mode Sentuh aktif: {}", next.label()));
                             }
-                            TopBarEvent::TogglePalmRejection => {
-                                self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
-                                let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };
-                                self.model_status = Some(format!("Palm Rejection: {}", st));
-                            }
                             TopBarEvent::ToggleChecksPanel => {
                                 self.checks.panel_open = !self.checks.panel_open;
                             }
@@ -2753,7 +2685,6 @@ impl eframe::App for DuCADApp {
 
         let has_tool_popup = matches!(self.tool, ToolKind::Helix | ToolKind::Text | ToolKind::HoleWizard);
         let open_drawers_count = (self.items_drawer_open as usize)
-            + (self.history_drawer_open as usize)
             + (self.planes_drawer_open as usize)
             + (self.cmf_drawer_open as usize)
             + (self.lighting_drawer_open as usize)
@@ -4410,26 +4341,6 @@ impl eframe::App for DuCADApp {
                 ToolPopupEvent::ApplyHelix { params, profile } => {
                     self.create_helix_coil_with_params(params, profile);
                 }
-                ToolPopupEvent::ApplyExtrude {
-                    distance,
-                    per_object,
-                    material_from_style,
-                    outline_only,
-                } => {
-                    self.extrude_distance_input = distance.to_string();
-                    if self.app_mode == crate::mode::AppMode::Vector {
-                        self.extrude_vector_selection(distance, per_object, material_from_style, outline_only);
-                    } else {
-                        self.extrude_selected();
-                    }
-                }
-                ToolPopupEvent::ApplyFaceExtrude { distance } => {
-                    self.face_extrude_distance_input = distance.to_string();
-                    self.extrude_active_face(distance);
-                }
-                ToolPopupEvent::SketchOnFace => {
-                    self.sketch_on_active_face();
-                }
                 ToolPopupEvent::ApplyText {
                     text,
                     font_height_mm,
@@ -4459,54 +4370,6 @@ impl eframe::App for DuCADApp {
                         self.load_custom_font_path(path);
                     }
                 }
-                ToolPopupEvent::ApplyRevolvePreset { preset_idx, angle_deg } => {
-                    let preset = match preset_idx {
-                        0 => ducad_ui::RevolveAxisPreset::YAxisOrigin,
-                        1 => ducad_ui::RevolveAxisPreset::XAxisOrigin,
-                        2 => ducad_ui::RevolveAxisPreset::BBoxLeft,
-                        3 => ducad_ui::RevolveAxisPreset::BBoxBottom,
-                        _ => ducad_ui::RevolveAxisPreset::CustomTwoPoints,
-                    };
-                    self.revolve_selected_with_preset(preset, angle_deg);
-                }
-                ToolPopupEvent::StartManualRevolve => {
-                    self.set_tool(ToolKind::Revolve);
-                }
-                ToolPopupEvent::StageLoftBottom => {
-                    match crate::model::build_profile_from_selection(
-                        self.sketch(),
-                        &self.selected,
-                    ) {
-                        Ok(profile) => {
-                            self.pending_loft_bottom = Some(profile);
-                            self.selected.clear();
-                            self.model_status = Some(
-                                "✔ Profil bawah tersimpan! Sekarang klik profil kedua di kanvas lalu klik 'Eksekusi Loft'."
-                                    .to_string(),
-                            );
-                        }
-                        Err(msg) => self.model_status = Some(format!("Pilih profil di kanvas: {msg}")),
-                    }
-                }
-                ToolPopupEvent::ApplyLoft { height } => {
-                    self.loft_height_input = height.to_string();
-                    self.loft_selected();
-                }
-                ToolPopupEvent::ToggleFacePicking => {
-                    if self.picking_mode == PickMode::Face {
-                        self.picking_mode = PickMode::None;
-                    } else {
-                        self.picking_mode = PickMode::Face;
-                    }
-                }
-                ToolPopupEvent::ApplyShell { thickness, depth } => {
-                    self.shell_thickness_input = thickness.to_string();
-                    self.shell_depth_input = depth.to_string();
-                    self.commit_shell();
-                }
-                ToolPopupEvent::ApplyDraftAngle { angle_deg, pull_dir } => {
-                    self.apply_draft_angle(angle_deg, pull_dir);
-                }
                 ToolPopupEvent::UpdateDraftInspection {
                     pull_dir,
                     target_angle_deg,
@@ -4519,187 +4382,12 @@ impl eframe::App for DuCADApp {
                 ToolPopupEvent::CloseDraftInspection => {
                     self.draft_config.enabled = false;
                 }
-                ToolPopupEvent::ApplyBooleanUnion => {
-                    self.boolean_selected(BooleanKind::Union, "Union", "Union");
-                }
-                ToolPopupEvent::ApplyBooleanSubtract => {
-                    self.boolean_selected(BooleanKind::Subtract, "Subtract", "Subtract");
-                }
-                ToolPopupEvent::ApplyBooleanIntersect => {
-                    self.boolean_selected(BooleanKind::Intersect, "Intersect", "Intersect");
-                }
                 ToolPopupEvent::ApplyHole(spec) => {
                     self.apply_hole_wizard(spec);
                     self.set_tool(ToolKind::Select);
                 }
                 ToolPopupEvent::UndoModel => self.undo_model(),
                 ToolPopupEvent::RedoModel => self.redo_model(),
-                ToolPopupEvent::ToggleShowAllDimensions => {
-                    self.show_all_dimensions = !self.show_all_dimensions;
-                }
-                ToolPopupEvent::RemoveMeasurement(i) => {
-                    if i < self.measurements.len() {
-                        self.measurements.remove(i);
-                    }
-                }
-                ToolPopupEvent::ClearMeasurements => {
-                    self.measurements.clear();
-                }
-                ToolPopupEvent::UpdateEntityLine {
-                    id_raw,
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                } => {
-                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
-                        let new_entity = Entity::line(
-                            DVec2::new(start_x, start_y),
-                            DVec2::new(end_x, end_y),
-                        ).with_construction(is_const);
-                        self.execute_sketch_command(Box::new(
-                            UpdateEntity::new("Ubah Garis", id, new_entity),
-                        ));
-                    }
-                }
-                ToolPopupEvent::UpdateEntityCircle {
-                    id_raw,
-                    center_x,
-                    center_y,
-                    radius,
-                } => {
-                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
-                        let new_entity = Entity::circle(
-                            DVec2::new(center_x, center_y),
-                            radius,
-                        ).with_construction(is_const);
-                        self.execute_sketch_command(Box::new(
-                            UpdateEntity::new("Ubah Lingkaran", id, new_entity),
-                        ));
-                    }
-                }
-                ToolPopupEvent::UpdateEntityArc {
-                    id_raw,
-                    center_x,
-                    center_y,
-                    radius,
-                    start_angle_deg,
-                    end_angle_deg,
-                } => {
-                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
-                        let new_entity = Entity::arc(
-                            DVec2::new(center_x, center_y),
-                            radius,
-                            start_angle_deg.to_radians(),
-                            end_angle_deg.to_radians(),
-                        ).with_construction(is_const);
-                        self.execute_sketch_command(Box::new(
-                            UpdateEntity::new("Ubah Busur", id, new_entity),
-                        ));
-                    }
-                }
-                ToolPopupEvent::UpdateEntityEllipse {
-                    id_raw,
-                    center_x,
-                    center_y,
-                    radius_x,
-                    radius_y,
-                } => {
-                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
-                        let new_entity = Entity::ellipse(
-                            DVec2::new(center_x, center_y),
-                            radius_x,
-                            radius_y,
-                        ).with_construction(is_const);
-                        self.execute_sketch_command(Box::new(
-                            UpdateEntity::new("Ubah Elips", id, new_entity),
-                        ));
-                    }
-                }
-                ToolPopupEvent::UpdateEntityRectangle {
-                    entity_ids: _,
-                    length_p,
-                    length_l,
-                    anchor,
-                } => {
-                    if let Some(rect) = detect_rectangle(self.sketch(), &self.selected) {
-                        let anchor = match anchor {
-                            InspectorRectAnchor::Center => RectAnchor::Center,
-                            InspectorRectAnchor::Corner0 => RectAnchor::Corner0,
-                            InspectorRectAnchor::Corner1 => RectAnchor::Corner1,
-                            InspectorRectAnchor::Corner2 => RectAnchor::Corner2,
-                            InspectorRectAnchor::Corner3 => RectAnchor::Corner3,
-                        };
-                        let new_lines = rect.resized_lines(length_p, length_l, anchor);
-                        self.execute_sketch_command(Box::new(ResizeRectangle::new(
-                            "Ubah Rectangle",
-                            new_lines,
-                        )));
-                    }
-                }
-                ToolPopupEvent::ApplyConstraint(act) => {
-                    let ids: Vec<EntityId> = self.selected.iter().copied().collect();
-                    match act {
-                        InspectorConstraintAction::Horizontal => {
-                            if let [id] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Horizontal { line: *id });
-                            }
-                        }
-                        InspectorConstraintAction::Vertical => {
-                            if let [id] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Vertical { line: *id });
-                            }
-                        }
-                        InspectorConstraintAction::Parallel => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Parallel { a: *a, b: *b });
-                            }
-                        }
-                        InspectorConstraintAction::Perpendicular => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Perpendicular { a: *a, b: *b });
-                            }
-                        }
-                        InspectorConstraintAction::EqualLength => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::EqualLength { a: *a, b: *b });
-                            }
-                        }
-                        InspectorConstraintAction::EqualRadius => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::EqualRadius { a: *a, b: *b });
-                            }
-                        }
-                        InspectorConstraintAction::Tangent => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Tangent { a: *a, b: *b });
-                            }
-                        }
-                        InspectorConstraintAction::Coincident => {
-                            self.set_tool(ToolKind::CoincidentPick);
-                        }
-                        InspectorConstraintAction::Fixed => {
-                            self.set_tool(ToolKind::FixedPick);
-                        }
-                        InspectorConstraintAction::Symmetric => {
-                            self.set_tool(ToolKind::SymmetricPick);
-                        }
-                    }
-                }
-                ToolPopupEvent::DeleteSelectedBodies => {
-                    self.delete_selected_bodies();
-                }
-                ToolPopupEvent::DeleteSelectedEntities => {
-                    if !self.selected.is_empty() {
-                        let ids: Vec<EntityId> = self.selected.iter().copied().collect();
-                        self.execute_sketch_command(Box::new(DeleteEntities::new(ids)));
-                        self.selected.clear();
-                    }
-                }
             }
         }
 

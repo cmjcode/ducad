@@ -94,6 +94,17 @@ impl Release {
         let wanted = format!("{}.sha256", package.name);
         self.assets.iter().find(|a| a.name == wanted)
     }
+
+    /// Berkas tanda tangan kriptografis pendamping `<paket>.sha256`
+    /// (`.sha256.minisig` diutamakan, jatuh ke `.sha256.sig`).
+    pub fn signature_for(&self, checksum: &Asset) -> Option<&Asset> {
+        let minisig = format!("{}.minisig", checksum.name);
+        if let Some(found) = self.assets.iter().find(|a| a.name == minisig) {
+            return Some(found);
+        }
+        let raw_sig = format!("{}.sig", checksum.name);
+        self.assets.iter().find(|a| a.name == raw_sig)
+    }
 }
 
 #[derive(Deserialize)]
@@ -385,6 +396,43 @@ mod tests {
         );
         let mac = release.package_for(&Target { os: Os::MacOs, arch: "aarch64" }).unwrap();
         assert!(release.checksum_for(mac).is_none());
+    }
+
+    #[test]
+    fn signature_is_paired_by_name_and_prefers_minisig() {
+        let release = Release {
+            version: Version::parse("0.8.0").unwrap(),
+            tag: "v0.8.0".into(),
+            title: "v0.8.0".into(),
+            notes: String::new(),
+            page_url: String::new(),
+            assets: assets(&[
+                "ducad-0.8.0-linux-x86_64.tar.gz",
+                "ducad-0.8.0-linux-x86_64.tar.gz.sha256",
+                "ducad-0.8.0-linux-x86_64.tar.gz.sha256.sig",
+                "ducad-0.8.0-linux-x86_64.tar.gz.sha256.minisig",
+                "ducad-0.8.0-windows-x86_64.zip",
+                "ducad-0.8.0-windows-x86_64.zip.sha256",
+                "ducad-0.8.0-windows-x86_64.zip.sha256.sig",
+            ]),
+        };
+        let lin_pkg = release
+            .package_for(&Target { os: Os::Linux, arch: "x86_64" })
+            .unwrap();
+        let lin_sum = release.checksum_for(lin_pkg).unwrap();
+        assert_eq!(
+            release.signature_for(lin_sum).map(|a| a.name.as_str()),
+            Some("ducad-0.8.0-linux-x86_64.tar.gz.sha256.minisig")
+        );
+
+        let win_pkg = release
+            .package_for(&Target { os: Os::Windows, arch: "x86_64" })
+            .unwrap();
+        let win_sum = release.checksum_for(win_pkg).unwrap();
+        assert_eq!(
+            release.signature_for(win_sum).map(|a| a.name.as_str()),
+            Some("ducad-0.8.0-windows-x86_64.zip.sha256.sig")
+        );
     }
 
     #[test]

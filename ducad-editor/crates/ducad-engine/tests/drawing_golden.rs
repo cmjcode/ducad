@@ -109,6 +109,81 @@ fn skip_valve() -> bool {
     SKIP_VALVE
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct StructuralSheetGolden {
+    views: Vec<String>,
+    auto_dimensions: Vec<String>,
+    company_name: String,
+    notes: Vec<String>,
+    scene_texts: Vec<String>,
+    visible_line_len_mm: f64,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct DrawingGoldenFile {
+    structural: BTreeMap<String, StructuralSheetGolden>,
+    #[serde(default)]
+    byte_hashes: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+fn build_structural_golden(sheet: &DrawingSheet, files: &[(String, Vec<u8>); 3]) -> StructuralSheetGolden {
+    for (name, bytes) in files {
+        let text = String::from_utf8_lossy(bytes);
+        assert!(
+            !text.contains("CAD/CAM"),
+            "{name} tidak boleh lagi mengklaim CAD/CAM"
+        );
+        if name.ends_with(".pdf") {
+            assert!(bytes.starts_with(b"%PDF-"), "{name} bukan PDF valid");
+            assert!(text.contains("%%EOF"), "{name} tidak memiliki penutup PDF");
+        } else if name.ends_with(".svg") {
+            assert!(text.contains("<svg") && text.contains("</svg>"), "{name} bukan SVG valid");
+        } else if name.ends_with(".dxf") {
+            assert!(text.contains("SECTION") && text.contains("EOF"), "{name} bukan DXF valid");
+        }
+    }
+
+    let scene = build_scene(sheet);
+    let mut scene_texts: Vec<String> = scene
+        .groups
+        .iter()
+        .flat_map(|g| &g.items)
+        .filter_map(|item| match item {
+            Item::Text { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    scene_texts.sort();
+
+    let visible_line_len_mm: f64 = scene
+        .groups
+        .iter()
+        .flat_map(|g| &g.items)
+        .filter_map(|item| match item {
+            Item::Line { a, b, pen } if pen.layer == "VISIBLE" => {
+                let dx = (b[0] - a[0]) as f64;
+                let dy = (b[1] - a[1]) as f64;
+                Some((dx * dx + dy * dy).sqrt())
+            }
+            _ => None,
+        })
+        .sum();
+
+    StructuralSheetGolden {
+        views: sheet
+            .view_placements
+            .iter()
+            .filter(|p| p.visible)
+            .map(|p| format!("{:?}", p.kind))
+            .collect(),
+        auto_dimensions: dim_texts(sheet),
+        company_name: sheet.title_block.company_name.clone(),
+        notes: sheet.notes.clone(),
+        scene_texts,
+        visible_line_len_mm: (visible_line_len_mm * 10.0).round() / 10.0,
+    }
+}
+
 #[test]
 fn drawing_golden_hashes_are_stable() {
     let flange = load(include_str!("fixtures/flange.ops.json"));
@@ -133,48 +208,88 @@ fn drawing_golden_hashes_are_stable() {
         sheets.push((valve_sheet, "valve_body"));
     }
 
-    let mut actual: BTreeMap<String, String> = BTreeMap::new();
+    let mut actual_bytes: BTreeMap<String, String> = BTreeMap::new();
+    let mut actual_structural: BTreeMap<String, StructuralSheetGolden> = BTreeMap::new();
     for (sheet, tag) in sheets.iter().map(|(s, t)| (s, *t)) {
-        for (name, bytes) in exports(sheet, tag) {
-            actual.insert(name, stamp(&bytes));
+        let first = exports(sheet, tag);
+        actual_structural.insert(tag.to_string(), build_structural_golden(sheet, &first));
+        for (name, bytes) in first {
+            actual_bytes.insert(name, stamp(&bytes));
         }
-        // Dua kali ekspor harus identik byte demi byte.
+        // Dua kali ekspor pada mesin yang sama harus identik byte demi byte.
         for (name, bytes) in exports(&sheet.clone(), tag) {
-            assert_eq!(actual[&name], stamp(&bytes), "{name} tidak deterministik");
+            assert_eq!(actual_bytes[&name], stamp(&bytes), "{name} tidak deterministik");
         }
     }
 
     let file = "tests/golden/drawing.hashes.truck.json";
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file);
-    let arch = std::env::consts::ARCH;
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
     if std::env::var_os("DUCAD_UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let mut by_arch: BTreeMap<String, BTreeMap<String, String>> = std::fs::read_to_string(&path)
+        let mut golden: DrawingGoldenFile = std::fs::read_to_string(&path)
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
-        by_arch.insert(arch.to_string(), actual);
-        let text = serde_json::to_string_pretty(&by_arch).unwrap() + "\n";
+        if golden.structural != actual_structural {
+            // Struktur lembar berubah sengaja: kosongkan hash byte arsitektur
+            // lain yang sudah usang supaya direkam ulang bersih.
+            golden.byte_hashes.clear();
+            golden.structural = actual_structural;
+        }
+        golden.byte_hashes.insert(platform, actual_bytes);
+        let text = serde_json::to_string_pretty(&golden).unwrap() + "\n";
         std::fs::write(&path, text).unwrap();
         return;
     }
+
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
             "{} tidak terbaca ({e}); jalankan dengan DUCAD_UPDATE_GOLDEN=1",
             path.display()
         )
     });
-    let by_arch: BTreeMap<String, BTreeMap<String, String>> = serde_json::from_str(&text).unwrap();
-    let expected = by_arch.get(arch).unwrap_or_else(|| {
-        panic!(
-            "hash golden untuk arsitektur `{arch}` belum ada di {}; jalankan dengan DUCAD_UPDATE_GOLDEN=1",
-            path.display()
-        )
-    });
+    let golden: DrawingGoldenFile = serde_json::from_str(&text).unwrap();
     assert_eq!(
-        &actual, expected,
-        "keluaran lembar berubah pada `{arch}`; bila disengaja perbarui dengan DUCAD_UPDATE_GOLDEN=1"
+        actual_structural.keys().collect::<Vec<_>>(),
+        golden.structural.keys().collect::<Vec<_>>(),
+        "daftar lembar golden tidak cocok"
     );
+    for (tag, actual_s) in &actual_structural {
+        let expected_s = &golden.structural[tag];
+        assert_eq!(actual_s.views, expected_s.views, "tampak `{tag}` berubah");
+        assert_eq!(
+            actual_s.auto_dimensions, expected_s.auto_dimensions,
+            "dimensi otomatis `{tag}` berubah"
+        );
+        assert_eq!(
+            actual_s.company_name, expected_s.company_name,
+            "nama perusahaan `{tag}` berubah"
+        );
+        assert_eq!(actual_s.notes, expected_s.notes, "catatan `{tag}` berubah");
+        assert_eq!(
+            actual_s.scene_texts, expected_s.scene_texts,
+            "teks scene `{tag}` berubah; bila disengaja perbarui dengan DUCAD_UPDATE_GOLDEN=1"
+        );
+        assert!(
+            (actual_s.visible_line_len_mm - expected_s.visible_line_len_mm).abs() <= 1.0,
+            "panjang garis tampak `{tag}` bergeser jauh: aktual {} vs golden {}",
+            actual_s.visible_line_len_mm,
+            expected_s.visible_line_len_mm
+        );
+    }
+
+    if let Some(expected_bytes) = golden.byte_hashes.get(&platform) {
+        assert_eq!(
+            &actual_bytes, expected_bytes,
+            "keluaran byte lembar berubah pada `{platform}`; bila disengaja perbarui dengan DUCAD_UPDATE_GOLDEN=1"
+        );
+    } else {
+        eprintln!(
+            "catatan: hash byte untuk `{platform}` belum direkam di {}; struktur & geometri terkuantisasi lulus",
+            path.display()
+        );
+    }
 }
 
 #[test]

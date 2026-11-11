@@ -60,7 +60,29 @@ dari `packaging/windows/ducad.wxs` dengan WiX Toolset v5, memvalidasinya
 - Belum ditandatangani: Windows SmartScreen akan menampilkan peringatan
   "unknown publisher" sampai ada sertifikat code signing.
 
-## Linux: paket AUR `ducad`
+## Penandatanganan manifest pembaruan (`ducad-update` Ed25519 / Minisign)
+
+Updater bawaan (`crates/ducad-update`) mendukung verifikasi tanda tangan
+kriptografis Ed25519 / Minisign atas setiap berkas `<paket>.sha256` sebelum
+mempercayai checksum arsip rilis:
+
+1. Buat pasangan kunci Minisign sekali untuk proyek:
+   ```bash
+   minisign -G -p ducad-release.pub -s ~/.ducad-release.key
+   ```
+2. Tanamkan isi `ducad-release.pub` (`RW...`) ke konstanta
+   `DEFAULT_UPDATE_PUBKEY` di `crates/ducad-update/src/signature.rs` (atau set
+   variabel lingkungan `DUCAD_UPDATE_PUBKEY` saat pengujian).
+3. Simpan isi `~/.ducad-release.key` ke GitHub Actions Secret
+   `DUCAD_UPDATE_MINISIGN_SECKEY` (dan kata sandinya ke
+   `DUCAD_UPDATE_MINISIGN_PASS`). Job `publish` di `.github/workflows/release.yml`
+   otomatis menghasilkan `<paket>.sha256.minisig` dan mengunggahnya ke GitHub
+   Releases. Untuk DMG macOS lokal, jalankan `minisign -Sm DUCAD-<versi>-macos-arm64.dmg.sha256`
+   sebelum `gh release upload`.
+
+## Linux: paket AUR `ducad` *(dihentikan sementara / tidak dirilis aktif)*
+
+> **Status 0.8.x:** Pemeliharaan paket AUR (`aur/ducad/`) dihentikan sementara dari alur rilis aktif (tertinggal sejak `0.4.0`). Artefak resmi Linux yang didukung dan diuji CI adalah arsip biner `ducad-<versi>-linux-x86_64.tar.gz` dan `ducad-tools-<versi>-linux-x86_64.tar.gz` di GitHub Releases.
 
 Metadata paket ada di `aur/ducad/` (root repo): `PKGBUILD`, `ducad.desktop`,
 dan `.SRCINFO` hasil generate. PKGBUILD membangun dari tag `v<versi>` di
@@ -104,6 +126,4 @@ tersedia di sandbox agent — sama alasan dengan TestFlight iOS di Fase 6:
   lingkup kerja kode.
 - **iOS packaging** (`.ipa`, TestFlight) — `./build_ipad.sh ipa|publish`
   (tanpa pre-build C++). Lihat `docs/TABLET.md`.
-- **Android** — `make android-apk` menghasilkan APK debug (lihat
-  `docs/TABLET.md`); signing rilis (keystore) di luar sandbox agent, sama
-  alasannya dengan macOS.
+- **Android** *(dihentikan sementara / tidak dirilis aktif)* — `crates/ducad-android` disimpan di pohon sumber tanpa lane CI aktif dan tidak disertakan dalam gerbang rilis desktop.

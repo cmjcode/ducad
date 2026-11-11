@@ -93,7 +93,7 @@ ulang langsung. Path relatif dari `crates/` kecuali disebut lain.
 | Ask AI apple-fm / GGUF, MNEMONIC, eval | GUI / n.a. | eksperimental | `ducad-assist/src/{apple,gguf}.rs`; `ducad-app/src/memory.rs`; `evals/` | Tidak dibangun CI; GGUF tidak tersambung GUI; eval 11 tugas (README diselaraskan Step 5) |
 | **Simulasi dan industri** | | | | |
 | Mass properties, FEA statik, konfigurasi, ISO 286, standard part | keduanya | stabil | `ducad-engine/tests/{inspect_mass,configurations,standard_parts}.rs`; `ducad-sim/tests/static_pipeline.rs` | FEA estimasi ±10 % |
-| Frequency/buckling/thermal | keduanya | terbatas | `ducad-sim/tests/p18_gates.rs`; `ducad-engine/tests/study_kinds.rs` | Panel GUI hanya statik |
+| Frequency/buckling/thermal | keduanya | eksperimental | `ducad-sim/tests/p18_gates.rs`; `ducad-engine/tests/study_kinds.rs` | Dibekukan & dilabeli eksperimental di UI; panel GUI hanya statik |
 | Sheet metal + flat DXF | keduanya | stabil (oplog) / terbatas (GUI) | `ducad-engine/tests/sheet_metal.rs` | Base GUI hanya persegi di XY; batas di README diselaraskan Step 5 |
 | GD&T di sheet | MCP + GUI | terbatas | `ducad-io/tests/gdt_pdf.rs` | Anotasi GUI hanya per sesi |
 | **UI** | | | | |
@@ -106,7 +106,7 @@ ulang langsung. Path relatif dari `crates/` kecuali disebut lain.
 | Linux | n.a. | stabil | `.github/workflows/ci.yml` lane ubuntu | — |
 | macOS (platform utama persona) | GUI | terbatas | `ducad-app/tests/ios_scene_manifest.rs` | **Tidak ada lane workspace macOS di CI**; diuji manual |
 | Windows + MSI | n.a. | terbatas | `ci.yml`, `release.yml` | Tes/clippy Windows `continue-on-error`; tanpa live bridge |
-| Android | n.a. | eksperimental | `ducad-android/src/lib.rs` | Tidak di CI |
+| Android | n.a. | dihentikan sementara | `ducad-android/src/lib.rs` | Tidak di CI dan dikeluarkan dari target rilis aktif |
 | Akun/SSO | GUI | stabil (auth) | `ducad-cloud/src/auth.rs` | — |
 | Cloud sync | GUI | eksperimental | `ducad-cloud/src/sync.rs` | Tes dengan server lokal berskrip (respons tiruan), bukan server nyata |
 | `./test_api.sh` | n.a. | **belum tersedia** | berkas tidak ada | Rujukan dihapus dari README (Step 5) |

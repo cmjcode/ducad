@@ -105,13 +105,14 @@ pub fn start_oauth_flow(
         // sempat terbuka, jadi jangan bunuh alurnya di sini.
         warn!("Gagal membuka browser otomatis: {}", e);
     }
-    info!("🌐 Membuka URL OAuth {}: {}", provider.label(), login_url);
+    // JANGAN catat `login_url` atau `ticket` ke log: ticket adalah kredensial
+    // pembawa untuk menjemput access/refresh token dari `/ticket/poll`.
+    info!("Membuka alur OAuth {}", provider.label());
 
     thread::spawn(move || {
         info!(
-            "🔑 Menunggu otentikasi {} (ticket: {}, port loopback: {:?})",
+            "Menunggu otentikasi {} (port loopback: {:?})",
             provider.label(),
-            ticket,
             port
         );
 
@@ -502,16 +503,52 @@ pub fn session_file_path() -> PathBuf {
     let dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".ducad");
-    let _ = fs::create_dir_all(&dir);
+    let _ = ensure_private_dir(&dir);
     dir.join("session.json")
 }
 
-/// Menyimpan data akun ke file sesi lokal
+fn ensure_private_dir(dir: & std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+    }
+    Ok(())
+}
+
+/// Menyimpan data akun ke `path` dengan izin privat (`0600` di Unix).
+pub fn save_account_to(path: &std::path::Path, account: &DucadAccount) -> anyhow::Result<()> {
+    if let Some(dir) = path.parent() {
+        ensure_private_dir(dir)?;
+    }
+    let json = serde_json::to_string_pretty(account)?;
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        // Perketat juga berkas lama yang mungkin dibuat sebelum izin 0600 diterapkan.
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        file.write_all(json.as_bytes())?;
+        file.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(path, json)?;
+    }
+    Ok(())
+}
+
+/// Menyimpan data akun ke file sesi lokal (`~/.ducad/session.json`).
 pub fn save_account(account: &DucadAccount) -> anyhow::Result<()> {
     let path = session_file_path();
-    let json = serde_json::to_string_pretty(account)?;
-    fs::write(path, json)?;
-    Ok(())
+    save_account_to(&path, account)
 }
 
 /// Memuat sesi akun pengguna dari file lokal jika ada
@@ -707,5 +744,28 @@ mod tests {
         json["user"]["license_tier"] = serde_json::json!("   ");
         let resp: TokenResponse = serde_json::from_value(json).expect("fixture harus valid");
         assert_eq!(token_to_account(&resp).license_tier, "Free");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_save_account_to_sets_0600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("ducad-auth-perm-{}", std::process::id()));
+        let path = dir.join("session.json");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // Simulasikan berkas lama yang terlalu longgar (0644) dan pastikan diperketat ke 0600.
+        fs::write(&path, "{}").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let resp: TokenResponse = serde_json::from_value(token_json()).unwrap();
+        let acc = token_to_account(&resp);
+        save_account_to(&path, &acc).unwrap();
+
+        let file_mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let dir_mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(file_mode, 0o600, "session.json wajib 0600, dapat {file_mode:o}");
+        assert_eq!(dir_mode, 0o700, "direktori .ducad wajib 0700, dapat {dir_mode:o}");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

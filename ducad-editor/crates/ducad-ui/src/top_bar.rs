@@ -115,7 +115,6 @@ pub enum TopBarEvent {
     DeleteSelection,
     ToggleAccountDrawer,
     SetTouchDesignMode(TouchDesignMode),
-    TogglePalmRejection,
     CycleTouchDesignMode,
     /// Buka/tutup panel Checks (P7.5).
     ToggleChecksPanel,
@@ -150,8 +149,7 @@ pub struct TopBarCommandGroup {
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
-/// oleh `TopBar::show`. Dikonstruksi ulang tiap frame dari state `App`,
-/// meniru pola `FeatureInspectorState` di `feature_inspector.rs`.
+/// oleh `TopBar::show`. Dikonstruksi ulang tiap frame dari state `App`.
 pub struct TopBarState {
     pub document_name: String,
     pub status_saved: bool,
@@ -172,8 +170,7 @@ pub struct TopBarState {
     pub custom_planes: Vec<(usize, String)>,
     /// Dropdown popup pemilih Sketch Plane (Top/Front/Right/Custom). Dibaca & bisa
     /// diubah oleh `show` — caller wajib menyalin nilai baru balik ke state
-    /// persisten miliknya setelah `show` selesai (sama seperti field-field
-    /// input lain di `FeatureInspectorState`).
+    /// persisten miliknya setelah `show` selesai.
     pub plane_menu_open: bool,
     /// Rect layar tombol Items setelah dirender frame ini — dipakai caller
     /// buat menempatkan popup Items Drawer tepat di bawah tombolnya.
@@ -1223,16 +1220,6 @@ fn settings_menu_items(
                         *event = Some(TopBarEvent::SetTouchDesignMode(m));
                         ui.close();
                     }
-                }
-                ui.separator();
-                let mut pr = state.touch_config.palm_rejection;
-                if ui
-                    .checkbox(&mut pr, "🛡️ Tolak Telapak Tangan (Palm Rejection)")
-                    .on_hover_text("Mengabaikan sentuhan telapak tangan saat menggambar dengan Apple Pencil")
-                    .clicked()
-                {
-                    *event = Some(TopBarEvent::TogglePalmRejection);
-                    ui.close();
                 }
             }),
         );

@@ -1481,8 +1481,6 @@ impl DuCADApp {
             }
         }
 
-        let suppress_click_from_radial = std::mem::take(&mut self.radial_suppress_click);
-
         // Klik yg jatuh di pill dimensi bbox body 3D (`body_dim_pill_screen_hits`, "Tampilkan
         // Semua Ukuran" di mode 3D) HARUS berarti "edit ukuran ini" — bukan raycast pilih
         // rusuk/sudut buat fillet/chamfer, walau posisinya sengaja persis di tengah rusuk bbox
@@ -1593,7 +1591,6 @@ impl DuCADApp {
 
                 if self.canvas_tap
                     && !is_finger_navigating
-                    && !suppress_click_from_radial
                     && !click_hits_body_dim_pill
                     && !click_hits_gizmo
                     && !self.filleting_vertex_from_gizmo

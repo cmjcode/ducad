@@ -105,7 +105,7 @@ impl Default for TitleBlockInfo {
             material: "Aluminium 6061-T6".to_string(),
             units: "mm".to_string(),
             sheet_number: "1 / 1".to_string(),
-            company_name: "DUCAD Studio CAD/CAM".to_string(),
+            company_name: "DUCAD Studio".to_string(),
             revision: "A".to_string(),
             general_tolerance: default_general_tolerance(),
         }

@@ -1,6 +1,6 @@
 use ducad_core::LengthUnit;
 use ducad_kernel::PickRay;
-use ducad_ui::{SelectedEntityData, ToolbarTool};
+use ducad_ui::ToolbarTool;
 use glam::{DVec2, Vec3};
 
 /// Target undo lintas mode (Sketsa 2D, Model 3D, atau Tinta Ink).
@@ -199,17 +199,6 @@ impl ToolKind {
     }
 }
 
-pub const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
-    (ToolKind::Line, "Garis"),
-    (ToolKind::Rectangle, "Persegi"),
-    (ToolKind::Circle, "Lingkaran"),
-    (ToolKind::Ellipse, "Ellips"),
-    (ToolKind::Arc, "Arc"),
-    (ToolKind::Offset, "Offset"),
-    (ToolKind::Mirror, "Mirror"),
-    (ToolKind::Trim, "Trim"),
-];
-
 #[allow(dead_code)]
 pub const KEYBOARD_SHORTCUTS: [(&str, &str); 24] = [
     (
@@ -299,7 +288,6 @@ pub enum PaletteAction {
     File(FileOp),
     ClearMeasurements,
     SetTouchDesignMode(ducad_ui::TouchDesignMode),
-    TogglePalmRejection,
     /// Buka dialog asisten AI lokal (P11.4).
     OpenAssist,
     OpenChat,
@@ -668,7 +656,6 @@ impl PaletteAction {
             | PaletteAction::ToggleStudioLighting
             | PaletteAction::TogglePhotoRender
             | PaletteAction::SetTouchDesignMode(_)
-            | PaletteAction::TogglePalmRejection
             | PaletteAction::StartTutorial
             | PaletteAction::CheckForUpdates => PaletteGroup::View,
             PaletteAction::Parity(cmd) => cmd.group(),
@@ -812,20 +799,6 @@ pub enum ExtrudeExtentMode {
     Symmetric,
     UpToFace,
 }
-
-pub type InspectorContentSig = (
-    std::mem::Discriminant<SelectedEntityData>,
-    bool,
-    usize,
-    usize,
-    usize,
-    bool,
-    bool,
-    bool,
-    PickMode,
-    usize,
-    bool,
-);
 
 pub struct PickedEdge {
     pub ray: PickRay,

@@ -1,5 +1,7 @@
 # DUCAD di tablet: iPadOS & Android
 
+> **Status 0.8.x:** Target Android (`crates/ducad-android`) **dihentikan sementara** dari target rilis aktif (tanpa lane CI atau perangkat uji). Saklar `palm_rejection` di pengaturan sentuh disembunyikan sampai deteksi telapak tangan level OS diuji di perangkat nyata.
+
 Dokumen ini mencatat **gap antara shell native (Swift/UIKit, Kotlin) dan
 egui/eframe** untuk DUCAD di tablet, apa yang sudah ditutup di kode, dan
 apa yang sengaja ditunda. Satu basis kode Rust dipakai di semua platform;

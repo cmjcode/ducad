@@ -8,7 +8,7 @@
 //! Widget ini generik terhadap "apa aksinya" — caller (`ducad-app`)
 //! menyediakan daftar [`PaletteEntry`] tiap frame dan menerima index balik
 //! ke daftar yang sama saat satu entri dieksekusi, lalu memutuskan sendiri
-//! aksi konkretnya lewat match. Pola yang sama dengan `RadialMenu`.
+//! aksi konkretnya lewat match.
 //!
 //! Daftar yang sama juga dirender sebagai submenu di burger menu `TopBar`,
 //! jadi setiap perintah palette selalu punya jalur klik di GUI.

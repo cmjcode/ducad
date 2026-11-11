@@ -272,6 +272,23 @@ jobs:
           for s in *.sha256; do sha256sum -c "$s"; done
           ls -l
 
+      - name: Tandatangani manifest SHA-256 (Minisign)
+        if: env.DUCAD_UPDATE_MINISIGN_SECKEY != ''
+        working-directory: dist
+        env:
+          DUCAD_UPDATE_MINISIGN_SECKEY: ${{ secrets.DUCAD_UPDATE_MINISIGN_SECKEY }}
+          DUCAD_UPDATE_MINISIGN_PASS: ${{ secrets.DUCAD_UPDATE_MINISIGN_PASS }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
+          SECKEY_FILE="$(mktemp)"
+          trap 'rm -f "$SECKEY_FILE"' EXIT
+          chmod 600 "$SECKEY_FILE"
+          printf '%s\n' "$DUCAD_UPDATE_MINISIGN_SECKEY" > "$SECKEY_FILE"
+          for s in *.sha256; do
+            printf '%s\n' "${DUCAD_UPDATE_MINISIGN_PASS:-}" | minisign -S -s "$SECKEY_FILE" -m "$s" -t "DUCAD ${GITHUB_REF_NAME} ${s}"
+          done
+          ls -l *.minisig
+
       - name: Isi rilis draft
         env:
           GH_TOKEN: ${{ github.token }}

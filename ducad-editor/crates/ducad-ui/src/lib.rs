@@ -3,13 +3,12 @@
 //! - Interactive 3D ViewCube & Orientation Gizmo (`viewcube`)
 //! - Bilah alat vertikal mengambang di sisi kiri (`left_toolbar`)
 //! - Outliner drawer pohon item (`items_drawer`)
-//! - Pohon fitur parametrik & inspektor 3D (`feature_inspector`)
+//! - Pohon fitur parametrik (`feature_tree_drawer`)
 //! - Modular tool popups pojok kanan bawah (`tool_popups`)
 //! - Baris ikon constraint di context bar bawah (`constraint_strip`)
 //! - In-Canvas HUD & Dimension Pills (`canvas_hud`)
 //! - Modern top bar & title header (`top_bar`)
 //! - Command palette (`command_palette`)
-//! - Radial menu untuk sentuh/iPad (`radial_menu`)
 
 // Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
 // kode produksi; modul tes dikecualikan.
@@ -35,7 +34,6 @@ pub mod drawing_sheet_view;
 pub mod assist_dialog;
 pub mod error_card;
 pub mod proposal_card;
-pub mod feature_inspector;
 pub mod feature_tree_drawer;
 pub mod history_drawer;
 pub mod sketch_hud;
@@ -44,7 +42,6 @@ pub mod left_toolbar;
 pub mod onboarding;
 pub mod lighting_drawer;
 pub mod planes_drawer;
-pub mod radial_menu;
 pub mod revolve_dialog;
 pub mod theme;
 pub mod tool_guides;
@@ -107,14 +104,8 @@ pub use drawing_sheet_view::{DrawingSheetEvent, DrawingSheetView, DrawingSheetVi
 pub use assist_dialog::{AssistDialog, AssistDialogEvent, AssistDialogState};
 pub use error_card::{ErrorCard, ErrorCardEvent, ErrorCardState};
 pub use proposal_card::{ProposalCard, ProposalCardEvent, ProposalCardState};
-pub use feature_inspector::{
-    FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
-    InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
-};
 pub use feature_tree_drawer::{FeatureTreeDrawer, FeatureTreeEvent, OplogRowInfo, TimelineInfo};
-pub use history_drawer::{
-    ActivityItemInfo, ActivityKindUi, HistoryDrawer, HistoryDrawerEvent,
-};
+pub use history_drawer::{ActivityItemInfo, ActivityKindUi};
 pub use items_drawer::{
     BodyItemInfo, Entity2dItemInfo, ItemsDrawer, ItemsDrawerEvent, ItemsDrawerTab,
     VectorDrawerContext,
@@ -135,7 +126,6 @@ pub use datum_hud::{
     DatumAxisMode, DatumKind, DatumPointMode, DatumRefHudAction, DatumRefHudInput,
 };
 pub use planes_drawer::{DatumItemInfo, PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent};
-pub use radial_menu::RadialMenu;
 pub use revolve_dialog::{
     AlertModal, AlertModalState, RevolveAxisPreset, RevolveDialog, RevolveDialogEvent,
     RevolveDialogState,
@@ -155,12 +145,10 @@ pub use ducad_glass::{
 };
 pub use tool_guides::ToolGuides;
 pub use tool_popups::{
-    render_bottom_right_panel_custom, render_bottom_right_popup, BooleanPopup, BooleanPopupState,
-    DraftAnalysisPopup, DraftPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
-    ExtrudePopupState, HelixPopup, HelixPopupState, HelixPreset, HelixSectionType, HistoryPopup,
-    HistoryPopupState, HoleOperationMode, HolePopup, HolePopupState, LoftPopup,
-    LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
-    ShellPopupState, TextPopup, TextPopupState, ToolPopupEvent,
+    render_bottom_right_panel_custom, render_bottom_right_popup, DraftAnalysisPopup,
+    DraftPopupState, HelixPopup, HelixPopupState, HelixPreset, HelixSectionType, HistoryPopup,
+    HistoryPopupState, HoleOperationMode, HolePopup, HolePopupState, TextPopup, TextPopupState,
+    ToolPopupEvent,
 };
 pub use tool_popups::body_tools_popup::{
     snap_angle_15, BodyToolEvent, BodyToolsPopup, MirrorBodyPopupState, MirrorPlaneChoice,

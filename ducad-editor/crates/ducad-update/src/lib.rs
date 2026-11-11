@@ -17,6 +17,7 @@
 mod install;
 mod release;
 mod settings;
+mod signature;
 mod version;
 
 pub use install::{cleanup_leftovers, install, Installation, Installed, Progress, Unsupported};
@@ -25,6 +26,9 @@ pub use release::{
     DEFAULT_REPO, REPO_ENV,
 };
 pub use settings::{now_unix, UpdateSettings, CHECK_INTERVAL_SECS};
+pub use signature::{
+    configured_pubkey, verify_manifest_signature, DEFAULT_UPDATE_PUBKEY, PUBKEY_ENV,
+};
 pub use version::Version;
 
 #[derive(Debug, thiserror::Error)]

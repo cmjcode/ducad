@@ -123,10 +123,12 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 # menambah salinan ketiganya (0.9 dan 0.10 sudah masuk lewat dependensi lain).
 getrandom = "0.3"
 hex = "0.4"
-# Pembaruan otomatis (`ducad-update`): checksum SHA-256 paket rilis, dan
-# ekstraksi .zip rilis Windows (Linux memakai `tar` sistem, macOS `hdiutil`).
-# Keduanya sudah ada di pohon dependensi lewat crate lain.
+# Pembaruan otomatis (`ducad-update`): checksum SHA-256 paket rilis, verifikasi
+# tanda tangan Ed25519/Minisign pada manifest `.sha256`, dan ekstraksi .zip
+# rilis Windows (Linux memakai `tar` sistem, macOS `hdiutil`). Semuanya sudah
+# ada di pohon dependensi lewat crate lain.
 sha2 = "0.10"
+ring = "0.17"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
 # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).

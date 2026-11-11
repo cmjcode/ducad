@@ -218,3 +218,36 @@ fn upload_current_click_emits_event() {
         Some(AccountDrawerEvent::CloudUploadCurrent)
     );
 }
+
+#[test]
+fn delete_account_requires_confirmation_then_emits_confirm_event() {
+    let ctx = egui::Context::default();
+    assert_eq!(
+        click_text(&ctx, None, "Hapus Akun Permanen"),
+        Some(AccountDrawerEvent::RequestDeleteAccount)
+    );
+
+    let cloud = CloudView {
+        tier: LicenseTier::Free,
+        confirm_account_delete: true,
+        ..Default::default()
+    };
+    let mut f = frame_with(&ctx, None, Vec::new(), cloud);
+    for _ in 0..3 {
+        f = frame_with(&ctx, None, Vec::new(), cloud);
+    }
+    let Some((_, rect)) = f.texts.iter().find(|(t, _)| t.contains("Ya, Hapus Akun")) else {
+        panic!("tombol konfirmasi hapus akun tidak tergambar");
+    };
+    let pos = rect.center();
+    frame_with(&ctx, None, vec![egui::Event::PointerMoved(pos)], cloud);
+    let press = |pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame_with(&ctx, None, vec![press(true)], cloud);
+    let out = frame_with(&ctx, None, vec![press(false)], cloud);
+    assert_eq!(out.event, Some(AccountDrawerEvent::ConfirmDeleteAccount));
+}

@@ -31,6 +31,7 @@ use std::time::Duration;
 use sha2::{Digest, Sha256};
 
 use crate::release::{user_agent, Asset, Os, Release, Target};
+use crate::signature::{configured_pubkey, verify_manifest_signature};
 use crate::version::Version;
 use crate::UpdateError;
 
@@ -187,15 +188,16 @@ pub fn install(release: &Release, progress: &Progress) -> Result<Installed, Upda
 
     let checksum_verified = match release.checksum_for(package) {
         Some(sum) => {
-            let expected = fetch_checksum(&agent, sum)?;
+            let (manifest_bytes, expected) = fetch_checksum(&agent, sum)?;
+            verify_manifest_if_configured(&agent, release, sum, &manifest_bytes)?;
             if !expected.eq_ignore_ascii_case(&digest) {
                 return Err(UpdateError::ChecksumMismatch);
             }
             true
         }
-        // macOS boleh tanpa checksum asal tanda tangan kode bisa dicocokkan;
-        // diputuskan `verify_codesign`.
-        None if target.os == Os::MacOs => false,
+        // macOS boleh tanpa checksum asal tanda tangan kode bisa dicocokkan
+        // DAN kunci publik manifest belum diwajibkan; diputuskan `verify_codesign`.
+        None if target.os == Os::MacOs && configured_pubkey().is_none() => false,
         None => return Err(UpdateError::ChecksumMissing),
     };
 
@@ -289,20 +291,68 @@ fn download(
     Ok(hex::encode(hasher.finalize()))
 }
 
-fn fetch_checksum(agent: &ureq::Agent, asset: &Asset) -> Result<String, UpdateError> {
+fn fetch_checksum(agent: &ureq::Agent, asset: &Asset) -> Result<(Vec<u8>, String), UpdateError> {
+    if !asset.browser_download_url.starts_with("https://") {
+        return Err(UpdateError::Network("URL checksum harus https".to_string()));
+    }
     let response = agent
         .get(&asset.browser_download_url)
         .set("User-Agent", &user_agent())
         .set("Accept", "application/octet-stream")
         .call()
         .map_err(|e| UpdateError::Network(e.to_string()))?;
-    let mut text = String::new();
+    let mut raw = Vec::new();
     response
         .into_reader()
         .take(MAX_CHECKSUM_BYTES)
-        .read_to_string(&mut text)
+        .read_to_end(&mut raw)
         .map_err(|e| UpdateError::Network(e.to_string()))?;
-    parse_checksum(&text).ok_or(UpdateError::ChecksumMismatch)
+    let text = String::from_utf8(raw.clone()).map_err(|_| UpdateError::ChecksumMismatch)?;
+    let parsed = parse_checksum(&text).ok_or(UpdateError::ChecksumMismatch)?;
+    Ok((raw, parsed))
+}
+
+fn verify_manifest_if_configured(
+    agent: &ureq::Agent,
+    release: &Release,
+    checksum_asset: &Asset,
+    manifest_bytes: &[u8],
+) -> Result<(), UpdateError> {
+    let Some(pubkey) = configured_pubkey() else {
+        log::debug!(
+            "Kunci publik manifest pembaruan belum dikonfigurasi; melewati verifikasi Ed25519 untuk {}",
+            checksum_asset.name
+        );
+        return Ok(());
+    };
+
+    let sig_asset = release.signature_for(checksum_asset).ok_or_else(|| {
+        UpdateError::Signature(format!(
+            "rilis {} tidak menyertakan berkas tanda tangan ({}.minisig/.sig)",
+            release.tag, checksum_asset.name
+        ))
+    })?;
+
+    if !sig_asset.browser_download_url.starts_with("https://") {
+        return Err(UpdateError::Network(
+            "URL tanda tangan manifest harus https".to_string(),
+        ));
+    }
+
+    let response = agent
+        .get(&sig_asset.browser_download_url)
+        .set("User-Agent", &user_agent())
+        .set("Accept", "application/octet-stream")
+        .call()
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+    let mut sig_text = String::new();
+    response
+        .into_reader()
+        .take(MAX_CHECKSUM_BYTES)
+        .read_to_string(&mut sig_text)
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+
+    verify_manifest_signature(manifest_bytes, &sig_text, &pubkey)
 }
 
 /// Format `sha256sum`: `<64 hex>  <nama berkas>`.
