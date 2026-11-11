@@ -88,7 +88,7 @@ eframe = { version = "0.36", default-features = false, features = [
     "x11",
     "wgpu",
 ] }
-egui = "0.36"
+egui = "0.37"
 egui_wgpu = { package = "egui-wgpu", version = "0.36" }
 egui_icons = "0.0.1"
 anyhow = "1"
