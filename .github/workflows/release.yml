@@ -89,7 +89,7 @@ jobs:
             libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
             libxkbcommon-dev libwayland-dev \
             libgl1-mesa-dev
-      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -136,7 +136,7 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libgl1-mesa-dev
 
-      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: dtolnay/rust-toolchain@1.120.0
 
       - uses: Swatinem/rust-cache@v2
         with:
