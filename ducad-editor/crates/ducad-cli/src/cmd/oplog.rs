@@ -6,7 +6,7 @@ use crate::{CliError, CliResult, Exit};
 #[derive(clap::Args)]
 pub struct Args {
     part: PathBuf,
-    /// Tulis ke berkas (default stdout). Dipakai juga sebagai textconv git.
+    /// Write output to file instead of stdout (also usable as a git textconv helper).
     #[arg(long)]
     out: Option<PathBuf>,
 }

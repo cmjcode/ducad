@@ -11,25 +11,25 @@ pub struct Args {
     part: PathBuf,
     #[arg(long, value_parser = parse_view, default_value = "iso")]
     view: View,
-    /// Berkas keluaran `.svg` atau `.png`.
+    /// Output `.svg` or `.png` file.
     #[arg(long)]
     out: PathBuf,
-    /// Tampilkan garis tersembunyi.
+    /// Show hidden edges.
     #[arg(long)]
     hidden: bool,
-    /// Ukuran `WxH` piksel.
+    /// Image dimensions `WxH` in pixels.
     #[arg(long, value_parser = parse_size, default_value = "800x600")]
     size: (u32, u32),
-    /// Batasi ke body tertentu (boleh diulang).
+    /// Limit to specific body names (repeatable).
     #[arg(long = "body")]
     bodies: Vec<String>,
-    /// Render foto-realistis (path tracing) alih-alih garis; hanya `.png`.
+    /// Photorealistic path-traced render instead of line art (`.png` only).
     #[arg(long)]
     photo: bool,
-    /// Sampel per piksel untuk `--photo` (lebih banyak = lebih bersih, lebih lama).
+    /// Samples per pixel for `--photo`.
     #[arg(long, requires = "photo")]
     samples: Option<u32>,
-    /// Lingkungan studio untuk `--photo`: studio_soft | studio_contrast |
+    /// Studio lighting environment for `--photo`: studio_soft | studio_contrast |
     /// overcast | sunset | warehouse | night.
     #[arg(long, requires = "photo")]
     env: Option<String>,

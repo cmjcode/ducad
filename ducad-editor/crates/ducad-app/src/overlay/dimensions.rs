@@ -174,7 +174,7 @@ impl DuCADApp {
                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         // Satuan eksplisit/ekspresi diterima; input tidak valid
                         // tidak menutup popup diam-diam (Step 2).
-                        match self.unit.parse_input_mm(&self.editing_dimension_input) {
+                        match self.eval_length_mm(&self.editing_dimension_input) {
                             Ok(mm) => {
                                 *commit = Some((id, mm));
                                 self.editing_dimension_entity = None;
@@ -388,6 +388,8 @@ impl DuCADApp {
         // Seluruh rusuk body (termasuk rusuk bawah yang berhimpit dengan sketch profil awal)
         // diprioritaskan sebagai dimensi 3D interaktif yang bisa langsung diedit.
         if !self.is_sketching {
+            let edit_unit = self.unit;
+            let edit_params = self.agent_meta.design.effective_params();
             for (id, geo) in self.model.geometry.iter() {
                 let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);
                 if !visible {
@@ -446,8 +448,11 @@ impl DuCADApp {
                                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                         self.editing_edge_dim = None;
                                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                        if let Ok(new_len_mm) =
-                                            self.unit.parse_input_mm(&self.editing_edge_dim_input)
+                                        if let Ok(new_len_mm) = edit_unit
+                                            .parse_input_mm_with_params(
+                                                &self.editing_edge_dim_input,
+                                                &edit_params,
+                                            )
                                         {
                                             edge_dim_commit = Some((id, edge_idx, new_len_mm));
                                         }
@@ -920,6 +925,8 @@ impl DuCADApp {
         pill_pos: egui::Pos2,
         input: &mut String,
         select_all: &mut bool,
+        unit: ducad_core::LengthUnit,
+        params: &std::collections::BTreeMap<String, f64>,
     ) -> GizmoPopupOutcome {
         let popup_rect = egui::Rect::from_center_size(
             pill_pos + egui::vec2(0.0, 28.0),
@@ -953,8 +960,11 @@ impl DuCADApp {
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         outcome = GizmoPopupOutcome::Cancel;
                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        outcome = match input.trim().replace(',', ".").parse::<f64>() {
-                            Ok(v) if v.is_finite() => GizmoPopupOutcome::Commit(v),
+                        let normalized = input.trim().replace(',', ".");
+                        outcome = match unit.parse_input_mm_with_params(&normalized, params) {
+                            Ok(mm) if mm.is_finite() => {
+                                GizmoPopupOutcome::Commit(unit.to_display_val(mm))
+                            }
                             _ => GizmoPopupOutcome::Invalid,
                         };
                     } else if resp.lost_focus() {
@@ -1083,7 +1093,7 @@ impl DuCADApp {
             } else {
                 None
             };
-            let current_height = self.loft_height_input.trim().parse::<f64>().unwrap_or(20.0);
+            let current_height = self.eval_length_mm(&self.loft_height_input).unwrap_or(20.0);
             let is_staged = self.loft_staged_body_id.is_some();
 
             if let Some(action) = CanvasHud::render_loft_top_bar_hud(
@@ -1186,7 +1196,9 @@ impl DuCADApp {
                 self.selected_faces.len()
             };
             let has_target = faces_count > 0 || self.selected_bodies.len() == 1;
-            let current_thickness = self.shell_thickness_input.trim().parse::<f64>().unwrap_or(2.0);
+            let current_thickness = self
+                .eval_length_mm(&self.shell_thickness_input)
+                .unwrap_or(2.0);
 
             if let Some(action) = CanvasHud::render_shell_top_bar_hud(
                 ui,
@@ -1309,7 +1321,7 @@ impl DuCADApp {
             }
         } else if self.tool == ToolKind::SplitBody {
             let has_target_body = !self.selected_bodies.is_empty() || self.active_face.is_some();
-            let current_offset = self.split_offset_input.trim().parse::<f64>().unwrap_or(0.0);
+            let current_offset = self.eval_length_mm(&self.split_offset_input).unwrap_or(0.0);
 
             if let Some(action) = CanvasHud::render_split_top_bar_hud(
                 ui,
@@ -1447,7 +1459,7 @@ impl DuCADApp {
             // Sumbu / titik datum (Paritas 1.2/1.3).
             self.show_datum_ref_hud(ui, rect);
         } else if self.tool == ToolKind::DatumPlane {
-            let offset_val = self.datum_offset_input.trim().parse::<f64>().unwrap_or(20.0);
+            let offset_val = self.eval_length_mm(&self.datum_offset_input).unwrap_or(20.0);
             let angle_val = self.datum_angle_input.trim().parse::<f64>().unwrap_or(45.0);
             let plane_names: Vec<(usize, String)> = self.all_planes().into_iter().map(|(i, _, n)| (i, n)).collect();
             let points_count = self.datum_selected_points.len();
@@ -1634,9 +1646,9 @@ impl DuCADApp {
                         }
                         if handle_resp.dragged() {
                             let delta = -handle_resp.drag_delta().y as f64 * 0.3;
-                            let mut cur = self.datum_offset_input.trim().parse::<f64>().unwrap_or(20.0);
+                            let mut cur = self.eval_length_mm(&self.datum_offset_input).unwrap_or(20.0);
                             cur = (cur + delta).clamp(-500.0, 500.0);
-                            self.datum_offset_input = format!("{:.1}", cur);
+                            self.datum_offset_input = format!("{:.1}", self.unit.to_display_val(cur));
                         }
                     } else if self.datum_mode == ducad_ui::DatumPlaneMode::Angled {
                         let handle_id = egui::Id::new("datum_angle_viewport_drag");
@@ -1813,8 +1825,8 @@ impl DuCADApp {
                                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                 self.pattern_dimension_editing_x = false;
                                             } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                                if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
-                                                    self.pattern_pitch_x = self.unit.to_internal_mm(val).max(1.0);
+                                                if let Ok(mm) = self.eval_length_mm(&self.pattern_dimension_edit_input) {
+                                                    self.pattern_pitch_x = mm.max(1.0);
                                                 }
                                                 self.pattern_dimension_editing_x = false;
                                             } else if resp.lost_focus() {
@@ -1875,8 +1887,8 @@ impl DuCADApp {
                                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                 self.pattern_dimension_editing_y = false;
                                             } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                                if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
-                                                    self.pattern_pitch_y = self.unit.to_internal_mm(val).max(1.0);
+                                                if let Ok(mm) = self.eval_length_mm(&self.pattern_dimension_edit_input) {
+                                                    self.pattern_pitch_y = mm.max(1.0);
                                                 }
                                                 self.pattern_dimension_editing_y = false;
                                             } else if resp.lost_focus() {
@@ -1938,8 +1950,8 @@ impl DuCADApp {
                                                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                     self.pattern_dimension_editing_z = false;
                                                 } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                                    if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
-                                                        self.pattern_pitch_z = self.unit.to_internal_mm(val).max(1.0);
+                                                    if let Ok(mm) = self.eval_length_mm(&self.pattern_dimension_edit_input) {
+                                                        self.pattern_pitch_z = mm.max(1.0);
                                                     }
                                                     self.pattern_dimension_editing_z = false;
                                                 } else if resp.lost_focus() {
@@ -2112,8 +2124,8 @@ impl DuCADApp {
                                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                 self.pattern_dimension_editing_radius = false;
                                             } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                                if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
-                                                    self.pattern_circ_radius = self.unit.to_internal_mm(val).max(0.5);
+                                                if let Ok(mm) = self.eval_length_mm(&self.pattern_dimension_edit_input) {
+                                                    self.pattern_circ_radius = mm.max(0.5);
                                                 }
                                                 self.pattern_dimension_editing_radius = false;
                                             } else if resp.lost_focus() {
@@ -2581,12 +2593,15 @@ impl DuCADApp {
                 }
 
                 if self.gizmo_dimension_editing {
+                    let params = self.agent_meta.design.effective_params();
                     match Self::show_gizmo_value_popup(
                         ui,
                         "ducad-gizmo-edit-popup",
                         pill_pos,
                         &mut self.gizmo_edit_input,
                         &mut self.gizmo_edit_select_all,
+                        self.unit,
+                        &params,
                     ) {
                         GizmoPopupOutcome::Commit(val) => {
                             let dist = self.unit.to_internal_mm(val);
@@ -2751,12 +2766,15 @@ impl DuCADApp {
                 }
 
                 if self.face_gizmo_dimension_editing {
+                    let params = self.agent_meta.design.effective_params();
                     match Self::show_gizmo_value_popup(
                         ui,
                         "ducad-face-gizmo-edit-popup",
                         pill_pos,
                         &mut self.face_gizmo_edit_input,
                         &mut self.gizmo_edit_select_all,
+                        self.unit,
+                        &params,
                     ) {
                         GizmoPopupOutcome::Commit(val) => {
                             // Angka = ukuran hasil (tinggi/radius akhir) bila dasar
@@ -2906,12 +2924,15 @@ impl DuCADApp {
                         Self::format_gizmo_input(self.unit, self.vertex_gizmo_radius.abs());
                 }
                 if self.vertex_gizmo_dimension_editing {
+                    let params = self.agent_meta.design.effective_params();
                     match Self::show_gizmo_value_popup(
                         ui,
                         "ducad-vertex-gizmo-edit-popup",
                         pill_pos,
                         &mut self.vertex_gizmo_edit_input,
                         &mut self.gizmo_edit_select_all,
+                        self.unit,
+                        &params,
                     ) {
                         GizmoPopupOutcome::Commit(val) => {
                             let mag = self.unit.to_internal_mm(val).abs();
@@ -3184,12 +3205,15 @@ impl DuCADApp {
                         Self::format_gizmo_input(self.unit, self.edge_gizmo_radius.abs());
                 }
                 if self.edge_gizmo_dimension_editing {
+                    let params = self.agent_meta.design.effective_params();
                     match Self::show_gizmo_value_popup(
                         ui,
                         "ducad-edge-gizmo-edit-popup",
                         pill_pos,
                         &mut self.edge_gizmo_edit_input,
                         &mut self.gizmo_edit_select_all,
+                        self.unit,
+                        &params,
                     ) {
                         GizmoPopupOutcome::Commit(val) => {
                             let mag = self.unit.to_internal_mm(val).abs();
@@ -3487,7 +3511,7 @@ impl DuCADApp {
                                         self.editing_body_dim_axis = None;
                                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                         if let Ok(new_len_mm) =
-                                            self.unit.parse_input_mm(&self.editing_body_dim_input)
+                                            self.eval_length_mm(&self.editing_body_dim_input)
                                         {
                                             self.scale_selected_body_by_axis(axis, new_len_mm);
                                         }
@@ -3993,12 +4017,15 @@ impl DuCADApp {
                     }
 
                     if is_this_corner_active && self.sketch_corner_dimension_editing {
+                        let params = self.agent_meta.design.effective_params();
                         match Self::show_gizmo_value_popup(
                             ui,
                             "ducad-sketch-corner-gizmo-edit-popup",
                             pill_pos,
                             &mut self.sketch_corner_edit_input,
                             &mut self.gizmo_edit_select_all,
+                            self.unit,
+                            &params,
                         ) {
                             GizmoPopupOutcome::Commit(val) => {
                                 let target_r = self.unit.to_internal_mm(val).abs();
@@ -4035,6 +4062,8 @@ impl DuCADApp {
         // HOLE WIZARD — RULER DIMENSION PILLS & DRAGGABLE TARGET HANDLE (FASE 9.2)
         // =========================================================================
         if self.tool == ToolKind::HoleWizard {
+            let hole_edit_unit = self.unit;
+            let hole_edit_params = self.agent_meta.design.effective_params();
             if let Some((_, _, hit)) = &self.active_face {
                 let (hole_pos, u_axis, v_axis, normal) =
                     self.compute_active_hole_position_and_basis(hit);
@@ -4094,16 +4123,13 @@ impl DuCADApp {
                                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                             self.editing_hole_ruler_idx = None;
                                         } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                            if let Ok(val) = self
-                                                .editing_hole_ruler_input
-                                                .trim()
-                                                .parse::<f64>()
+                                            if let Ok(mm) = hole_edit_unit
+                                                .parse_input_mm_with_params(
+                                                    &self.editing_hole_ruler_input,
+                                                    &hole_edit_params,
+                                                )
                                             {
-                                                let target_dist_mm = self
-                                                    .unit
-                                                    .to_internal_mm(val)
-                                                    .max(0.0)
-                                                    as f32;
+                                                let target_dist_mm = mm.max(0.0) as f32;
                                                 let dir =
                                                     (hole_pos - *q).normalize_or_zero();
                                                 let new_hole_pos = *q + dir * target_dist_mm;

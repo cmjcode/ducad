@@ -86,3 +86,47 @@ Dokumen ini mencatat pelaksanaan bertahap dari temuan audit produk dan rekayasa 
 - `DUCAD-STUDIO`: `scripts/release-gate.sh` -> **LULUS**.
 
 
+---
+
+## Tahap 3 — Perbaikan UI/UX, Registri Perintah, Input Satuan, Token Desain & i18n
+
+**Status:** Selesai & Terverifikasi
+
+### 1. Pusat Notifikasi Bertingkat Tunggal (`NotificationCenter`)
+- Menambahkan modul `crates/ducad-app/src/notifications.rs` dan widget `crates/ducad-ui/src/notification_toast.rs` yang menyatukan tiga saluran status yang sebelumnya terpisah (`model_status`, `file_status`, dan `constraint_status`) ke dalam antrean bertingkat (`Info`, `Success`, `Warning`, `Error`) dengan riwayat maks. 20 entri, lencana hitungan di bilah atas (`TopBar`), kartu roti panggang di pojok kanan bawah (maks. 3 tampak bersamaan, auto-dismiss untuk info/sukses, persisten dengan tombol tutup dan detail yang dapat dibentangkan untuk peringatan/galat).
+
+### 2. Registri Perintah Tunggal (`CommandRegistry`) & Perlindungan Fokus Teks
+- Menambahkan `crates/ducad-app/src/command_registry.rs` sebagai sumber kebenaran tunggal untuk seluruh ID perintah, cakupan mode (`Global`, `Solid`, `Sketch`, `SolidOrSketch`), dan pintasan bawaan beserta serialisasi pengikatan kustom di `prefs.json` (`shortcuts: BTreeMap<String, String>`).
+- **Penyelarasan Pintasan & Pembebasan Tabrakan**:
+  - `⌘D` diseragamkan ke **Lembar Gambar 2D** (`file.drawing_sheet`) sesuai lencana menu File; **Duplikat** memakai `Shift+D` di cakupan 3D.
+  - Memisahkan tabrakan huruf tunggal dengan modifier eksplisit atau pemisahan cakupan (`T` = Potong/Trim di Sketsa vs `Shift+T` = Alat Teks; `P` = Titik di Sketsa vs `Shift+P` = Bidang Datum; `O` = Offset di Sketsa vs `Shift+O` = Bola di Solid; `S` = Kotak/Kubus di Solid & Segi Empat di Sketsa vs `Shift+K` = Cangkang/Shell).
+  - Mencegah seluruh pintasan tanpa `⌘`/`Ctrl` bocor saat pengguna sedang mengetik di kotak pencarian, kolom angka, atau obrolan AI (`matches_input(..., text_focus)`).
+  - Menambahkan antarmuka kustomisasi pintasan dengan tombol **Reset Default** di bagian Pengaturan `AccountDrawer` (`crates/ducad-ui/src/account_drawer.rs` & `crates/ducad-app/src/cloud_ui.rs`).
+- **Command Palette Lengkap**: Memperluas `crates/ducad-ui/src/command_palette.rs` agar mencakup 100% alat pemodelan 3D (termasuk Silinder, Bola, Kerucut, Torus, Teks, Bidang Datum, Tarik Sisi, Cermin, Pisah Bodi, Susun Rata), seluruh alat & kendala Sketsa, serta seluruh format ekspor (`STEP`, `STL`, `OBJ`, `3MF`, `glTF/GLB`, `DXF`, `SVG`, `PDF`, `PNG`, `Paket Rilis`).
+
+### 3. Input Angka Sadar-Satuan, Ekspresi & `$param` di Seluruh Operasi
+- Memperluas `crates/ducad-core/src/units_input.rs` (`parse_input_mm_with_params`) dan `crates/ducad-ui/src/unit_input.rs` agar mengevaluasi rujukan parameter `$nama_param`, ekspresi aritmetika (`25.4/2`, `1/4 in`), akhiran satuan (`mm`, `cm`, `m`, `in`, `ft`), dan koma desimal (`12,5`) dengan konversi langsung ke milimeter kanonik beserta pratinjau nilai mm secara langsung.
+- Menyambungkan evaluasi sadar-satuan & `$param` (`eval_length_mm`) ke seluruh operasi dimensi di `crates/ducad-app/src/modeling/operations.rs`, `crates/ducad-app/src/overlay/dimensions.rs`, dan `crates/ducad-app/src/oplog_gui.rs` — termasuk memperbaiki bug skala diam-diam pada **Fillet** dan **Chamfer** ketika satuan tampilan disetel ke inci/cm/m.
+
+### 4. Sistem Token Desain, Tema Terang, Aksesibilitas & Target Sentuh
+- **Token Tema & Kontras WCAG AA (`crates/ducad-ui/src/theme.rs` & `crates/ducad-glass/src/widget.rs`)**:
+  - Memperkenalkan palet semantik `ThemeTokens` (Gelap & Terang) dengan rasio kontras teks sekunder ≥ 4.5:1 di atas panel kaca, ukuran font minimum `12.0 pt`, skala UI (`ui_scale`: `0.85x`–`1.50x`), dan penghormatan `reduce_motion`.
+  - Memperbaiki `GlassFrame::preset` agar beradaptasi ke latar terang alih-alih selalu memakai kaca gelap pekat, serta merombak `TopBar`, `LeftToolbar`, `ContextBar`, `AccountDrawer`, `CommandPalette`, `ItemsDrawer`, `FeatureTreeDrawer`, `CmfDrawer`, `LightingDrawer`, `BriefStudio`, `Swatches`, dan `ToolPopups` agar memakai `ThemeTokens`.
+- **Keterjangkauan & Target Sentuh**:
+  - Menambahkan opsi tampilan label teks di bawah ikon toolbar kiri (`show_toolbar_labels` di Pengaturan).
+  - Menegakkan tinggi target sentuh minimum `44 pt` (`TOUCH_TARGET_IPAD`) di mode Sentuh/Otomatis pada tombol toolbar kiri dan kontrol utama.
+  - Menyuntikkan metadata AccessKit (`Response::widget_info`) pada tombol-tombol berbasis ikon agar terbaca oleh pembaca layar.
+
+### 5. Internasionalisasi (i18n) Menyeluruh & Inggris Bawaan `ducad-cli`
+- Menambahkan ~230 pasangan kunci terjemahan baru yang setara 1:1 di `crates/ducad-i18n/locales/en-US/main.ftl` dan `crates/ducad-i18n/locales/id-ID/main.ftl` (termasuk 7 kunci yang sebelumnya hilang di kode lama).
+- Mengganti literal Bahasa Indonesia yang sebelumnya tertulis langsung di permukaan UI dengan makro `ducad_i18n::t!`, serta menambahkan tes penjaga otomatis `crates/ducad-ui/tests/i18n_literal_guard.rs` ke `scripts/release-gate.sh` untuk memblokir PR apabila ada kunci `t!` yang hilang di salah satu bahasa atau ada literal widget Bahasa Indonesia yang bocor kembali.
+- Mengubah bahasa keluaran dan bantuan bawaan `ducad-cli` menjadi Bahasa Inggris dengan dukungan flag global `--lang <en|id>` dan variabel lingkungan `DUCAD_LANG` untuk mempertahankan keluaran Bahasa Indonesia saat diminta.
+
+### Verifikasi Tahap 3
+- `cargo clippy --workspace --all-targets -- -D warnings`: **LULUS** tanpa peringatan.
+- `cargo test -p ducad-core -p ducad-glass -p ducad-i18n`: **LULUS** (`units_input`, 22/22 `ducad-glass`, 4/4 `ducad-i18n`).
+- `cargo test -p ducad-ui`: **LULUS** (72/72 unit test + seluruh 11 target tes integrasi termasuk `ui_glyph_coverage` 4/4 dan `i18n_literal_guard` 2/2).
+- `cargo test -p ducad-app --lib`: **LULUS** (446/446 tes, termasuk `command_registry`, `notifications`, dan konversi satuan/`$param` Fillet & Chamfer).
+- `cargo test -p ducad-cli`: **LULUS** (9/9 unit + 1/1 `chat` + 18/18 `cli` integrasi termasuk `--lang id` & `DUCAD_LANG=id`).
+- `scripts/release-gate.sh`: **LULUS** (102/102 tes lulus di seluruh 6 grup metrik rilis, 0 gagal).
+

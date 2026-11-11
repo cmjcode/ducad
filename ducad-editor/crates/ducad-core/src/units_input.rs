@@ -12,6 +12,8 @@
 //! Angka tanpa satuan adalah skalar; skalar yang berdiri sebagai panjang
 //! (hasil akhir, atau dijumlah dengan panjang) dibaca dalam satuan aktif.
 
+use std::collections::BTreeMap;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Q {
     /// Angka tanpa satuan.
@@ -25,6 +27,8 @@ struct P<'a> {
     i: usize,
     /// Faktor satuan aktif → mm.
     active: f64,
+    /// Parameter desain dalam mm (`$nama`).
+    params: Option<&'a BTreeMap<String, f64>>,
 }
 
 impl P<'_> {
@@ -120,6 +124,26 @@ impl P<'_> {
             self.i += 1;
             return Ok(v);
         }
+        if self.peek() == Some(b'$') {
+            self.i += 1;
+            let nstart = self.i;
+            while self.i < self.s.len()
+                && (self.s[self.i].is_ascii_alphanumeric() || self.s[self.i] == b'_')
+            {
+                self.i += 1;
+            }
+            if nstart == self.i {
+                return Err("nama parameter setelah '$' kosong".into());
+            }
+            let name = String::from_utf8_lossy(&self.s[nstart..self.i]).into_owned();
+            let Some(val) = self.params.and_then(|m| m.get(&name)).copied() else {
+                return Err(format!("parameter '${name}' tidak ditemukan"));
+            };
+            if !val.is_finite() {
+                return Err(format!("parameter '${name}' bukan angka yang terhingga"));
+            }
+            return Ok(Q::Len(val));
+        }
         self.ws();
         let start = self.i;
         while self.i < self.s.len()
@@ -164,11 +188,16 @@ impl P<'_> {
 }
 
 /// Parse `text` → mm; angka tanpa satuan memakai faktor `active_to_mm`.
-pub(crate) fn parse(text: &str, active_to_mm: f64) -> Result<f64, String> {
+pub(crate) fn parse_with_params(
+    text: &str,
+    active_to_mm: f64,
+    params: Option<&BTreeMap<String, f64>>,
+) -> Result<f64, String> {
     let mut p = P {
         s: text.trim().as_bytes(),
         i: 0,
         active: active_to_mm,
+        params,
     };
     if p.s.is_empty() {
         return Err("nilai kosong".into());
@@ -242,5 +271,30 @@ mod tests {
             let r = LengthUnit::Millimeters.parse_input_mm(bad);
             assert!(r.is_err(), "'{bad}' seharusnya ditolak: {r:?}");
         }
+    }
+
+    #[test]
+    fn design_parameters_work_with_units_and_arithmetic() {
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("len".to_string(), 80.0);
+        params.insert("wall_thk".to_string(), 4.5);
+
+        assert_eq!(
+            LengthUnit::Inches.parse_input_mm_with_params("$len", &params),
+            Ok(80.0)
+        );
+        assert_eq!(
+            LengthUnit::Inches.parse_input_mm_with_params("$len / 2 + 1", &params),
+            Ok(40.0 + 25.4)
+        );
+        assert_eq!(
+            LengthUnit::Millimeters.parse_input_mm_with_params("2 * $wall_thk + 0,5 cm", &params),
+            Ok(14.0)
+        );
+        assert!(
+            LengthUnit::Millimeters
+                .parse_input_mm_with_params("$tidak_ada", &params)
+                .is_err()
+        );
     }
 }

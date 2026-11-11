@@ -45,9 +45,9 @@ pub struct Args {
 
 #[derive(clap::Subcommand)]
 enum Action {
-    /// Replay korpus dan tulis satu berkas golden per contoh.
+    /// Replay corpus examples and write one golden JSON file per example.
     Capture(CaptureArgs),
-    /// Replay korpus dan bandingkan dengan berkas golden (kode 1 bila beda).
+    /// Replay corpus examples and compare against golden baselines (exits 1 on mismatch).
     Check(CheckArgs),
 }
 

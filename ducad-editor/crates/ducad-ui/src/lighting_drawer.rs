@@ -219,6 +219,13 @@ impl LightingDrawer {
                     Vec2::new(ui.available_width(), 8.0),
                     egui::Sense::click_and_drag(),
                 );
+                handle_resp.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Slider,
+                        true,
+                        ducad_i18n::t!("a11y-resize-panel"),
+                    )
+                });
                 if handle_resp.hovered() || handle_resp.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                 }

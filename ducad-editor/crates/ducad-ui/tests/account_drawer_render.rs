@@ -4,6 +4,7 @@
 
 use ducad_cloud::{AuthStatus, CloudFile, DucadAccount, FileList};
 use ducad_core::LicenseTier;
+use ducad_i18n::t;
 use ducad_ui::{AccountAvatar, AccountDrawer, AccountDrawerEvent, CloudView};
 use egui::epaint::Shape;
 
@@ -161,15 +162,16 @@ fn click_text(ctx: &egui::Context, photo: Option<&egui::TextureHandle>, label: &
 #[test]
 fn upload_offered_only_without_photo() {
     let ctx = egui::Context::default();
+    let upload_label = t!("account-upload-photo");
     assert_eq!(
-        click_text(&ctx, None, "Unggah foto profil"),
+        click_text(&ctx, None, &upload_label),
         Some(AccountDrawerEvent::UploadPhoto)
     );
 
     let tex = photo(&ctx);
     let f = settle(&ctx, Some(&tex));
     assert!(
-        !f.texts.iter().any(|(t, _)| t.contains("Unggah foto profil")),
+        !f.texts.iter().any(|(txt, _)| txt.contains(&upload_label)),
         "akun yang sudah punya foto tidak perlu tombol unggah"
     );
 }
@@ -177,7 +179,8 @@ fn upload_offered_only_without_photo() {
 #[test]
 fn logout_click_emits_event() {
     let ctx = egui::Context::default();
-    assert_eq!(click_text(&ctx, None, "Keluar dari Akun"), Some(AccountDrawerEvent::Logout));
+    let logout_label = t!("account-logout");
+    assert_eq!(click_text(&ctx, None, &logout_label), Some(AccountDrawerEvent::Logout));
 }
 
 /// Daftar fitur lama ("Riwayat Versi & Rollback", dst.) menjanjikan fitur
@@ -186,10 +189,10 @@ fn logout_click_emits_event() {
 fn shows_real_tier_and_cloud_files_instead_of_placeholder_features() {
     let ctx = egui::Context::default();
     let f = settle(&ctx, None);
-    let has = |s: &str| f.texts.iter().any(|(t, _)| t.contains(s));
+    let has = |s: &str| f.texts.iter().any(|(txt, _)| txt.contains(s));
     assert!(has("DUCAD Pro"));
     assert!(has("braket.ducad"));
-    assert!(has("Cloud Sync"));
+    assert!(has(&t!("account-cloud-title")));
     assert!(!has("Riwayat Versi"), "fitur palsu tidak boleh tampil lagi");
     assert!(!has("Cloud Active"));
 }
@@ -202,10 +205,12 @@ fn free_tier_marks_pro_features_as_locked() {
     for _ in 0..3 {
         f = frame_with(&ctx, None, Vec::new(), cloud);
     }
-    assert!(f.texts.iter().any(|(t, _)| t.contains("DUCAD Free")));
-    assert!(f.texts.iter().any(|(t, _)| t.contains("tersedia di DUCAD Pro")));
+    let pro_note = t!("account-pro-locked-note");
+    let save_first = t!("account-cloud-save-first");
+    assert!(f.texts.iter().any(|(txt, _)| txt.contains("DUCAD Free")));
+    assert!(f.texts.iter().any(|(txt, _)| txt.contains(&pro_note)));
     assert!(
-        f.texts.iter().any(|(t, _)| t.contains("Simpan dokumen dulu")),
+        f.texts.iter().any(|(txt, _)| txt.contains(&save_first)),
         "tanpa dokumen tersimpan, tombol unggah menjelaskan sebabnya"
     );
 }
@@ -213,8 +218,9 @@ fn free_tier_marks_pro_features_as_locked() {
 #[test]
 fn upload_current_click_emits_event() {
     let ctx = egui::Context::default();
+    let upload_doc = t!("account-cloud-upload-doc", name = "braket.ducad");
     assert_eq!(
-        click_text(&ctx, None, "Unggah braket.ducad"),
+        click_text(&ctx, None, &upload_doc),
         Some(AccountDrawerEvent::CloudUploadCurrent)
     );
 }
@@ -222,8 +228,10 @@ fn upload_current_click_emits_event() {
 #[test]
 fn delete_account_requires_confirmation_then_emits_confirm_event() {
     let ctx = egui::Context::default();
+    let delete_label = t!("account-delete-permanent");
+    let confirm_yes = t!("account-delete-confirm-yes");
     assert_eq!(
-        click_text(&ctx, None, "Hapus Akun Permanen"),
+        click_text(&ctx, None, &delete_label),
         Some(AccountDrawerEvent::RequestDeleteAccount)
     );
 
@@ -236,7 +244,7 @@ fn delete_account_requires_confirmation_then_emits_confirm_event() {
     for _ in 0..3 {
         f = frame_with(&ctx, None, Vec::new(), cloud);
     }
-    let Some((_, rect)) = f.texts.iter().find(|(t, _)| t.contains("Ya, Hapus Akun")) else {
+    let Some((_, rect)) = f.texts.iter().find(|(txt, _)| txt.contains(&confirm_yes)) else {
         panic!("tombol konfirmasi hapus akun tidak tergambar");
     };
     let pos = rect.center();

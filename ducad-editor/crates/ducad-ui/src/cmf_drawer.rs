@@ -64,6 +64,13 @@ impl CmfDrawer {
                     Vec2::new(ui.available_width(), 8.0),
                     egui::Sense::click_and_drag(),
                 );
+                handle_resp.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Slider,
+                        true,
+                        ducad_i18n::t!("a11y-resize-panel"),
+                    )
+                });
                 if handle_resp.hovered() || handle_resp.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                 }
@@ -346,6 +353,14 @@ impl CmfDrawer {
                                 );
                                 let (rect, resp) =
                                     ui.allocate_exact_size(Vec2::new(20.0, 20.0), egui::Sense::click());
+                                let swatch_label = label.to_string();
+                                resp.widget_info(move || {
+                                    egui::WidgetInfo::labeled(
+                                        egui::WidgetType::Button,
+                                        true,
+                                        swatch_label.clone(),
+                                    )
+                                });
                                 let is_active = (mat.base_color[0] - col[0]).abs() < 0.05
                                     && (mat.base_color[1] - col[1]).abs() < 0.05
                                     && (mat.base_color[2] - col[2]).abs() < 0.05;

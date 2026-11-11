@@ -14,13 +14,13 @@ use crate::{CliError, CliResult, Exit};
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Berkas `.ducad` yang dimigrasi.
+    /// `.ducad` files to migrate.
     #[arg(required = true)]
     files: Vec<PathBuf>,
-    /// Tulis hasil ke berkas ini (hanya untuk satu masukan).
+    /// Write migrated output to this path (single input file only).
     #[arg(long, conflicts_with = "in_place")]
     out: Option<PathBuf>,
-    /// Timpa berkas asal; salinan lama disimpan sebagai `<nama>.ducad.bak`.
+    /// Overwrite original files in place (saves `<name>.ducad.bak` backup).
     #[arg(long)]
     in_place: bool,
 }

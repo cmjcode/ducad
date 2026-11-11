@@ -1,66 +1,105 @@
+use ducad_i18n::t;
 use ducad_render::PlaneKind;
 use ducad_sketch::DeleteEntities;
 use eframe::egui;
 
 use crate::app::DuCADApp;
-use crate::types::{FileOp, PaletteAction, PaletteGroup, ToolKind};
+use crate::types::{FileOp, PaletteAction, PaletteGroup, ParityCmd, ToolKind};
 
 impl DuCADApp {
+    /// Aktifkan alat dari UI (Command Palette, Toolbar, atau pintasan keyboard):
+    /// beralih ke mode 3D bila alat membutuhkan kanvas Solid 3D, mengatur mode
+    /// pilih-face bila relevan, dan menampilkan petunjuk seleksi bila belum ada
+    /// objek yang dipilih.
+    pub fn activate_tool_from_ui(&mut self, kind: ToolKind) {
+        if self.is_sketching
+            && matches!(
+                kind,
+                ToolKind::Boolean
+                    | ToolKind::HoleWizard
+                    | ToolKind::Shell
+                    | ToolKind::DraftAngle
+                    | ToolKind::SplitBody
+                    | ToolKind::Loft
+                    | ToolKind::DraftAnalysis
+            )
+        {
+            self.exit_sketching();
+        }
+        self.set_tool(kind);
+        match kind {
+            ToolKind::HoleWizard if self.active_face.is_none() => {
+                self.model_status = Some(t!("tool-needs-face-hole"));
+            }
+            ToolKind::Boolean if self.selected_bodies.len() < 2 => {
+                self.model_status = Some(t!("tool-needs-body-boolean"));
+            }
+            ToolKind::Shell if self.active_face.is_none() && self.selected_bodies.is_empty() => {
+                self.model_status = Some(t!("tool-needs-body-shell"));
+            }
+            ToolKind::Pattern if self.selected.is_empty() && self.selected_bodies.is_empty() => {
+                self.model_status = Some(t!("tool-needs-selection-pattern"));
+            }
+            _ => {}
+        }
+    }
+
     pub fn palette_actions(&self) -> Vec<(String, String, PaletteAction)> {
+        let scale_pct = (self.ui_scale * 100.0).round() as i32;
         let mut actions = vec![
             (
-                ducad_i18n::t!("chat-open"),
-                "⌘+Shift+A".to_string(),
+                t!("chat-open"),
+                self.commands.hint_for("ai.chat"),
                 PaletteAction::OpenChat,
             ),
             (
-                ducad_i18n::t!("assist-title"),
+                t!("assist-title"),
                 String::new(),
                 PaletteAction::OpenAssist,
             ),
             (
-                ducad_i18n::t!("bridge-toggle"),
+                t!("bridge-toggle"),
                 String::new(),
                 PaletteAction::ToggleAgentBridge,
             ),
             (
-                ducad_i18n::t!("mass-open"),
+                t!("mass-open"),
                 String::new(),
                 PaletteAction::ToggleMassPanel,
             ),
             (
-                ducad_i18n::t!("sim-open"),
+                t!("sim-open"),
                 String::new(),
                 PaletteAction::ToggleSimPanel,
             ),
             (
-                ducad_i18n::t!("ind-open"),
+                t!("ind-open"),
                 String::new(),
                 PaletteAction::ToggleIndustryPanel,
             ),
             (
-                ducad_i18n::t!("palette-review"),
+                t!("palette-review"),
                 String::new(),
                 PaletteAction::ToggleReviewPanel,
             ),
             (
-                ducad_i18n::t!("palette-brief"),
+                t!("palette-brief"),
                 String::new(),
                 PaletteAction::OpenBriefStudio,
             ),
             (
                 crate::mode::AppMode::Vector.label().to_string(),
-                "⌘+Alt+4".to_string(),
+                self.commands.hint_for("mode.vector"),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Vector),
             ),
             (
                 crate::mode::AppMode::Ink.label().to_string(),
-                "⌘+Alt+5".to_string(),
+                self.commands.hint_for("mode.ink"),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Ink),
             ),
             (
                 crate::mode::AppMode::Sketch.label().to_string(),
-                "⌘+Alt+2".to_string(),
+                self.commands.hint_for("mode.sketch"),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Sketch),
             ),
             (
@@ -69,371 +108,484 @@ impl DuCADApp {
                 PaletteAction::SetAppMode(crate::mode::AppMode::Solid),
             ),
             (
-                "Dokumen Baru".to_string(),
+                t!("palette-new-doc"),
                 String::new(),
                 PaletteAction::File(FileOp::New),
             ),
             (
-                "Buka…".to_string(),
-                "⌘O".to_string(),
+                t!("palette-open"),
+                self.commands.hint_for("file.open"),
                 PaletteAction::File(FileOp::Open),
             ),
             (
-                "Simpan".to_string(),
-                "⌘S".to_string(),
+                t!("palette-save"),
+                self.commands.hint_for("file.save"),
                 PaletteAction::File(FileOp::Save),
             ),
             (
-                "Simpan Sebagai…".to_string(),
-                "⌘+Shift+S".to_string(),
+                t!("palette-save-as"),
+                self.commands.hint_for("file.save_as"),
                 PaletteAction::File(FileOp::SaveAs),
             ),
             (
-                "Import STEP…".to_string(),
+                t!("palette-import-step"),
                 String::new(),
                 PaletteAction::File(FileOp::ImportStep),
             ),
             (
-                "Import STL…".to_string(),
+                t!("palette-import-stl"),
                 String::new(),
                 PaletteAction::File(FileOp::ImportStl),
             ),
             (
-                "Import DXF…".to_string(),
+                t!("palette-import-dxf"),
                 String::new(),
                 PaletteAction::File(FileOp::ImportDxf),
             ),
             (
-                "Export STEP… (semua body)".to_string(),
+                t!("palette-export-step"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportStep),
             ),
             (
-                "Export STL… (body visible)".to_string(),
+                t!("palette-export-stl"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportStl),
             ),
             (
-                "Export OBJ… (body visible)".to_string(),
+                t!("palette-export-obj"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportObj),
             ),
             (
-                "Export GLTF / GLB 3D Web & AR… (body visible)".to_string(),
+                t!("palette-export-glb"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportGlb),
             ),
             (
-                "Export DXF… (sketch)".to_string(),
+                t!("palette-export-dxf"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportDxf),
             ),
             (
-                "Export SVG Vektor 2D… (sketch laser/grafis)".to_string(),
+                t!("palette-export-svg"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportSvg),
             ),
             (
-                "Gambar Kerja 2D (Drawing Sheet)…".to_string(),
-                "⌘D".to_string(),
+                t!("palette-drawing-sheet"),
+                self.commands.hint_for("file.drawing_sheet"),
                 PaletteAction::OpenDrawingSheet,
             ),
             (
-                "Ekspor PDF Gambar Teknik (Vektor)…".to_string(),
+                t!("palette-export-pdf"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportPdf),
             ),
             (
-                "Ekspor DXF Gambar Kerja 2D…".to_string(),
+                t!("palette-export-drawing-dxf"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportDrawingDxf),
             ),
             (
-                "Ekspor SVG Gambar Kerja 2D (Vektor)…".to_string(),
+                t!("palette-export-drawing-svg"),
                 String::new(),
                 PaletteAction::File(FileOp::ExportDrawingSvg),
             ),
+            // ── Alat Sketsa & Vektor (100% cakupan ToolKind) ───────────────
             (
-                "Pilih".to_string(),
-                String::new(),
+                t!("tool-select"),
+                "Esc".to_string(),
                 PaletteAction::SetTool(ToolKind::Select),
             ),
             (
-                "Garis".to_string(),
-                "L".to_string(),
+                t!("tool-line"),
+                self.commands.hint_for("tool.line"),
                 PaletteAction::SetTool(ToolKind::Line),
             ),
             (
-                "Persegi".to_string(),
-                "R".to_string(),
+                t!("tool-rectangle"),
+                self.commands.hint_for("tool.rectangle"),
                 PaletteAction::SetTool(ToolKind::Rectangle),
             ),
             (
-                "Lingkaran".to_string(),
-                "C".to_string(),
+                t!("tool-circle"),
+                self.commands.hint_for("tool.circle"),
                 PaletteAction::SetTool(ToolKind::Circle),
             ),
             (
-                "Ellips".to_string(),
-                "E".to_string(),
+                t!("tool-ellipse"),
+                self.commands.hint_for("tool.ellipse"),
                 PaletteAction::SetTool(ToolKind::Ellipse),
             ),
             (
-                ducad_i18n::t!("tool-polygon"),
-                "Y".to_string(),
+                t!("tool-polygon"),
+                self.commands.hint_for("tool.polygon"),
                 PaletteAction::SetTool(ToolKind::Polygon),
             ),
             (
-                ducad_i18n::t!("tool-slot"),
+                t!("tool-slot"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::Slot),
             ),
             (
-                ducad_i18n::t!("tool-text"),
-                "T".to_string(),
+                t!("tool-spline"),
+                self.commands.hint_for("tool.spline"),
+                PaletteAction::SetTool(ToolKind::Spline),
+            ),
+            (
+                t!("tool-freehand"),
+                self.commands.hint_for("tool.freehand"),
+                PaletteAction::SetTool(ToolKind::Freehand),
+            ),
+            (
+                t!("tool-text"),
+                self.commands.hint_for("tool.text"),
                 PaletteAction::SetTool(ToolKind::Text),
             ),
             (
-                "Arc".to_string(),
-                "A".to_string(),
+                t!("tool-arc"),
+                self.commands.hint_for("tool.arc"),
                 PaletteAction::SetTool(ToolKind::Arc),
             ),
             (
-                "Offset".to_string(),
-                "O".to_string(),
+                t!("tool-offset"),
+                self.commands.hint_for("tool.offset"),
                 PaletteAction::SetTool(ToolKind::Offset),
             ),
             (
-                "Mirror".to_string(),
-                "M".to_string(),
+                t!("tool-mirror"),
+                self.commands.hint_for("tool.mirror"),
                 PaletteAction::SetTool(ToolKind::Mirror),
             ),
             (
-                "Trim".to_string(),
-                "T".to_string(),
+                t!("tool-trim"),
+                self.commands.hint_for("tool.trim"),
                 PaletteAction::SetTool(ToolKind::Trim),
             ),
             (
-                "Extend (Perpanjang Garis)".to_string(),
-                "Shift+E".to_string(),
+                t!("tool-extend"),
+                self.commands.hint_for("tool.extend"),
                 PaletteAction::SetTool(ToolKind::Extend),
             ),
             (
-                "Fillet 2D".to_string(),
-                "F".to_string(),
+                t!("tool-fillet-2d"),
+                self.commands.hint_for("tool.fillet_2d"),
                 PaletteAction::SetTool(ToolKind::Fillet2D),
             ),
             (
-                "Chamfer 2D".to_string(),
+                t!("tool-chamfer-2d"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::Chamfer2D),
             ),
             (
-                "Garis Konstruksi / Reference Line (Toggle)".to_string(),
-                "X".to_string(),
-                PaletteAction::ToggleConstruction,
+                t!("tool-pen-bezier"),
+                self.commands.hint_for("vector.pen_bezier"),
+                PaletteAction::SetTool(ToolKind::PenBezier),
             ),
             (
-                ducad_ui::PALETTE_DEMO_COMMAND.to_string(),
+                t!("tool-node-edit"),
+                self.commands.hint_for("vector.node_edit"),
+                PaletteAction::SetTool(ToolKind::NodeEdit),
+            ),
+            (
+                t!("tool-shape-builder"),
                 String::new(),
+                PaletteAction::SetTool(ToolKind::ShapeBuilder),
+            ),
+            (
+                t!("tool-eyedropper"),
+                self.commands.hint_for("vector.eyedropper"),
+                PaletteAction::SetTool(ToolKind::Eyedropper),
+            ),
+            (
+                t!("tool-gradient"),
+                self.commands.hint_for("vector.gradient"),
+                PaletteAction::SetTool(ToolKind::Gradient),
+            ),
+            (
+                t!("palette-toggle-construction"),
+                self.commands.hint_for("sketch.toggle_construction"),
+                PaletteAction::ToggleConstruction,
+            ),
+            // ── Alat Solid 3D (mencakup Boolean, HoleWizard, Pattern, Shell, Split, Loft) ─
+            (
+                ducad_ui::PALETTE_DEMO_COMMAND.to_string(),
+                self.commands.hint_for("tool.extrude"),
                 PaletteAction::ExtrudeSelection,
             ),
             (
-                "Revolve (Putar 3D)".to_string(),
-                "V".to_string(),
+                t!("palette-revolve"),
+                self.commands.hint_for("tool.revolve"),
                 PaletteAction::OpenRevolveDialog,
             ),
             (
-                "Sweep 3D (Sapu Sepanjang Jalur)".to_string(),
+                t!("tool-loft"),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::Loft),
+            ),
+            (
+                t!("palette-sweep"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::Sweep),
             ),
             (
-                "Helix / Coil / Spring 3D (Kurva Spiral & Pegas Solid)".to_string(),
-                "G".to_string(),
+                t!("palette-helix"),
+                self.commands.hint_for("tool.helix"),
                 PaletteAction::SetTool(ToolKind::Helix),
             ),
             (
-                "Draft Angle (Kemiringan Cetakan)".to_string(),
-                "D".to_string(),
+                t!("palette-draft-angle"),
+                self.commands.hint_for("tool.draft_angle"),
                 PaletteAction::SetTool(ToolKind::DraftAngle),
             ),
             (
-                "Shell / Hollow (Rongga Casing)".to_string(),
-                "H".to_string(),
+                t!("palette-shell"),
+                self.commands.hint_for("tool.shell"),
                 PaletteAction::SetTool(ToolKind::Shell),
             ),
             (
-                "Rib / Tulang Penguat (Stiffener)".to_string(),
-                "R".to_string(),
+                t!("palette-rib"),
+                self.commands.hint_for("tool.rib"),
                 PaletteAction::SetTool(ToolKind::Rib),
             ),
             (
-                "Coincident (titik)".to_string(),
+                t!("palette-boolean"),
+                self.commands.hint_for("tool.boolean"),
+                PaletteAction::SetTool(ToolKind::Boolean),
+            ),
+            (
+                t!("palette-hole-wizard"),
+                self.commands.hint_for("tool.hole_wizard"),
+                PaletteAction::SetTool(ToolKind::HoleWizard),
+            ),
+            (
+                t!("palette-split-body"),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::SplitBody),
+            ),
+            (
+                t!("palette-pattern"),
+                self.commands.hint_for("tool.pattern"),
+                PaletteAction::SetTool(ToolKind::Pattern),
+            ),
+            // ── Constraint Titik, Pengukuran, Inspeksi & Riwayat ───────────
+            (
+                t!("palette-coincident"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::CoincidentPick),
             ),
             (
-                "Fixed (titik)".to_string(),
+                t!("palette-fixed"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::FixedPick),
             ),
             (
-                "Symmetric (titik)".to_string(),
+                t!("palette-symmetric"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::SymmetricPick),
             ),
             (
-                "Ukur Jarak".to_string(),
+                t!("palette-measure-dist"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::Measure),
             ),
             (
-                "Ukur Sudut".to_string(),
+                t!("palette-measure-angle"),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::MeasureAngle),
             ),
             (
-                "Undo Sketch".to_string(),
-                "⌘Z".to_string(),
+                t!("palette-section-view"),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::SectionView),
+            ),
+            (
+                t!("palette-draft-analysis"),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::DraftAnalysis),
+            ),
+            (
+                t!("palette-history"),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::History),
+            ),
+            (
+                t!("palette-undo-sketch"),
+                self.commands.hint_for("edit.undo"),
                 PaletteAction::Undo,
             ),
             (
-                "Redo Sketch".to_string(),
-                "⌘+Shift+Z".to_string(),
+                t!("palette-redo-sketch"),
+                self.commands.hint_for("edit.redo"),
                 PaletteAction::Redo,
             ),
             (
-                "Undo Model".to_string(),
+                t!("palette-undo-model"),
                 String::new(),
                 PaletteAction::ModelUndo,
             ),
             (
-                "Redo Model".to_string(),
+                t!("palette-redo-model"),
                 String::new(),
                 PaletteAction::ModelRedo,
             ),
             (
-                "Sketch: Bidang Top (XY)".to_string(),
+                t!("palette-plane-top"),
                 String::new(),
                 PaletteAction::SetSketchPlane(PlaneKind::Top),
             ),
             (
-                "Sketch: Bidang Vertikal Front (XZ)".to_string(),
+                t!("palette-plane-front"),
                 String::new(),
                 PaletteAction::SetSketchPlane(PlaneKind::Front),
             ),
             (
-                "Sketch: Bidang Vertikal Right (YZ)".to_string(),
+                t!("palette-plane-right"),
                 String::new(),
                 PaletteAction::SetSketchPlane(PlaneKind::Right),
             ),
             (
-                "3D: Bidang Referensi Baru (Datum Plane)".to_string(),
-                "P".to_string(),
+                t!("palette-datum-plane"),
+                self.commands.hint_for("tool.datum_plane"),
                 PaletteAction::CreateDatumPlane,
             ),
             (
-                "Mode Sketch (2D)".to_string(),
-                "⌘+Alt+2".to_string(),
+                t!("palette-enter-sketch"),
+                self.commands.hint_for("mode.sketch"),
                 PaletteAction::EnterSketching,
             ),
             (
-                "Mode 3D".to_string(),
-                "⌘+Alt+3".to_string(),
+                t!("palette-exit-sketch"),
+                self.commands.hint_for("mode.solid"),
                 PaletteAction::ExitSketching,
             ),
             (
-                "Inspeksi Garis Zebra (Zebra Reflection)".to_string(),
-                "Z".to_string(),
+                t!("palette-zebra"),
+                self.commands.hint_for("view.zebra"),
                 PaletteAction::ToggleZebraView,
             ),
             (
-                "Studio Lighting & SSAO Visualizer".to_string(),
-                "L".to_string(),
+                t!("palette-studio-lighting"),
+                self.commands.hint_for("view.studio_lighting"),
                 PaletteAction::ToggleStudioLighting,
             ),
             (
-                ducad_i18n::t!("photo-title"),
+                t!("photo-title"),
                 String::new(),
                 PaletteAction::TogglePhotoRender,
             ),
             (
-                format!("Ganti Tema ({})", self.theme.toggled().label()),
+                t!("theme-toggle-to", target = self.theme.toggled().label()),
                 String::new(),
                 PaletteAction::ToggleTheme,
             ),
             (
-                format!(
-                    "Liquid Glass: {}",
-                    if self.liquid_glass { "Matikan" } else { "Nyalakan" }
-                ),
+                if self.liquid_glass {
+                    t!("pref-liquid-glass-on")
+                } else {
+                    t!("pref-liquid-glass-off")
+                },
                 String::new(),
                 PaletteAction::ToggleLiquidGlass,
             ),
             (
-                format!(
-                    "Kurangi Transparansi: {}",
-                    if self.reduce_transparency { "Matikan" } else { "Nyalakan" }
-                ),
+                if self.reduce_transparency {
+                    t!("pref-reduce-transparency-on")
+                } else {
+                    t!("pref-reduce-transparency-off")
+                },
                 String::new(),
                 PaletteAction::ToggleReduceTransparency,
             ),
             (
-                "Mode Sentuh: Pencil & Jari (Hibrida)".to_string(),
+                if self.left_toolbar.show_labels {
+                    t!("pref-toolbar-labels-on")
+                } else {
+                    t!("pref-toolbar-labels-off")
+                },
+                String::new(),
+                PaletteAction::ToggleToolbarLabels,
+            ),
+            (
+                if self.reduce_motion {
+                    t!("pref-reduce-motion-on")
+                } else {
+                    t!("pref-reduce-motion-off")
+                },
+                String::new(),
+                PaletteAction::ToggleReduceMotion,
+            ),
+            (
+                t!("pref-ui-scale-up", pct = scale_pct),
+                String::new(),
+                PaletteAction::AdjustUiScale(1),
+            ),
+            (
+                t!("pref-ui-scale-down", pct = scale_pct),
+                String::new(),
+                PaletteAction::AdjustUiScale(-1),
+            ),
+            (
+                t!("pref-ui-scale-reset"),
+                String::new(),
+                PaletteAction::AdjustUiScale(0),
+            ),
+            (
+                t!("touch-mode-tooltip", mode = ducad_ui::TouchDesignMode::PencilAndFinger.label()),
                 "Touch".to_string(),
                 PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::PencilAndFinger),
             ),
             (
-                "Mode Sentuh: Hanya Apple Pencil (Jari Navigasi Kanvas)".to_string(),
+                t!("touch-mode-tooltip", mode = ducad_ui::TouchDesignMode::PencilOnly.label()),
                 "Pencil".to_string(),
                 PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::PencilOnly),
             ),
             (
-                "Mode Sentuh: Sentuh Jari (Target 44pt Apple HIG)".to_string(),
+                t!("touch-mode-tooltip", mode = ducad_ui::TouchDesignMode::FingerDesign.label()),
                 "Finger".to_string(),
                 PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::FingerDesign),
             ),
             (
-                ducad_i18n::t!("hud-close-objects"),
+                t!("hud-close-objects"),
                 String::new(),
                 PaletteAction::ConvertToClosedObjects,
             ),
             (
                 format!(
                     "{}: {}",
-                    ducad_i18n::t!("ink-smart-shape"),
+                    t!("ink-smart-shape"),
                     if self.ink_state.smart_shape { "ON » OFF" } else { "OFF » ON" }
                 ),
                 String::new(),
                 PaletteAction::ToggleInkSmartShape,
             ),
             (
-                ducad_i18n::t!("onboard-restart"),
+                t!("onboard-restart"),
                 String::new(),
                 PaletteAction::StartTutorial,
             ),
         ];
-        for cmd in crate::types::ParityCmd::ALL {
+        for cmd in ParityCmd::ALL {
             actions.push((cmd.label(), String::new(), PaletteAction::Parity(cmd)));
         }
         if self.update.enabled() {
             actions.push((
-                ducad_i18n::t!("palette-check-updates"),
+                t!("palette-check-updates"),
                 String::new(),
                 PaletteAction::CheckForUpdates,
             ));
         }
         if !self.selected.is_empty() {
             actions.push((
-                format!("Hapus Seleksi ({} entitas)", self.selected.len()),
+                t!("palette-delete-selection", count = self.selected.len()),
                 "Del".to_string(),
                 PaletteAction::DeleteSelection,
             ));
         }
         if !self.measurements.is_empty() {
             actions.push((
-                format!("Hapus Semua Pengukuran ({})", self.measurements.len()),
+                t!("palette-clear-measurements", count = self.measurements.len()),
                 String::new(),
                 PaletteAction::ClearMeasurements,
             ));
@@ -472,6 +624,14 @@ impl DuCADApp {
                     | FileOp::ExportPdf
                     | FileOp::ExportDrawingDxf
                     | FileOp::ExportDrawingSvg
+            ) | PaletteAction::Parity(
+                ParityCmd::ImportIges
+                    | ParityCmd::ImportMesh
+                    | ParityCmd::InsertSvg
+                    | ParityCmd::ExportThreeMf
+                    | ParityCmd::ExportIges
+                    | ParityCmd::ExportPng
+                    | ParityCmd::ExportViewDxf
             )
         )
     }
@@ -513,13 +673,29 @@ impl DuCADApp {
         } else if !self.selected.is_empty() {
             self.extrude_selected();
         } else {
-            self.model_status = Some(ducad_i18n::t!("extrude-needs-selection"));
+            self.set_tool(ToolKind::Extrude);
+            self.model_status = Some(t!("extrude-needs-selection"));
         }
     }
 
     pub fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
         match action {
-            PaletteAction::SetTool(kind) => self.set_tool(kind),
+            PaletteAction::SetTool(ToolKind::SectionView) => {
+                self.section_enabled = !self.section_enabled;
+            }
+            PaletteAction::SetTool(ToolKind::ZebraInspection) => {
+                self.zebra_config.enabled = !self.zebra_config.enabled;
+            }
+            PaletteAction::SetTool(ToolKind::DraftAnalysis) => {
+                if self.is_sketching {
+                    self.exit_sketching();
+                }
+                self.draft_config.enabled = !self.draft_config.enabled;
+            }
+            PaletteAction::SetTool(ToolKind::History) => {
+                self.feature_tree_drawer_open = true;
+            }
+            PaletteAction::SetTool(kind) => self.activate_tool_from_ui(kind),
             PaletteAction::OpenRevolveDialog => self.open_revolve_dialog(),
             PaletteAction::SetSketchPlane(kind) => self.set_sketch_plane(kind),
             PaletteAction::EnterSketching => self.enter_sketching(),
@@ -540,13 +716,34 @@ impl DuCADApp {
             }
             PaletteAction::ToggleTheme => {
                 self.theme = self.theme.toggled();
-                ducad_ui::apply_theme(ctx, self.theme);
+                self.apply_theme_options(ctx);
+                self.user_prefs_changed();
             }
             PaletteAction::ToggleLiquidGlass => {
                 self.liquid_glass = !self.liquid_glass;
+                self.user_prefs_changed();
             }
             PaletteAction::ToggleReduceTransparency => {
                 self.reduce_transparency = !self.reduce_transparency;
+                self.user_prefs_changed();
+            }
+            PaletteAction::ToggleToolbarLabels => {
+                self.left_toolbar.show_labels = !self.left_toolbar.show_labels;
+                self.user_prefs_changed();
+            }
+            PaletteAction::ToggleReduceMotion => {
+                self.reduce_motion = !self.reduce_motion;
+                self.apply_theme_options(ctx);
+                self.user_prefs_changed();
+            }
+            PaletteAction::AdjustUiScale(dir) => {
+                self.ui_scale = match dir {
+                    0 => 1.0,
+                    d if d > 0 => (self.ui_scale + 0.1).clamp(0.75, 1.5),
+                    _ => (self.ui_scale - 0.1).clamp(0.75, 1.5),
+                };
+                self.apply_theme_options(ctx);
+                self.user_prefs_changed();
             }
             PaletteAction::ToggleZebraView => {
                 self.zebra_config.enabled = !self.zebra_config.enabled;
@@ -563,7 +760,7 @@ impl DuCADApp {
                 self.toggle_construction_action();
             }
             PaletteAction::CreateDatumPlane => {
-                self.set_tool(ToolKind::DatumPlane);
+                self.activate_tool_from_ui(ToolKind::DatumPlane);
             }
             PaletteAction::OpenDrawingSheet => {
                 self.open_drawing_sheet();
@@ -573,8 +770,8 @@ impl DuCADApp {
             }
             PaletteAction::SetTouchDesignMode(m) => {
                 self.touch_config.set_mode(m);
-                ducad_ui::apply_with_touch(ctx, self.theme, self.touch_config.touch_target_size);
-                self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
+                self.apply_theme_options(ctx);
+                self.model_status = Some(t!("touch-mode-active", mode = m.label()));
             }
             PaletteAction::OpenAssist => self.open_assist_dialog(),
             PaletteAction::OpenChat => self.open_chat(),
@@ -642,136 +839,136 @@ impl DuCADApp {
                 .closed_objects
                 .notice
                 .clone()
-                .unwrap_or_else(|| ducad_i18n::t!("status-prompt-select")),
+                .unwrap_or_else(|| t!("status-prompt-select")),
             ToolKind::Freehand => self
                 .closed_objects
                 .notice
                 .clone()
-                .unwrap_or_else(|| ducad_i18n::t!("tool-freehand-desc")),
+                .unwrap_or_else(|| t!("tool-freehand-desc")),
             ToolKind::Line => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-line-0"),
-                _ if self.line_chain_segments >= 2 => {
-                    ducad_i18n::t!("status-prompt-line-close")
-                }
-                _ => ducad_i18n::t!("status-prompt-line-next"),
+                0 => t!("status-prompt-line-0"),
+                _ if self.line_chain_segments >= 2 => t!("status-prompt-line-close"),
+                _ => t!("status-prompt-line-next"),
             },
-            ToolKind::Rectangle if self.sketch_modes.rect == crate::sketch_modes::RectDrawMode::Center => {
+            ToolKind::Rectangle
+                if self.sketch_modes.rect == crate::sketch_modes::RectDrawMode::Center =>
+            {
                 match self.pending_points.len() {
-                    0 => ducad_i18n::t!("status-prompt-rect-center-0"),
-                    _ => ducad_i18n::t!("status-prompt-rect-center-1"),
+                    0 => t!("status-prompt-rect-center-0"),
+                    _ => t!("status-prompt-rect-center-1"),
                 }
             }
             ToolKind::Rectangle => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-rect-0"),
-                _ => ducad_i18n::t!("status-prompt-rect-opp"),
+                0 => t!("status-prompt-rect-0"),
+                _ => t!("status-prompt-rect-opp"),
             },
             ToolKind::Circle => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-circle-0"),
-                _ => ducad_i18n::t!("status-prompt-circle-rad"),
+                0 => t!("status-prompt-circle-0"),
+                _ => t!("status-prompt-circle-rad"),
             },
             ToolKind::Ellipse => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-ellipse-0"),
-                _ => ducad_i18n::t!("status-prompt-ellipse-box"),
+                0 => t!("status-prompt-ellipse-0"),
+                _ => t!("status-prompt-ellipse-box"),
             },
             ToolKind::Polygon => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-polygon-0", sides = self.polygon_sides),
-                _ => ducad_i18n::t!("status-prompt-polygon-1", sides = self.polygon_sides),
+                0 => t!("status-prompt-polygon-0", sides = self.polygon_sides),
+                _ => t!("status-prompt-polygon-1", sides = self.polygon_sides),
             },
             ToolKind::Slot => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-slot-0"),
-                1 => ducad_i18n::t!("status-prompt-slot-1"),
-                _ => ducad_i18n::t!("status-prompt-slot-2"),
+                0 => t!("status-prompt-slot-0"),
+                1 => t!("status-prompt-slot-1"),
+                _ => t!("status-prompt-slot-2"),
             },
-            ToolKind::Text => ducad_i18n::t!("status-prompt-text-0"),
-            ToolKind::Point => ducad_i18n::t!("status-prompt-point"),
+            ToolKind::Text => t!("status-prompt-text-0"),
+            ToolKind::Point => t!("status-prompt-point"),
             ToolKind::Spline => match self.pending_points.len() {
-                0 => "Klik titik awal kurva Spline, atau tekan lalu geser".to_string(),
-                1 => "Klik titik berikutnya; saat menggeser, tahan diam sejenak untuk menaruh titik".to_string(),
-                _ => "Klik/geser-tahan titik berikutnya, klik titik awal untuk menutup, atau klik ulang titik akhir".to_string(),
+                0 => t!("status-prompt-spline-0"),
+                1 => t!("status-prompt-spline-1"),
+                _ => t!("status-prompt-spline-next"),
             },
             ToolKind::Arc if self.sketch_modes.arc == crate::sketch_modes::ArcDrawMode::Center => {
                 match self.pending_points.len() {
-                    0 => ducad_i18n::t!("status-prompt-arc-center-0"),
-                    1 => ducad_i18n::t!("status-prompt-arc-center-1"),
-                    _ => ducad_i18n::t!("status-prompt-arc-center-2"),
+                    0 => t!("status-prompt-arc-center-0"),
+                    1 => t!("status-prompt-arc-center-1"),
+                    _ => t!("status-prompt-arc-center-2"),
                 }
             }
             ToolKind::Arc => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-arc-0"),
-                1 => ducad_i18n::t!("status-prompt-arc-1"),
-                _ => ducad_i18n::t!("status-prompt-arc-2"),
+                0 => t!("status-prompt-arc-0"),
+                1 => t!("status-prompt-arc-1"),
+                _ => t!("status-prompt-arc-2"),
             },
             ToolKind::Offset => match self.offset_source {
-                None => ducad_i18n::t!("status-prompt-offset-none"),
-                Some(_) => ducad_i18n::t!("status-prompt-offset-side"),
+                None => t!("status-prompt-offset-none"),
+                Some(_) => t!("status-prompt-offset-side"),
             },
             ToolKind::Mirror => {
                 if self.selected.is_empty() {
-                    ducad_i18n::t!("status-prompt-mirror-empty")
+                    t!("status-prompt-mirror-empty")
                 } else {
                     match self.pending_points.len() {
-                        0 => ducad_i18n::t!("status-prompt-mirror-p1", count = self.selected.len()),
-                        _ => ducad_i18n::t!("status-prompt-mirror-p2"),
+                        0 => t!("status-prompt-mirror-p1", count = self.selected.len()),
+                        _ => t!("status-prompt-mirror-p2"),
                     }
                 }
             }
-            ToolKind::Trim => ducad_i18n::t!("status-prompt-trim"),
-            ToolKind::Extend => ducad_i18n::t!("status-prompt-extend"),
-            ToolKind::Break => ducad_i18n::t!("status-prompt-break"),
-            ToolKind::Fillet2D => ducad_i18n::t!("status-prompt-fillet-2d"),
-            ToolKind::Chamfer2D => ducad_i18n::t!("status-prompt-chamfer-2d"),
+            ToolKind::Trim => t!("status-prompt-trim"),
+            ToolKind::Extend => t!("status-prompt-extend"),
+            ToolKind::Break => t!("status-prompt-break"),
+            ToolKind::Fillet2D => t!("status-prompt-fillet-2d"),
+            ToolKind::Chamfer2D => t!("status-prompt-chamfer-2d"),
             ToolKind::Revolve => {
                 if self.selected.is_empty() {
-                    ducad_i18n::t!("status-prompt-revolve-empty")
+                    t!("status-prompt-revolve-empty")
                 } else {
                     match self.pending_points.len() {
-                        0 => ducad_i18n::t!("status-prompt-revolve-p1", count = self.selected.len()),
-                        _ => ducad_i18n::t!("status-prompt-revolve-p2"),
+                        0 => t!("status-prompt-revolve-p1", count = self.selected.len()),
+                        _ => t!("status-prompt-revolve-p2"),
                     }
                 }
             }
             ToolKind::CoincidentPick => match self.pending_point_refs.len() {
-                0 => ducad_i18n::t!("status-prompt-coincident-0"),
-                _ => ducad_i18n::t!("status-prompt-coincident-1"),
+                0 => t!("status-prompt-coincident-0"),
+                _ => t!("status-prompt-coincident-1"),
             },
-            ToolKind::FixedPick => ducad_i18n::t!("status-prompt-fixed"),
+            ToolKind::FixedPick => t!("status-prompt-fixed"),
             ToolKind::SymmetricPick => match self.symmetric_axis() {
-                None => ducad_i18n::t!("status-prompt-symmetric-axis"),
+                None => t!("status-prompt-symmetric-axis"),
                 Some(_) => match self.pending_point_refs.len() {
-                    0 => ducad_i18n::t!("status-prompt-symmetric-0"),
-                    _ => ducad_i18n::t!("status-prompt-symmetric-1"),
+                    0 => t!("status-prompt-symmetric-0"),
+                    _ => t!("status-prompt-symmetric-1"),
                 },
             },
             ToolKind::Measure => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-measure-0"),
-                _ => ducad_i18n::t!("status-prompt-measure-1"),
+                0 => t!("status-prompt-measure-0"),
+                _ => t!("status-prompt-measure-1"),
             },
             ToolKind::MeasureAngle => match self.pending_points.len() {
-                0 => ducad_i18n::t!("status-prompt-measure-ang-0"),
-                1 => ducad_i18n::t!("status-prompt-measure-ang-1"),
-                _ => ducad_i18n::t!("status-prompt-measure-ang-2"),
+                0 => t!("status-prompt-measure-ang-0"),
+                1 => t!("status-prompt-measure-ang-1"),
+                _ => t!("status-prompt-measure-ang-2"),
             },
-            ToolKind::Extrude => ducad_i18n::t!("status-prompt-extrude"),
-            ToolKind::Loft => ducad_i18n::t!("status-prompt-loft"),
-            ToolKind::Sweep => ducad_i18n::t!("status-prompt-sweep"),
-            ToolKind::Helix => ducad_i18n::t!("status-prompt-helix"),
-            ToolKind::Shell => ducad_i18n::t!("status-prompt-shell"),
-            ToolKind::Rib => "Pilih body casing & garis tulang penguat, atur tebal & kedalaman, lalu tekan Enter".to_string(),
-            ToolKind::DraftAngle => ducad_i18n::t!("status-prompt-draft"),
-            ToolKind::SplitBody => "Pilih bidang pemotong (plane) & offset jarak, lalu tekan Enter atau klik Potong".to_string(),
-            ToolKind::Pattern => ducad_i18n::t!("status-prompt-pattern"),
-            ToolKind::Boolean => ducad_i18n::t!("status-prompt-boolean"),
-            ToolKind::SectionView => ducad_i18n::t!("status-prompt-section"),
-            ToolKind::ZebraInspection => ducad_i18n::t!("tool-zebra-stripes-desc"),
-            ToolKind::DraftAnalysis => ducad_i18n::t!("tool-draft-analysis-desc"),
-            ToolKind::HoleWizard => ducad_i18n::t!("tool-hole-wizard-desc"),
-            ToolKind::DatumPlane => ducad_i18n::t!("status-prompt-datum-plane"),
-            ToolKind::PenBezier => ducad_i18n::t!("tool-pen-bezier-desc"),
-            ToolKind::NodeEdit => ducad_i18n::t!("tool-node-edit-desc"),
-            ToolKind::ShapeBuilder => ducad_i18n::t!("tool-shape-builder-desc"),
-            ToolKind::Eyedropper => ducad_i18n::t!("tool-eyedropper-desc"),
-            ToolKind::Gradient => ducad_i18n::t!("tool-gradient-desc"),
-            ToolKind::History => ducad_i18n::t!("status-prompt-history"),
+            ToolKind::Extrude => t!("status-prompt-extrude"),
+            ToolKind::Loft => t!("status-prompt-loft"),
+            ToolKind::Sweep => t!("status-prompt-sweep"),
+            ToolKind::Helix => t!("status-prompt-helix"),
+            ToolKind::Shell => t!("status-prompt-shell"),
+            ToolKind::Rib => t!("status-prompt-rib"),
+            ToolKind::DraftAngle => t!("status-prompt-draft"),
+            ToolKind::SplitBody => t!("status-prompt-split-body"),
+            ToolKind::Pattern => t!("status-prompt-pattern"),
+            ToolKind::Boolean => t!("status-prompt-boolean"),
+            ToolKind::SectionView => t!("status-prompt-section"),
+            ToolKind::ZebraInspection => t!("tool-zebra-stripes-desc"),
+            ToolKind::DraftAnalysis => t!("tool-draft-analysis-desc"),
+            ToolKind::HoleWizard => t!("tool-hole-wizard-desc"),
+            ToolKind::DatumPlane => t!("status-prompt-datum-plane"),
+            ToolKind::PenBezier => t!("tool-pen-bezier-desc"),
+            ToolKind::NodeEdit => t!("tool-node-edit-desc"),
+            ToolKind::ShapeBuilder => t!("tool-shape-builder-desc"),
+            ToolKind::Eyedropper => t!("tool-eyedropper-desc"),
+            ToolKind::Gradient => t!("tool-gradient-desc"),
+            ToolKind::History => t!("status-prompt-history"),
         };
         let hint = match self.sketch_status_text() {
             Some(status) => format!("{status}  ·  {hint}"),
@@ -787,6 +984,31 @@ impl DuCADApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn action_covers_tool(action: PaletteAction, kind: ToolKind) -> bool {
+        match action {
+            PaletteAction::SetTool(k) => k == kind,
+            PaletteAction::ExtrudeSelection => kind == ToolKind::Extrude,
+            PaletteAction::OpenRevolveDialog => kind == ToolKind::Revolve,
+            PaletteAction::CreateDatumPlane => kind == ToolKind::DatumPlane,
+            PaletteAction::ToggleZebraView => kind == ToolKind::ZebraInspection,
+            PaletteAction::Parity(ParityCmd::SketchPoint) => kind == ToolKind::Point,
+            PaletteAction::Parity(ParityCmd::SketchBreak) => kind == ToolKind::Break,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn palette_contains_every_tool_kind() {
+        let app = DuCADApp::new_for_test();
+        let actions = app.palette_actions();
+        for kind in ToolKind::ALL {
+            assert!(
+                actions.iter().any(|(_, _, act)| action_covers_tool(*act, kind)),
+                "ToolKind::{kind:?} hilang dari Command Palette"
+            );
+        }
+    }
 
     #[test]
     fn every_non_toolbar_palette_command_is_in_the_burger_menu() {
@@ -856,6 +1078,14 @@ mod tests {
                         | FileOp::ExportPdf
                         | FileOp::ExportDrawingDxf
                         | FileOp::ExportDrawingSvg
+                ) | PaletteAction::Parity(
+                    ParityCmd::ImportIges
+                        | ParityCmd::ImportMesh
+                        | ParityCmd::InsertSvg
+                        | ParityCmd::ExportThreeMf
+                        | ParityCmd::ExportIges
+                        | ParityCmd::ExportPng
+                        | ParityCmd::ExportViewDxf
                 )
             );
             assert!(!is_io, "{} masih tampil di grup File", cmd.label);

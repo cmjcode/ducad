@@ -9,24 +9,24 @@ use crate::{CliError, CliResult, Exit};
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// File OpFile JSON (`{ "params": {...}, "ops": [...] }`).
+    /// OpFile JSON (`{ "params": {...}, "ops": [...] }`).
     ops: PathBuf,
-    /// Part awal; tanpa ini sesi dimulai kosong.
+    /// Optional base `.ducad` part; starts from an empty session when omitted.
     #[arg(long)]
     part: Option<PathBuf>,
-    /// Simpan hasil ke `.ducad`.
+    /// Save resulting part to `.ducad`.
     #[arg(long)]
     out: Option<PathBuf>,
-    /// Timpa param (`K=V`), boleh diulang.
+    /// Override parameter (`K=V`), repeatable.
     #[arg(long = "param", value_parser = parse_param)]
     params: Vec<(String, f64)>,
-    /// Validasi tanpa mengubah apa pun.
+    /// Validate and execute without writing outputs.
     #[arg(long)]
     dry_run: bool,
-    /// Ekspor `FMT:PATH` (step|stl|obj|glb|svg|png; svg/png tampak iso), boleh diulang.
+    /// Export `FMT:PATH` (`step|stl|obj|glb|svg|png`; isometric view for svg/png), repeatable.
     #[arg(long = "export", value_parser = parse_export)]
     exports: Vec<(String, PathBuf)>,
-    /// Tulis BatchReport juga ke berkas ini.
+    /// Also write the JSON BatchReport to this file.
     #[arg(long)]
     report: Option<PathBuf>,
 }

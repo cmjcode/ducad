@@ -74,7 +74,13 @@ fn run_inspect_replay_flow() {
     let o = cli(&["inspect", s(&part), "--mass"]);
     assert_eq!(o.status.code(), Some(0));
     let table = String::from_utf8_lossy(&o.stdout).to_string();
-    for label in ["massa", "pusat massa", "inersia @COM", "momen utama 3", "radius girasi"] {
+    for label in [
+        "mass",
+        "center of mass",
+        "inertia @COM",
+        "principal moment 3",
+        "radius of gyration",
+    ] {
         assert!(table.contains(label), "tabel --mass tanpa '{label}':\n{table}");
     }
 
@@ -367,7 +373,7 @@ fn build_with_study_writes_sim_artifacts() {
         assert_eq!(fnv(&a.join(f)), fnv(&b.join(f)), "{f} tidak deterministik");
     }
     let md = std::fs::read_to_string(a.join("report.md")).unwrap();
-    assert!(md.contains("## Simulasi") && md.contains("sim/tip_load-stress.png"), "{md}");
+    assert!(md.contains("## Simulation") && md.contains("sim/tip_load-stress.png"), "{md}");
 
     // Check tegangan yang mustahil dipenuhi → kode 3, laporan tetap ditulis.
     let mut file: serde_json::Value =
@@ -391,7 +397,7 @@ fn build_with_study_writes_sim_artifacts() {
     let o = cli(&["sim", s(&part), "--out", s(&heat)]);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     let text = String::from_utf8_lossy(&o.stdout).to_string();
-    assert!(text.contains("von Mises maks") && text.contains("faktor keamanan"), "{text}");
+    assert!(text.contains("max von Mises") && text.contains("safety factor"), "{text}");
     assert!(std::fs::read_to_string(&heat).unwrap().starts_with("<svg"));
     let o = cli(&["sim", s(&part), "--study", "tip_load", "--json"]);
     assert!(stdout_json(&o)["safety_factor"].as_f64().unwrap() > 2.0);
@@ -437,7 +443,7 @@ fn build_all_configs_writes_one_directory_each() {
     assert_eq!(rows.len(), 3);
     assert!(rows.iter().all(|r| r["status"] == "ok"), "{top}");
     let md = std::fs::read_to_string(out.join("report.md")).unwrap();
-    assert!(md.contains("| Konfigurasi | Status | one_body | fits |"), "{md}");
+    assert!(md.contains("| Configuration | Status | one_body | fits |"), "{md}");
     assert!(md.contains("[long](long/report.md)"), "{md}");
 
     // Satu varian melanggar check (len 120 > 100) → kode 3, varian lain tetap dibangun.
@@ -565,7 +571,7 @@ fn build_package_writes_one_pdf_reports_and_is_deterministic() {
     assert_eq!(cited, 7, "6 aturan dfm-cnc + 1 sitasi proyek");
 
     let md = std::fs::read_to_string(a.join("report.md")).unwrap();
-    assert!(md.contains("## Persyaratan — terverifikasi 5"));
+    assert!(md.contains("## Requirements — verified 5"));
     assert!(md.contains("ISO 2768-1:1989, Table 1"));
     assert!(md.contains("qualified engineer"));
     assert!(md.lines().count() <= 70, "report.md {} baris", md.lines().count());
@@ -616,7 +622,7 @@ fn release_gate_blocks_until_approved_and_reopens_on_change() {
     let o = cli(&["replay", s(&part), "--param", "t=5", "--out", s(&part)]);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     assert_eq!(release_build("2026-10-14"), Some(4));
-    assert!(report()["release"]["blockers"][0].as_str().unwrap().contains("revisi A"));
+    assert!(report()["release"]["blockers"][0].as_str().unwrap().contains("revision A"));
     let o = cli(&["release", s(&part), "--json"]);
     assert_eq!(stdout_json(&o)["approval_stale"], true);
     cli(&["release", s(&part), "--submit", "Base thinned to 5 mm", "--by", "ana", "--date", "2026-10-14"]);
@@ -650,8 +656,35 @@ fn build_part_set_builds_every_part_and_summarises() {
     // Part sheet metal mendapat lembar pola bentangan di paketnya.
     assert!(pdf_pages(&d.join("tray/tray-package.pdf")) >= 4);
     let md = std::fs::read_to_string(d.join("report.md")).unwrap();
-    assert!(md.contains("Sensor station (set 2 part)"));
+    assert!(md.contains("Sensor station (2-part set)"));
     assert!(md.contains("| [tray](tray/report.md) | ok |"));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn cli_lang_id_flag_and_env_preserve_indonesian_output() {
+    let d = tmpdir("lang-id");
+    let part = d.join("p.ducad");
+    assert_eq!(cli(&["run", PLATE, "--out", s(&part)]).status.code(), Some(0));
+
+    let o_flag = cli(&["--lang", "id", "inspect", s(&part), "--mass"]);
+    assert_eq!(o_flag.status.code(), Some(0));
+    let txt_flag = String::from_utf8_lossy(&o_flag.stdout);
+    assert!(txt_flag.contains("pusat massa") && txt_flag.contains("radius girasi"), "{txt_flag}");
+
+    let o_env = Command::new(env!("CARGO_BIN_EXE_ducad-cli"))
+        .env("DUCAD_LANG", "id")
+        .args(["inspect", s(&part), "--mass"])
+        .output()
+        .unwrap();
+    assert_eq!(o_env.status.code(), Some(0));
+    let txt_env = String::from_utf8_lossy(&o_env.stdout);
+    assert!(txt_env.contains("pusat massa") && txt_env.contains("momen utama 3"), "{txt_env}");
+
+    let o_help = cli(&["--help"]);
+    let help = String::from_utf8_lossy(&o_help.stdout);
+    assert!(help.contains("Headless parametric B-rep CAD"), "{help}");
+
     let _ = std::fs::remove_dir_all(&d);
 }
 

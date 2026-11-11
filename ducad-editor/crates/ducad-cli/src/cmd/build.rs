@@ -26,32 +26,29 @@ const MD_MAX_ROWS: usize = 15;
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Part `.ducad` atau OpFile `.json`.
+    /// `.ducad` part, OpFile `.json`, or part-set `.json`.
     input: PathBuf,
-    /// Folder keluaran (dibuat bila belum ada).
+    /// Output directory (created if missing).
     #[arg(long)]
     out: PathBuf,
-    /// Daftar format dipisah koma: step,stl,obj,glb,pdf,svg,dxf,png,bom,flat,package
-    /// (`flat` = DXF pola bentangan tiap body sheet metal; `package` = paket
-    /// desain multi-lembar `<stem>-package.pdf` + laporan keterlacakan,
-    /// kepatuhan, dan biaya).
+    /// Comma-separated formats: step,stl,obj,glb,pdf,svg,dxf,png,bom,flat,package
+    /// (`flat` = unfolded DXF per sheet-metal body; `package` = multi-sheet
+    /// `<stem>-package.pdf` + traceability, compliance, and cost reports).
     #[arg(long, value_delimiter = ',', default_value = "step,stl,pdf,png,bom")]
     formats: Vec<String>,
-    /// Ukuran kertas gambar kerja: a4 | a3 (lanskap). Default: kertas lembar
-    /// tersimpan, atau a3.
+    /// Drawing sheet paper size: a4 | a3 (landscape). Defaults to stored sheet paper or a3.
     #[arg(long, value_parser = parse_paper)]
     paper: Option<PaperSize>,
-    /// Lembar gambar tersimpan yang dirender (default: yang pertama).
+    /// Stored drawing sheet name to render (defaults to the first stored sheet).
     #[arg(long)]
     drawing: Option<String>,
-    /// Potongan `LABEL:INDUK:SUMBU:OFFSET[:flip]`, mis. `A:top:x:0`. Boleh
-    /// diulang; menggantikan potongan lembar tersimpan.
+    /// Section view `LABEL:PARENT:AXIS:OFFSET[:flip]`, e.g. `A:top:x:0` (repeatable).
     #[arg(long = "section", value_parser = parse_section)]
     sections: Vec<SectionSpec>,
-    /// Render berbayang dipisah koma: iso,iso_back.
+    /// Comma-separated shaded views: iso,iso_back.
     #[arg(long, value_delimiter = ',', value_parser = parse_shaded)]
     shaded: Vec<ShadedSpec>,
-    /// Skala lembar: auto | 1:2 | 0.5.
+    /// Sheet scale: auto | 1:2 | 0.5.
     #[arg(long, value_parser = parse_sheet_scale)]
     scale: Option<ScaleSpec>,
     #[arg(long)]
@@ -62,35 +59,31 @@ pub struct Args {
     author: String,
     #[arg(long, default_value = "A")]
     revision: String,
-    /// `YYYY-MM-DD`; default dari `SOURCE_DATE_EPOCH` atau hari ini.
+    /// `YYYY-MM-DD`; defaults to `SOURCE_DATE_EPOCH` or today's date.
     #[arg(long, value_parser = parse_date)]
     date: Option<String>,
-    /// Lewati checks desain.
+    /// Skip design checks.
     #[arg(long)]
     no_checks: bool,
-    /// Bangun satu konfigurasi varian (nama; "Default" = desain dasar).
+    /// Build a single variant configuration (`"Default"` = base design).
     #[arg(long, conflicts_with = "all_configs")]
     config: Option<String>,
-    /// Bangun SEMUA konfigurasi, masing-masing ke subfolder bernama
-    /// konfigurasi itu, plus ringkasan matriks di folder keluaran.
+    /// Build ALL configurations into per-config subfolders plus a summary matrix.
     #[arg(long)]
     all_configs: bool,
-    /// Singkatan untuk menambah `package` ke `--formats`.
+    /// Shorthand to append `package` to `--formats`.
     #[arg(long)]
     package: bool,
-    /// Profil firma (JSON). Bawaan: env `DUCAD_FIRM`, lalu `firm.json` di
-    /// samping part, lalu `~/DUCAD-Memory/Standards/firm.json`.
+    /// Firm profile JSON. Defaults to `DUCAD_FIRM`, `firm.json` next to input, or `~/DUCAD-Memory/Standards/firm.json`.
     #[arg(long)]
     firm: Option<PathBuf>,
-    /// Paket aturan tambahan (boleh diulang), mis. `--rule-pack dfm-cnc`.
+    /// Additional rule pack (repeatable), e.g. `--rule-pack dfm-cnc`.
     #[arg(long = "rule-pack")]
     rule_packs: Vec<String>,
-    /// Tulis catatan proyek (Markdown ber-frontmatter untuk vault memori
-    /// agent, mis. `~/DUCAD-Memory/Projects/bracket.md`). Butuh format `package`.
+    /// Write frontmatter Markdown project note (requires `package` format).
     #[arg(long)]
     project_note: Option<PathBuf>,
-    /// Build rilis: gagal (kode 4) kecuali paket berstatus `approved` untuk
-    /// desain yang sedang dibangun dan ceklis review bersih.
+    /// Release gate: exits with code 4 unless the package is `approved` and review checklist is clean.
     #[arg(long)]
     release: bool,
 }
@@ -371,23 +364,46 @@ fn fmt_value(v: &serde_json::Value) -> String {
 }
 
 fn report_md(r: &Report, title: &str) -> String {
+    let ind = crate::is_id();
     let mut md = format!("# DUCAD build — {title}\n\n");
-    md.push_str(&format!(
-        "Status: **{}** · masukan `{}` · muat: {} · tanggal {}\n",
-        r.status, r.input, r.load, r.date
-    ));
-    if let Some(rel) = &r.release {
+    if ind {
         md.push_str(&format!(
-            "Rilis: **{}** revisi {}{}\n",
-            rel.state,
-            rel.revision,
-            rel.approved_by
-                .as_ref()
-                .map(|b| format!(" · disetujui {b}"))
-                .unwrap_or_default()
+            "Status: **{}** · masukan `{}` · muat: {} · tanggal {}\n",
+            r.status, r.input, r.load, r.date
         ));
-        for b in &rel.blockers {
-            md.push_str(&format!("\n> Belum boleh rilis — {b}\n"));
+    } else {
+        md.push_str(&format!(
+            "Status: **{}** · input `{}` · load: {} · date {}\n",
+            r.status, r.input, r.load, r.date
+        ));
+    }
+    if let Some(rel) = &r.release {
+        if ind {
+            md.push_str(&format!(
+                "Rilis: **{}** revisi {}{}\n",
+                rel.state,
+                rel.revision,
+                rel.approved_by
+                    .as_ref()
+                    .map(|b| format!(" · disetujui {b}"))
+                    .unwrap_or_default()
+            ));
+            for b in &rel.blockers {
+                md.push_str(&format!("\n> Belum boleh rilis — {b}\n"));
+            }
+        } else {
+            md.push_str(&format!(
+                "Release: **{}** revision {}{}\n",
+                rel.state,
+                rel.revision,
+                rel.approved_by
+                    .as_ref()
+                    .map(|b| format!(" · approved by {b}"))
+                    .unwrap_or_default()
+            ));
+            for b in &rel.blockers {
+                md.push_str(&format!("\n> Release blocked — {b}\n"));
+            }
         }
     }
     if let Some(e) = &r.error {
@@ -395,7 +411,11 @@ fn report_md(r: &Report, title: &str) -> String {
         md.push_str(&format!("\n> Error: {msg}\n"));
     }
     if !r.bodies.is_empty() {
-        md.push_str("\n## Body\n\n| Nama | Volume (mm³) | Massa (g) | Ukuran bbox (mm) |\n|---|---:|---:|---|\n");
+        if ind {
+            md.push_str("\n## Body\n\n| Nama | Volume (mm³) | Massa (g) | Ukuran bbox (mm) |\n|---|---:|---:|---|\n");
+        } else {
+            md.push_str("\n## Bodies\n\n| Name | Volume (mm³) | Mass (g) | Bbox size (mm) |\n|---|---:|---:|---|\n");
+        }
         for b in r.bodies.iter().take(MD_MAX_ROWS) {
             let size: Vec<String> = (0..3)
                 .map(|k| format!("{}", round2(b.bbox[1][k] - b.bbox[0][k])))
@@ -410,14 +430,25 @@ fn report_md(r: &Report, title: &str) -> String {
             ));
         }
         if r.bodies.len() > MD_MAX_ROWS {
-            md.push_str(&format!("| … {} body lagi | | | |\n", r.bodies.len() - MD_MAX_ROWS));
+            if ind {
+                md.push_str(&format!("| … {} body lagi | | | |\n", r.bodies.len() - MD_MAX_ROWS));
+            } else {
+                md.push_str(&format!("| … {} more bodies | | | |\n", r.bodies.len() - MD_MAX_ROWS));
+            }
         }
     }
     if let Some(t) = &r.traceability {
-        md.push_str(&format!(
-            "\n## Persyaratan — terverifikasi {} · gagal {} · tanpa check {}\n\n| | Id | Persyaratan | Diverifikasi oleh |\n|---|---|---|---|\n",
-            t.verified, t.failed, t.unverified
-        ));
+        if ind {
+            md.push_str(&format!(
+                "\n## Persyaratan — terverifikasi {} · gagal {} · tanpa check {}\n\n| | Id | Persyaratan | Diverifikasi oleh |\n|---|---|---|---|\n",
+                t.verified, t.failed, t.unverified
+            ));
+        } else {
+            md.push_str(&format!(
+                "\n## Requirements — verified {} · failed {} · unverified {}\n\n| | Id | Requirement | Verified by |\n|---|---|---|---|\n",
+                t.verified, t.failed, t.unverified
+            ));
+        }
         for row in t.rows.iter().take(MD_MAX_ROWS) {
             let icon = match row.status {
                 ducad_engine::brief::TraceStatus::Verified => "✅",
@@ -433,26 +464,44 @@ fn report_md(r: &Report, title: &str) -> String {
             ));
         }
         if t.rows.len() > MD_MAX_ROWS {
-            md.push_str(&format!("| | … {} persyaratan lagi | | |\n", t.rows.len() - MD_MAX_ROWS));
+            if ind {
+                md.push_str(&format!("| | … {} persyaratan lagi | | |\n", t.rows.len() - MD_MAX_ROWS));
+            } else {
+                md.push_str(&format!("| | … {} more requirements | | |\n", t.rows.len() - MD_MAX_ROWS));
+            }
         }
     }
     if let Some(c) = &r.checks {
-        // Kolom "Dasar" hanya muncul bila ada check bersitasi, supaya
-        // laporan part lama tidak berubah bentuk.
         let cited = c.results.iter().any(|res| res.citation.is_some());
-        let warn = if c.warn > 0 {
-            format!(" · peringatan {}", c.warn)
+        if ind {
+            let warn = if c.warn > 0 {
+                format!(" · peringatan {}", c.warn)
+            } else {
+                String::new()
+            };
+            md.push_str(&format!(
+                "\n## Checks — lulus {} · gagal {} · error {}{warn}\n\n| | Id | Terukur | Harapan |{}\n|---|---|---|---|{}\n",
+                c.pass,
+                c.fail,
+                c.error,
+                if cited { " Dasar |" } else { "" },
+                if cited { "---|" } else { "" }
+            ));
         } else {
-            String::new()
-        };
-        md.push_str(&format!(
-            "\n## Checks — lulus {} · gagal {} · error {}{warn}\n\n| | Id | Terukur | Harapan |{}\n|---|---|---|---|{}\n",
-            c.pass,
-            c.fail,
-            c.error,
-            if cited { " Dasar |" } else { "" },
-            if cited { "---|" } else { "" }
-        ));
+            let warn = if c.warn > 0 {
+                format!(" · warnings {}", c.warn)
+            } else {
+                String::new()
+            };
+            md.push_str(&format!(
+                "\n## Checks — passed {} · failed {} · error {}{warn}\n\n| | Id | Measured | Expected |{}\n|---|---|---|---|{}\n",
+                c.pass,
+                c.fail,
+                c.error,
+                if cited { " Basis |" } else { "" },
+                if cited { "---|" } else { "" }
+            ));
+        }
         for res in c.results.iter().take(MD_MAX_ROWS) {
             let icon = match (res.status, res.severity) {
                 (CheckStatus::Pass, _) => "✅",
@@ -475,25 +524,45 @@ fn report_md(r: &Report, title: &str) -> String {
             md.push('\n');
         }
         if c.results.len() > MD_MAX_ROWS {
-            md.push_str(&format!("| | … {} check lagi | | |\n", c.results.len() - MD_MAX_ROWS));
+            if ind {
+                md.push_str(&format!("| | … {} check lagi | | |\n", c.results.len() - MD_MAX_ROWS));
+            } else {
+                md.push_str(&format!("| | … {} more checks | | |\n", c.results.len() - MD_MAX_ROWS));
+            }
         }
         if cited {
             md.push_str(&format!("\n> {}\n", ducad_engine::check::RULE_DISCLAIMER));
         }
     }
     if let Some(cost) = &r.cost {
-        match cost.unit_total {
-            Some(total) => md.push_str(&format!(
-                "\n## Biaya indikatif\n\n{total:.2} {} per unit pada {} pcs — bukan penawaran harga; rincian di `cost.md`.\n",
-                cost.currency, cost.quantity
-            )),
-            None => md.push_str(
-                "\n## Biaya indikatif\n\nBelum bisa dihitung (profil firma tanpa harga/tarif); lihat `cost.md`.\n",
-            ),
+        if ind {
+            match cost.unit_total {
+                Some(total) => md.push_str(&format!(
+                    "\n## Biaya indikatif\n\n{total:.2} {} per unit pada {} pcs — bukan penawaran harga; rincian di `cost.md`.\n",
+                    cost.currency, cost.quantity
+                )),
+                None => md.push_str(
+                    "\n## Biaya indikatif\n\nBelum bisa dihitung (profil firma tanpa harga/tarif); lihat `cost.md`.\n",
+                ),
+            }
+        } else {
+            match cost.unit_total {
+                Some(total) => md.push_str(&format!(
+                    "\n## Indicative cost\n\n{total:.2} {} per unit at {} pcs — not a quotation; details in `cost.md`.\n",
+                    cost.currency, cost.quantity
+                )),
+                None => md.push_str(
+                    "\n## Indicative cost\n\nNot available (firm profile has no rates); see `cost.md`.\n",
+                ),
+            }
         }
     }
     if !r.sim.is_empty() {
-        md.push_str("\n## Simulasi — estimasi teknik (sekitar ±10 % pada mesh hex bawaan)\n\n| Studi | Jenis | Status | von Mises maks (MPa) | Deformasi maks (mm) | Faktor keamanan | Frekuensi 1 (Hz) | Faktor tekuk | Suhu maks (°C) |\n|---|---|---|---:|---:|---:|---:|---:|---:|\n");
+        if ind {
+            md.push_str("\n## Simulasi — estimasi teknik (sekitar ±10 % pada mesh hex bawaan)\n\n| Studi | Jenis | Status | von Mises maks (MPa) | Deformasi maks (mm) | Faktor keamanan | Frekuensi 1 (Hz) | Faktor tekuk | Suhu maks (°C) |\n|---|---|---|---:|---:|---:|---:|---:|---:|\n");
+        } else {
+            md.push_str("\n## Simulation — engineering estimate (approx. ±10 % on default hex mesh)\n\n| Study | Kind | Status | Max von Mises (MPa) | Max displacement (mm) | Safety factor | Freq 1 (Hz) | Buckling factor | Max temp (°C) |\n|---|---|---|---:|---:|---:|---:|---:|---:|\n");
+        }
         let cell = |v: Option<f64>, digits: usize| {
             v.map(|x| format!("{x:.digits$}")).unwrap_or("—".into())
         };
@@ -518,13 +587,13 @@ fn report_md(r: &Report, title: &str) -> String {
         }
     }
     if !r.artifacts.is_empty() {
-        md.push_str("\n## Artefak\n\n");
+        md.push_str(if ind { "\n## Artefak\n\n" } else { "\n## Artifacts\n\n" });
         for a in &r.artifacts {
             md.push_str(&format!("- `{}` ({} B)\n", a.file, a.bytes));
         }
     }
     if !r.warnings.is_empty() {
-        md.push_str("\n## Peringatan\n\n");
+        md.push_str(if ind { "\n## Peringatan\n\n" } else { "\n## Warnings\n\n" });
         for w in r.warnings.iter().take(5) {
             md.push_str(&format!("- {w}\n"));
         }
@@ -696,7 +765,11 @@ fn exec_all_configs(a: Args) -> CliResult {
         }
     }
     let title = a.title.clone().unwrap_or_else(|| stem_of(&a.input));
-    let mut md = format!("# DUCAD build — {title} (semua konfigurasi)\n\n| Konfigurasi | Status |");
+    let mut md = if crate::is_id() {
+        format!("# DUCAD build — {title} (semua konfigurasi)\n\n| Konfigurasi | Status |")
+    } else {
+        format!("# DUCAD build — {title} (all configurations)\n\n| Configuration | Status |")
+    };
     for id in ids.iter().take(MD_MAX_ROWS) {
         md.push_str(&format!(" {id} |"));
     }
@@ -815,10 +888,17 @@ fn exec_set(a: Args) -> CliResult {
         .title
         .or(a.title.clone())
         .unwrap_or_else(|| stem_of(&a.input));
-    let mut md = format!(
-        "# DUCAD build — {title} (set {} part)\n\n| Part | Status | Lulus | Gagal | Peringatan | Rilis |\n|---|---|---:|---:|---:|---|\n",
-        rows.len()
-    );
+    let mut md = if crate::is_id() {
+        format!(
+            "# DUCAD build — {title} (set {} part)\n\n| Part | Status | Lulus | Gagal | Peringatan | Rilis |\n|---|---|---:|---:|---:|---|\n",
+            rows.len()
+        )
+    } else {
+        format!(
+            "# DUCAD build — {title} ({}-part set)\n\n| Part | Status | Passed | Failed | Warnings | Release |\n|---|---|---:|---:|---:|---|\n",
+            rows.len()
+        )
+    };
     for row in &rows {
         let n = |k: &str| row.pointer(&format!("/checks/{k}")).and_then(|v| v.as_u64()).unwrap_or(0);
         md.push_str(&format!(
@@ -1048,12 +1128,21 @@ pub fn exec(mut a: Args) -> CliResult {
         if a.release {
             if state != ducad_engine::brief::ReleaseState::Approved {
                 blockers.push(if release.approval_is_stale(&signature) {
-                    format!(
-                        "desain berubah sejak revisi {} disetujui; ajukan dan setujui revisi berikutnya (`ducad-cli release`)",
-                        release.revision
-                    )
-                } else {
+                    if crate::is_id() {
+                        format!(
+                            "desain berubah sejak revisi {} disetujui; ajukan dan setujui revisi berikutnya (`ducad-cli release`)",
+                            release.revision
+                        )
+                    } else {
+                        format!(
+                            "design changed since revision {} was approved; submit and approve the next revision (`ducad-cli release`)",
+                            release.revision
+                        )
+                    }
+                } else if crate::is_id() {
                     format!("paket berstatus '{}', belum disetujui", state.label())
+                } else {
+                    format!("package state is '{}', not yet approved", state.label())
                 });
             }
             blockers.extend(ducad_engine::brief::review_blockers(&review));

@@ -4,6 +4,7 @@
 //! pengguna memilih elemen geometri (sketch entity 2D, face 3D, atau body 3D).
 //! Menggantikan radial menu acak dengan aksi kontekstual yang presisi.
 
+use ducad_core::LengthUnit;
 use ducad_i18n::t;
 use egui_icons::icons;
 use egui::{Button, RichText, Ui, Vec2};
@@ -14,7 +15,10 @@ use egui_icons::icons::{
     ICON_WARNING,
 };
 use crate::constraint_strip::{ConstraintAction, ConstraintStrip};
-use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, MIN_TOUCH_TARGET, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{
+    pill_frame, ThemeTokens, ACCENT_BLUE, ACCENT_ORANGE, ACCENT_RED, MIN_TOUCH_TARGET, TYPOGRAPHY,
+};
+use crate::unit_input::unit_number_field;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextAction {
@@ -111,19 +115,22 @@ impl ContextActionBar {
         selected_count: usize,
         has_closed_profile: bool,
         state: &mut VectorExtrudeBarState,
+        unit: LengthUnit,
         icon_size: f32,
     ) -> Option<ContextAction> {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
+        let tokens = ThemeTokens::for_ui(ui);
 
         pill_frame().show(ui, |ui| {
-            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
+            let touch_h = ui.spacing().interact_size.y.max(MIN_TOUCH_TARGET);
+            ui.spacing_mut().interact_size.y = touch_h;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 // Header ringkas info seleksi
                 ui.label(
-                    RichText::new(format!("{} terpilih", selected_count))
-                        .size(11.0)
+                    RichText::new(t!("context-selected-count", count = selected_count))
+                        .size(TYPOGRAPHY.caption)
                         .strong()
                         .color(ACCENT_BLUE),
                 );
@@ -137,40 +144,58 @@ impl ContextActionBar {
                     if context_action_btn(
                         ui,
                         ICON_OPEN_IN_FULL.codepoint,
-                        "Ekstrusi",
+                        &t!("context-extrude"),
                         ACCENT_BLUE,
                         icon_sz,
-                        "Ekstrusi vektor terpilih ke 3D (Enter)",
+                        &t!("context-extrude-vector-tip"),
                     )
                     .clicked()
                     {
                         action = Some(ContextAction::Extrude);
                     }
 
-                    // Ketik tebal (mm) langsung
-                    let depth_edit = ui.add_sized(
-                        Vec2::new(46.0, 20.0),
-                        egui::TextEdit::singleline(&mut state.depth_input),
-                    );
-                    if depth_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    // Ketik tebal dengan widget angka sadar-satuan & ekspresi
+                    let depth_resp = unit_number_field(ui, &mut state.depth_input, unit, 56.0);
+                    let depth_valid = unit.parse_input_mm(state.depth_input.trim()).is_ok();
+                    if depth_resp.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && depth_valid
+                    {
                         action = Some(ContextAction::Extrude);
                     }
-                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
 
                     // Toggle "Per objek"
-                    ui.checkbox(&mut state.per_object, RichText::new("Per objek").size(10.5))
-                        .on_hover_text("Buat body terpisah untuk tiap path tertutup");
+                    ui.checkbox(
+                        &mut state.per_object,
+                        RichText::new(t!("context-per-object"))
+                            .size(TYPOGRAPHY.caption)
+                            .color(tokens.text_primary),
+                    )
+                    .on_hover_text(t!("context-per-object-tip"));
 
                     // Toggle "Warna dari fill" (default on)
-                    ui.checkbox(&mut state.material_from_style, RichText::new("Warna fill").size(10.5))
-                        .on_hover_text("Gunakan warna fill vektor sebagai warna material solid 3D");
+                    ui.checkbox(
+                        &mut state.material_from_style,
+                        RichText::new(t!("context-fill-color"))
+                            .size(TYPOGRAPHY.caption)
+                            .color(tokens.text_primary),
+                    )
+                    .on_hover_text(t!("context-fill-color-tip"));
 
                     // Toggle "Outline saja"
-                    ui.checkbox(&mut state.outline_only, RichText::new("Outline saja").size(10.5))
-                        .on_hover_text("Hanya ekstrusi garis luar (stroke) kurva");
+                    ui.checkbox(
+                        &mut state.outline_only,
+                        RichText::new(t!("context-outline-only"))
+                            .size(TYPOGRAPHY.caption)
+                            .color(tokens.text_primary),
+                    )
+                    .on_hover_text(t!("context-outline-only-tip"));
 
                     // Global enter bila ada fokus
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) && action.is_none() {
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && action.is_none()
+                        && depth_valid
+                    {
                         action = Some(ContextAction::Extrude);
                     }
 
@@ -180,17 +205,17 @@ impl ContextActionBar {
                 }
 
                 // 1. Offset
-                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, "Offset", TEXT_PRIMARY, icon_sz, "Offset kurva / kontur terpilih (O)").clicked() {
+                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, &t!("tool-offset"), tokens.text_primary, icon_sz, &t!("context-offset-tip")).clicked() {
                     action = Some(ContextAction::Offset);
                 }
 
                 // 3. Mirror
-                if context_action_btn(ui, ICON_FLIP.codepoint, "Mirror", TEXT_PRIMARY, icon_sz, "Cerminkan elemen terpilih terhadap garis sumbu (M)").clicked() {
+                if context_action_btn(ui, ICON_FLIP.codepoint, &t!("tool-mirror"), tokens.text_primary, icon_sz, &t!("context-mirror-tip")).clicked() {
                     action = Some(ContextAction::Mirror);
                 }
 
                 // 4. Trim
-                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Trim", TEXT_PRIMARY, icon_sz, "Pangkas segmen garis yang bersilangan (T)").clicked() {
+                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, &t!("tool-trim"), tokens.text_primary, icon_sz, &t!("context-trim-tip")).clicked() {
                     action = Some(ContextAction::Trim);
                 }
 
@@ -200,16 +225,16 @@ impl ContextActionBar {
                     ui.add_space(2.0);
 
                     // Operasi Boolean Vektor (Shape Builder M2.4)
-                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Gabung", TEXT_PRIMARY, icon_sz, "Gabungkan path terpilih (Union)").clicked() {
+                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, &t!("context-union"), tokens.text_primary, icon_sz, &t!("context-union-tip")).clicked() {
                         action = Some(ContextAction::VectorUnion);
                     }
-                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Potong", TEXT_PRIMARY, icon_sz, "Potong path bawah dengan path atas (Difference)").clicked() {
+                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, &t!("context-subtract"), tokens.text_primary, icon_sz, &t!("context-subtract-tip")).clicked() {
                         action = Some(ContextAction::VectorDifference);
                     }
-                    if context_action_btn(ui, ICON_CATEGORY.codepoint, "Iris", TEXT_PRIMARY, icon_sz, "Irisan path terpilih (Intersection)").clicked() {
+                    if context_action_btn(ui, ICON_CATEGORY.codepoint, &t!("context-intersect"), tokens.text_primary, icon_sz, &t!("context-intersect-tip")).clicked() {
                         action = Some(ContextAction::VectorIntersection);
                     }
-                    if context_action_btn(ui, ICON_FLIP.codepoint, "Kecualikan", TEXT_PRIMARY, icon_sz, "Kecualikan area tumpang tindih (Xor)").clicked() {
+                    if context_action_btn(ui, ICON_FLIP.codepoint, &t!("context-xor"), tokens.text_primary, icon_sz, &t!("context-xor-tip")).clicked() {
                         action = Some(ContextAction::VectorXor);
                     }
                 }
@@ -221,30 +246,30 @@ impl ContextActionBar {
 
                     // Align (M2.5) — acuan: kotak batas seleksi.
                     let aligns = [
-                        (icons::ICON_ALIGN_HORIZONTAL_LEFT.codepoint, "Rata kiri", ContextAction::AlignLeft),
-                        (icons::ICON_ALIGN_HORIZONTAL_CENTER.codepoint, "Rata tengah horizontal", ContextAction::AlignCenterHorizontal),
-                        (icons::ICON_ALIGN_HORIZONTAL_RIGHT.codepoint, "Rata kanan", ContextAction::AlignRight),
-                        (icons::ICON_ALIGN_VERTICAL_TOP.codepoint, "Rata atas", ContextAction::AlignTop),
-                        (icons::ICON_ALIGN_VERTICAL_CENTER.codepoint, "Rata tengah vertikal", ContextAction::AlignCenterVertical),
-                        (icons::ICON_ALIGN_VERTICAL_BOTTOM.codepoint, "Rata bawah", ContextAction::AlignBottom),
+                        (icons::ICON_ALIGN_HORIZONTAL_LEFT.codepoint, t!("context-align-left"), ContextAction::AlignLeft),
+                        (icons::ICON_ALIGN_HORIZONTAL_CENTER.codepoint, t!("context-align-center-h"), ContextAction::AlignCenterHorizontal),
+                        (icons::ICON_ALIGN_HORIZONTAL_RIGHT.codepoint, t!("context-align-right"), ContextAction::AlignRight),
+                        (icons::ICON_ALIGN_VERTICAL_TOP.codepoint, t!("context-align-top"), ContextAction::AlignTop),
+                        (icons::ICON_ALIGN_VERTICAL_CENTER.codepoint, t!("context-align-center-v"), ContextAction::AlignCenterVertical),
+                        (icons::ICON_ALIGN_VERTICAL_BOTTOM.codepoint, t!("context-align-bottom"), ContextAction::AlignBottom),
                     ];
                     for (icon, tip, act) in aligns {
-                        if context_action_btn(ui, icon, "", TEXT_PRIMARY, icon_sz, tip).clicked() {
+                        if context_action_btn(ui, icon, "", tokens.text_primary, icon_sz, &tip).clicked() {
                             action = Some(act);
                         }
                     }
                     if selected_count >= 3 {
-                        if context_action_btn(ui, icons::ICON_ALIGN_HORIZONTAL_DISTRIBUTE.codepoint, "", TEXT_PRIMARY, icon_sz, "Sebar merata horizontal (pusat)").clicked() {
+                        if context_action_btn(ui, icons::ICON_ALIGN_HORIZONTAL_DISTRIBUTE.codepoint, "", tokens.text_primary, icon_sz, &t!("context-distribute-h")).clicked() {
                             action = Some(ContextAction::DistributeHorizontal);
                         }
-                        if context_action_btn(ui, icons::ICON_ALIGN_VERTICAL_DISTRIBUTE.codepoint, "", TEXT_PRIMARY, icon_sz, "Sebar merata vertikal (pusat)").clicked() {
+                        if context_action_btn(ui, icons::ICON_ALIGN_VERTICAL_DISTRIBUTE.codepoint, "", tokens.text_primary, icon_sz, &t!("context-distribute-v")).clicked() {
                             action = Some(ContextAction::DistributeVertical);
                         }
                     }
                 }
 
                 // Transform presisi (posisi, ukuran, rotasi dalam mm/derajat).
-                if context_action_btn(ui, icons::ICON_TRANSFORM.codepoint, "Transform", TEXT_PRIMARY, icon_sz, "Transformasi presisi: X/Y, lebar/tinggi, rotasi").clicked() {
+                if context_action_btn(ui, icons::ICON_TRANSFORM.codepoint, "Transform", tokens.text_primary, icon_sz, &t!("context-transform-tip")).clicked() {
                     action = Some(ContextAction::TransformPrecise);
                 }
 
@@ -253,17 +278,17 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Rename
-                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, "Nama", ACCENT_BLUE, icon_sz, "Beri nama / kelompokkan entitas terpilih").clicked() {
+                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, &t!("context-rename"), ACCENT_BLUE, icon_sz, &t!("context-rename-entity-tip")).clicked() {
                     action = Some(ContextAction::Rename);
                 }
 
                 // Delete
-                if context_action_btn(ui, ICON_DELETE.codepoint, "Hapus", egui::Color32::from_rgb(255, 110, 110), icon_sz, "Hapus elemen terpilih (Delete)").clicked() {
+                if context_action_btn(ui, ICON_DELETE.codepoint, &t!("context-delete"), ACCENT_RED, icon_sz, &t!("context-delete-tip")).clicked() {
                     action = Some(ContextAction::Delete);
                 }
 
                 // Clear Selection
-                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", tokens.text_secondary, icon_sz, &t!("context-clear-selection-tip")).clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
@@ -288,6 +313,7 @@ impl ContextActionBar {
     ) -> Option<ContextAction> {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
+        let tokens = ThemeTokens::for_ui(ui);
 
         // `horizontal_wrapped` selalu memakan seluruh lebar yang tersedia, jadi
         // ia hanya dipakai bila lebar alami baris (diukur frame sebelumnya)
@@ -306,13 +332,14 @@ impl ContextActionBar {
             if wrap {
                 ui.set_max_width(max_width);
             }
-            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
+            let touch_h = ui.spacing().interact_size.y.max(MIN_TOUCH_TARGET);
+            ui.spacing_mut().interact_size.y = touch_h;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
             let row = |ui: &mut Ui| {
                 // Header ringkas info seleksi
                 ui.label(
-                    RichText::new(format!("{} terpilih", selected_count))
-                        .size(11.0)
+                    RichText::new(t!("context-selected-count", count = selected_count))
+                        .size(TYPOGRAPHY.caption)
                         .strong()
                         .color(ACCENT_BLUE),
                 );
@@ -326,10 +353,10 @@ impl ContextActionBar {
                     if context_action_btn(
                         ui,
                         ICON_OPEN_IN_FULL.codepoint,
-                        "Ekstrusi",
+                        &t!("context-extrude"),
                         ACCENT_BLUE,
                         icon_sz,
-                        "Ekstrusi profil tertutup menjadi solid 3D (E)",
+                        &t!("context-extrude-sketch-tip"),
                     )
                     .clicked()
                     {
@@ -338,42 +365,42 @@ impl ContextActionBar {
                 }
 
                 // 1. Offset
-                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, "Offset", TEXT_PRIMARY, icon_sz, "Offset kurva / kontur terpilih (O)").clicked() {
+                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, &t!("tool-offset"), tokens.text_primary, icon_sz, &t!("context-offset-tip")).clicked() {
                     action = Some(ContextAction::Offset);
                 }
 
                 // 3. Mirror
-                if context_action_btn(ui, ICON_FLIP.codepoint, "Mirror", TEXT_PRIMARY, icon_sz, "Cerminkan elemen terpilih terhadap garis sumbu (M)").clicked() {
+                if context_action_btn(ui, ICON_FLIP.codepoint, &t!("tool-mirror"), tokens.text_primary, icon_sz, &t!("context-mirror-tip")).clicked() {
                     action = Some(ContextAction::Mirror);
                 }
 
                 // 4. Trim
-                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Trim", TEXT_PRIMARY, icon_sz, "Pangkas segmen garis yang bersilangan (T)").clicked() {
+                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, &t!("tool-trim"), tokens.text_primary, icon_sz, &t!("context-trim-tip")).clicked() {
                     action = Some(ContextAction::Trim);
                 }
 
                 // 4.1 Extend
-                if context_action_btn(ui, ICON_ARROWS_OUTWARD.codepoint, "Extend", TEXT_PRIMARY, icon_sz, "Perpanjang garis sampai kurva batas terdekat (Shift+E)").clicked() {
+                if context_action_btn(ui, ICON_ARROWS_OUTWARD.codepoint, &t!("tool-extend"), tokens.text_primary, icon_sz, &t!("context-extend-tip")).clicked() {
                     action = Some(ContextAction::Extend);
                 }
 
                 // 4.5 Pattern
-                if context_action_btn(ui, ICON_GRID_VIEW.codepoint, "Pattern", TEXT_PRIMARY, icon_sz, "Duplikasi entitas dalam kisi Linier / Sirkular (P)").clicked() {
+                if context_action_btn(ui, ICON_GRID_VIEW.codepoint, &t!("tool-pattern"), tokens.text_primary, icon_sz, &t!("context-pattern-sketch-tip")).clicked() {
                     action = Some(ContextAction::Pattern);
                 }
 
                 // 5. Revolve
-                if context_action_btn(ui, ICON_REFRESH.codepoint, "Revolve", TEXT_PRIMARY, icon_sz, "Putar profil 360° mengelilingi sumbu (V)").clicked() {
+                if context_action_btn(ui, ICON_REFRESH.codepoint, &t!("tool-revolve"), tokens.text_primary, icon_sz, &t!("context-revolve-sketch-tip")).clicked() {
                     action = Some(ContextAction::Revolve);
                 }
 
                 // 6. Sweep
-                if context_action_btn(ui, ICON_ROUTE.codepoint, "Sweep", TEXT_PRIMARY, icon_sz, "Sapu profil 2D menyusuri kurva jalur pemandu (Sweep)").clicked() {
+                if context_action_btn(ui, ICON_ROUTE.codepoint, &t!("tool-sweep"), tokens.text_primary, icon_sz, &t!("context-sweep-tip")).clicked() {
                     action = Some(ContextAction::Sweep);
                 }
 
                 // 7. Helix / Coil
-                if context_action_btn(ui, egui_icons::icons::ICON_HEATING_COIL.codepoint, "Helix", TEXT_PRIMARY, icon_sz, "Buat pegas atau ulir spiral 3D (Helix / Coil)").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_HEATING_COIL.codepoint, &t!("tool-helix"), tokens.text_primary, icon_sz, &t!("context-helix-sketch-tip")).clicked() {
                     action = Some(ContextAction::Helix);
                 }
 
@@ -383,16 +410,16 @@ impl ContextActionBar {
                     ui.add_space(2.0);
 
                     // Operasi Boolean Vektor (Shape Builder M2.4)
-                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Gabung", TEXT_PRIMARY, icon_sz, "Gabungkan path terpilih (Union)").clicked() {
+                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, &t!("context-union"), tokens.text_primary, icon_sz, &t!("context-union-tip")).clicked() {
                         action = Some(ContextAction::VectorUnion);
                     }
-                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Potong", TEXT_PRIMARY, icon_sz, "Potong path bawah dengan path atas (Difference)").clicked() {
+                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, &t!("context-subtract"), tokens.text_primary, icon_sz, &t!("context-subtract-tip")).clicked() {
                         action = Some(ContextAction::VectorDifference);
                     }
-                    if context_action_btn(ui, ICON_CATEGORY.codepoint, "Iris", TEXT_PRIMARY, icon_sz, "Irisan path terpilih (Intersection)").clicked() {
+                    if context_action_btn(ui, ICON_CATEGORY.codepoint, &t!("context-intersect"), tokens.text_primary, icon_sz, &t!("context-intersect-tip")).clicked() {
                         action = Some(ContextAction::VectorIntersection);
                     }
-                    if context_action_btn(ui, ICON_FLIP.codepoint, "Kecualikan", TEXT_PRIMARY, icon_sz, "Kecualikan area tumpang tindih (Xor)").clicked() {
+                    if context_action_btn(ui, ICON_FLIP.codepoint, &t!("context-xor"), tokens.text_primary, icon_sz, &t!("context-xor-tip")).clicked() {
                         action = Some(ContextAction::VectorXor);
                     }
                 }
@@ -402,7 +429,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Rename / Beri Nama Grup
-                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, "Nama", ACCENT_BLUE, icon_sz, "Beri nama / kelompokkan entitas terpilih").clicked() {
+                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, &t!("context-rename"), ACCENT_BLUE, icon_sz, &t!("context-rename-entity-tip")).clicked() {
                     action = Some(ContextAction::Rename);
                 }
 
@@ -411,12 +438,12 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // 6. Delete
-                if context_action_btn(ui, ICON_DELETE.codepoint, "Hapus", egui::Color32::from_rgb(255, 110, 110), icon_sz, "Hapus elemen terpilih (Delete)").clicked() {
+                if context_action_btn(ui, ICON_DELETE.codepoint, &t!("context-delete"), ACCENT_RED, icon_sz, &t!("context-delete-tip")).clicked() {
                     action = Some(ContextAction::Delete);
                 }
 
                 // 7. Deselect / Close
-                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", tokens.text_secondary, icon_sz, &t!("context-clear-selection-tip")).clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             };
@@ -442,9 +469,11 @@ impl ContextActionBar {
     pub fn show_face_selection(ui: &mut Ui, is_editing_hole: bool, icon_size: f32) -> Option<ContextAction> {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
+        let tokens = ThemeTokens::for_ui(ui);
 
         pill_frame().show(ui, |ui| {
-            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
+            let touch_h = ui.spacing().interact_size.y.max(MIN_TOUCH_TARGET);
+            ui.spacing_mut().interact_size.y = touch_h;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 ui.label(
@@ -453,7 +482,7 @@ impl ContextActionBar {
                     } else {
                         t!("selection-face-selected")
                     })
-                    .size(11.0)
+                    .size(TYPOGRAPHY.caption)
                     .strong()
                     .color(if is_editing_hole {
                         ACCENT_BLUE
@@ -467,45 +496,45 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Sketch On Face
-                if context_action_btn(ui, ICON_EDIT.codepoint, "Sketsa di Face", TEXT_PRIMARY, icon_sz, "Jadikan bidang ini sebagai bidang sketsa baru").clicked() {
+                if context_action_btn(ui, ICON_EDIT.codepoint, &t!("context-sketch-on-face"), tokens.text_primary, icon_sz, &t!("context-sketch-on-face-tip")).clicked() {
                     action = Some(ContextAction::SketchOnFace);
                 }
 
                 // Revolve Face
-                if context_action_btn(ui, ICON_REFRESH.codepoint, "Revolve", TEXT_PRIMARY, icon_sz, "Putar bidang mengelilingi sumbu (V)").clicked() {
+                if context_action_btn(ui, ICON_REFRESH.codepoint, &t!("tool-revolve"), tokens.text_primary, icon_sz, &t!("context-revolve-face-tip")).clicked() {
                     action = Some(ContextAction::Revolve);
                 }
 
                 // Helix / Coil Face
-                if context_action_btn(ui, egui_icons::icons::ICON_HEATING_COIL.codepoint, "Helix", TEXT_PRIMARY, icon_sz, "Buat ulir spiral atau pegas dari permukaan ini (Helix)").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_HEATING_COIL.codepoint, &t!("tool-helix"), tokens.text_primary, icon_sz, &t!("context-helix-face-tip")).clicked() {
                     action = Some(ContextAction::Helix);
                 }
 
                 // Shell / Hollow Face
-                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, "Shell / Hollow", TEXT_PRIMARY, icon_sz, "Ronggakan benda 3D dengan ketebalan dinding (H)").clicked() {
+                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, &t!("tool-shell"), tokens.text_primary, icon_sz, &t!("context-shell-tip")).clicked() {
                     action = Some(ContextAction::Shell);
                 }
 
                 // Rib / Tulang Penguat
-                if context_action_btn(ui, egui_icons::icons::ICON_TIMELINE.codepoint, "Rib (Tulang)", TEXT_PRIMARY, icon_sz, "Buat tulang penguat (stiffener rib) pada casing ini (R)").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_TIMELINE.codepoint, &t!("context-rib"), tokens.text_primary, icon_sz, &t!("context-rib-tip")).clicked() {
                     action = Some(ContextAction::Rib);
                 }
 
                 // Draft Angle
-                if context_action_btn(ui, ICON_ARCHITECTURE.codepoint, "Draft Angle", crate::theme::ACCENT_ORANGE, icon_sz, "Tambahkan kemiringan cetakan plastik (draft angle) ke face ini (D)").clicked() {
+                if context_action_btn(ui, ICON_ARCHITECTURE.codepoint, &t!("tool-draft-angle"), ACCENT_ORANGE, icon_sz, &t!("context-draft-tip")).clicked() {
                     action = Some(ContextAction::DraftAngle);
                 }
 
                 // Split Face
-                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Face", TEXT_PRIMARY, icon_sz, "Bagi permukaan (face) ini menjadi bagian terpisah (S)").clicked() {
+                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Face", tokens.text_primary, icon_sz, &t!("context-split-face-tip")).clicked() {
                     action = Some(ContextAction::SplitFace);
                 }
 
                 // Offset Face / Delete Face (direct editing, Paritas 2.1/2.2)
-                if context_action_btn(ui, egui_icons::icons::ICON_HEIGHT.codepoint, &t!("direct-offset-face"), TEXT_PRIMARY, icon_sz, &t!("direct-offset-face-help")).clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_HEIGHT.codepoint, &t!("direct-offset-face"), tokens.text_primary, icon_sz, &t!("direct-offset-face-help")).clicked() {
                     action = Some(ContextAction::OffsetFace);
                 }
-                if context_action_btn(ui, egui_icons::icons::ICON_DELETE_SWEEP.codepoint, &t!("direct-delete-face"), TEXT_PRIMARY, icon_sz, &t!("direct-delete-face-help")).clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_DELETE_SWEEP.codepoint, &t!("direct-delete-face"), tokens.text_primary, icon_sz, &t!("direct-delete-face-help")).clicked() {
                     action = Some(ContextAction::DeleteFace);
                 }
 
@@ -515,7 +544,7 @@ impl ContextActionBar {
                 }
 
                 // New Datum Plane from Face
-                if context_action_btn(ui, egui_icons::icons::ICON_LAYERS_OFF.codepoint, "+ Offset Plane", crate::theme::ACCENT_ORANGE, icon_sz, "Buat bidang kerja referensi 3D (Datum Plane) dari permukaan ini").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_LAYERS_OFF.codepoint, "+ Offset Plane", ACCENT_ORANGE, icon_sz, &t!("context-offset-plane-tip")).clicked() {
                     action = Some(ContextAction::OffsetPlane);
                 }
 
@@ -524,7 +553,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Deselect
-                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", tokens.text_secondary, icon_sz, &t!("context-clear-selection-tip")).clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
@@ -537,14 +566,16 @@ impl ContextActionBar {
     pub fn show_multi_face_selection(ui: &mut Ui, count: usize, icon_size: f32) -> Option<ContextAction> {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
+        let tokens = ThemeTokens::for_ui(ui);
 
         pill_frame().show(ui, |ui| {
-            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
+            let touch_h = ui.spacing().interact_size.y.max(MIN_TOUCH_TARGET);
+            ui.spacing_mut().interact_size.y = touch_h;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("{} Face Terpilih (Mate)", count))
-                        .size(11.0)
+                    RichText::new(t!("context-faces-selected-mate", count = count))
+                        .size(TYPOGRAPHY.caption)
                         .strong()
                         .color(ACCENT_BLUE),
                 );
@@ -554,22 +585,22 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // 1. Concentric Mate (◎)
-                if context_action_btn(ui, ICON_ADJUST.codepoint, "Concentric", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-concentric-desc")).clicked() {
+                if context_action_btn(ui, ICON_ADJUST.codepoint, "Concentric", tokens.text_primary, icon_sz, &t!("assembly-mate-concentric-desc")).clicked() {
                     action = Some(ContextAction::MateConcentric);
                 }
 
                 // 2. Coincident Mate (⫦)
-                if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Coincident", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-coincident-desc")).clicked() {
+                if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Coincident", tokens.text_primary, icon_sz, &t!("assembly-mate-coincident-desc")).clicked() {
                     action = Some(ContextAction::MateCoincident);
                 }
 
                 // 3. Distance Mate (↔)
-                if context_action_btn(ui, ICON_STRAIGHTEN.codepoint, "Distance", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-distance-desc")).clicked() {
+                if context_action_btn(ui, ICON_STRAIGHTEN.codepoint, "Distance", tokens.text_primary, icon_sz, &t!("assembly-mate-distance-desc")).clicked() {
                     action = Some(ContextAction::MateDistance);
                 }
 
                 // 4. Angle Mate (∡)
-                if context_action_btn(ui, ICON_ARCHITECTURE.codepoint, "Angle", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-angle-desc")).clicked() {
+                if context_action_btn(ui, ICON_ARCHITECTURE.codepoint, "Angle", tokens.text_primary, icon_sz, &t!("assembly-mate-angle-desc")).clicked() {
                     action = Some(ContextAction::MateAngle);
                 }
 
@@ -587,7 +618,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Deselect
-                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", tokens.text_secondary, icon_sz, &t!("context-clear-selection-tip")).clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
@@ -600,14 +631,16 @@ impl ContextActionBar {
     pub fn show_body_selection(ui: &mut Ui, count: usize, icon_size: f32) -> Option<ContextAction> {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
+        let tokens = ThemeTokens::for_ui(ui);
 
         pill_frame().show(ui, |ui| {
-            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
+            let touch_h = ui.spacing().interact_size.y.max(MIN_TOUCH_TARGET);
+            ui.spacing_mut().interact_size.y = touch_h;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("{} Body Terpilih", count))
-                        .size(11.0)
+                    RichText::new(t!("context-bodies-selected", count = count))
+                        .size(TYPOGRAPHY.caption)
                         .strong()
                         .color(ACCENT_BLUE),
                 );
@@ -618,7 +651,7 @@ impl ContextActionBar {
 
                 // Split Body jika 1 body dipilih
                 if count == 1 {
-                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Body", TEXT_PRIMARY, icon_sz, "Potong solid 3D menjadi 2 body terpisah menggunakan bidang pemotong (S)").clicked() {
+                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Body", tokens.text_primary, icon_sz, &t!("context-split-body-tip")).clicked() {
                         action = Some(ContextAction::SplitBody);
                     }
 
@@ -629,7 +662,7 @@ impl ContextActionBar {
 
                 // Operasi Boolean jika minimal 2 body dipilih
                 if count >= 2 {
-                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Boolean", TEXT_PRIMARY, icon_sz, "Operasi Boolean: Union (Gabung), Subtract (Potong), Intersect (Irisan)").clicked() {
+                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, &t!("tool-boolean"), tokens.text_primary, icon_sz, &t!("context-boolean-tip")).clicked() {
                         action = Some(ContextAction::Boolean);
                     }
 
@@ -644,15 +677,15 @@ impl ContextActionBar {
                 }
 
                 // Pattern Solid (1 or more bodies)
-                if context_action_btn(ui, ICON_GRID_VIEW.codepoint, "Pattern", TEXT_PRIMARY, icon_sz, "Duplikasi solid 3D dalam kisi Linier / Sirkular (P)").clicked() {
+                if context_action_btn(ui, ICON_GRID_VIEW.codepoint, &t!("tool-pattern"), tokens.text_primary, icon_sz, &t!("context-pattern-body-tip")).clicked() {
                     action = Some(ContextAction::Pattern);
                 }
 
                 if count == 1 {
-                    if context_action_btn(ui, ICON_FLIP.codepoint, &t!("mirror-body-title"), TEXT_PRIMARY, icon_sz, &t!("mirror-body-desc")).clicked() {
+                    if context_action_btn(ui, ICON_FLIP.codepoint, &t!("mirror-body-title"), tokens.text_primary, icon_sz, &t!("mirror-body-desc")).clicked() {
                         action = Some(ContextAction::MirrorBody);
                     }
-                    if context_action_btn(ui, egui_icons::icons::ICON_ROTATE_RIGHT.codepoint, &t!("rotate-body-title"), TEXT_PRIMARY, icon_sz, &t!("rotate-body-desc")).clicked() {
+                    if context_action_btn(ui, egui_icons::icons::ICON_ROTATE_RIGHT.codepoint, &t!("rotate-body-title"), tokens.text_primary, icon_sz, &t!("rotate-body-desc")).clicked() {
                         action = Some(ContextAction::RotateBody);
                     }
                 }
@@ -662,7 +695,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Rename Body
-                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, "Nama", ACCENT_BLUE, icon_sz, "Beri nama / ganti nama body terpilih").clicked() {
+                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, &t!("context-rename"), ACCENT_BLUE, icon_sz, &t!("context-rename-body-tip")).clicked() {
                     action = Some(ContextAction::Rename);
                 }
 
@@ -671,12 +704,12 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Delete Body
-                if context_action_btn(ui, ICON_DELETE.codepoint, "Hapus Body", egui::Color32::from_rgb(255, 110, 110), icon_sz, "Hapus body terpilih (Delete)").clicked() {
+                if context_action_btn(ui, ICON_DELETE.codepoint, &t!("context-delete-body"), ACCENT_RED, icon_sz, &t!("context-delete-body-tip")).clicked() {
                     action = Some(ContextAction::Delete);
                 }
 
                 // Deselect
-                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", tokens.text_secondary, icon_sz, &t!("context-clear-selection-tip")).clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
@@ -711,14 +744,22 @@ fn context_action_btn(
             &format!(" {}", label),
             0.0,
             egui::TextFormat {
-                font_id: egui::FontId::proportional(11.5),
+                font_id: egui::FontId::proportional(TYPOGRAPHY.caption),
                 color,
                 valign: egui::Align::Center,
                 ..Default::default()
             },
         );
     }
+    let a11y_label = if !label.is_empty() {
+        label.to_string()
+    } else {
+        tooltip.to_string()
+    };
     let resp = ui.add(Button::new(layout_job));
+    resp.widget_info(move || {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, a11y_label.clone())
+    });
     if !tooltip.is_empty() {
         resp.on_hover_text(tooltip)
     } else {

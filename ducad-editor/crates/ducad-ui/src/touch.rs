@@ -28,12 +28,12 @@ pub enum TouchDesignMode {
 }
 
 impl TouchDesignMode {
-    /// Label ramah pengguna dengan ikon representatif.
-    pub fn label(self) -> &'static str {
+    /// Label ramah pengguna terlokalisasi dengan ikon representatif.
+    pub fn label(self) -> String {
         match self {
-            Self::PencilAndFinger => "✏️+👆 Pencil & Jari",
-            Self::PencilOnly => "✏️ Hanya Apple Pencil",
-            Self::FingerDesign => "👆 Sentuh Jari (44pt)",
+            Self::PencilAndFinger => ducad_i18n::t!("touch-mode-hybrid"),
+            Self::PencilOnly => ducad_i18n::t!("touch-mode-pencil"),
+            Self::FingerDesign => ducad_i18n::t!("touch-mode-finger"),
         }
     }
 
@@ -62,12 +62,12 @@ impl TouchDesignMode {
         }
     }
 
-    /// Penjelasan mode interaksi.
-    pub fn description(self) -> &'static str {
+    /// Penjelasan mode interaksi terlokalisasi.
+    pub fn description(self) -> String {
         match self {
-            Self::PencilAndFinger => "Apple Pencil & Jari keduanya bisa mendesain; 2 jari untuk navigasi kanvas.",
-            Self::PencilOnly => "Khusus Apple Pencil untuk menggambar; sentuhan 1 jari memutar/menggeser kanvas (Palm Rejection).",
-            Self::FingerDesign => "Dioptimalkan untuk jari: target sentuh besar (44pt HIG) dan snapping lebih mudah.",
+            Self::PencilAndFinger => ducad_i18n::t!("touch-mode-hybrid-desc"),
+            Self::PencilOnly => ducad_i18n::t!("touch-mode-pencil-desc"),
+            Self::FingerDesign => ducad_i18n::t!("touch-mode-finger-desc"),
         }
     }
 
@@ -113,6 +113,20 @@ impl Default for TouchDesignConfig {
 }
 
 impl TouchDesignConfig {
+    /// Konfigurasi awal sesuai jenis perangkat: perangkat sentuh (iPad/tablet)
+    /// langsung memakai target sentuh 44pt Apple HIG sejak frame pertama,
+    /// sedangkan desktop memakai target ramping 28pt.
+    pub fn for_platform(is_touch_device: bool) -> Self {
+        Self {
+            touch_target_size: if is_touch_device {
+                crate::theme::TOUCH_TARGET_IPAD
+            } else {
+                crate::theme::MIN_TOUCH_TARGET
+            },
+            ..Self::default()
+        }
+    }
+
     /// Toleransi pixel yang efektif untuk snapping berdasarkan mode aktif.
     pub fn effective_pixel_tolerance(&self) -> f64 {
         match self.mode {

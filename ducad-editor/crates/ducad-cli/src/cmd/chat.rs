@@ -18,30 +18,29 @@ use crate::{CliError, CliResult, Exit};
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Part `.ducad` yang dibuka sebagai sesi `s1` (kosong = part baru).
+    /// Optional `.ducad` part opened as session `s1` (empty = new part).
     part: Option<PathBuf>,
     #[arg(long)]
     instruction: String,
-    /// `anthropic`, `openai`, `ollama`, atau `saved` (pengaturan aplikasi).
+    /// `anthropic`, `openai`, `ollama`, or `saved` (app settings).
     #[arg(long, default_value = "saved")]
     provider: String,
     #[arg(long)]
     model: Option<String>,
     #[arg(long)]
     base_url: Option<String>,
-    /// Simpan sesi `s1` ke berkas ini setelah chat selesai.
+    /// Save session `s1` to this path after the chat turn finishes.
     #[arg(long)]
     out: Option<PathBuf>,
-    /// Direktori root pagar path tool (default: direktori kerja).
+    /// Root directory confining tool file paths (defaults to current working directory).
     #[arg(long)]
     root: Option<PathBuf>,
     #[arg(long)]
     max_rounds: Option<usize>,
-    /// Tulis setiap kejadian loop sebagai NDJSON ke stderr.
+    /// Stream every agent loop event as NDJSON to stderr.
     #[arg(long)]
     events: bool,
-    /// Lampirkan gambar ke instruksi (foto sketsa, gambar lama); boleh
-    /// diulang. PNG/JPEG/GIF/WebP, maks 5 MB per gambar.
+    /// Attach reference image(s) to the instruction (repeatable; PNG/JPEG/GIF/WebP, max 5 MB each).
     #[arg(long = "image")]
     images: Vec<PathBuf>,
 }

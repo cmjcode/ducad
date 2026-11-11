@@ -142,7 +142,22 @@ impl LengthUnit {
     ///
     /// Gagal → pesan singkat yang bisa ditampilkan apa adanya.
     pub fn parse_input_mm(self, text: &str) -> Result<f64, String> {
-        let v = units_input::parse(text, self.to_mm_factor())?;
+        let v = units_input::parse_with_params(text, self.to_mm_factor(), None)?;
+        if v.is_finite() {
+            Ok(v)
+        } else {
+            Err(format!("'{}' bukan angka yang terhingga", text.trim()))
+        }
+    }
+
+    /// Sama dengan [`Self::parse_input_mm`], ditambah substitusi parameter
+    /// desain `$nama` (nilai parameter tersimpan dalam mm internal).
+    pub fn parse_input_mm_with_params(
+        self,
+        text: &str,
+        params: &std::collections::BTreeMap<String, f64>,
+    ) -> Result<f64, String> {
+        let v = units_input::parse_with_params(text, self.to_mm_factor(), Some(params))?;
         if v.is_finite() {
             Ok(v)
         } else {

@@ -251,6 +251,14 @@ impl CommandPalette {
                                         vec2(row_w, ROW_HEIGHT),
                                         Sense::click(),
                                     );
+                                    let a11y_label = entries[idx].label.to_string();
+                                    resp.widget_info(move || {
+                                        egui::WidgetInfo::labeled(
+                                            egui::WidgetType::Button,
+                                            true,
+                                            a11y_label.clone(),
+                                        )
+                                    });
                                     if resp.hovered() && pointer_moved {
                                         self.highlighted = pos;
                                     }

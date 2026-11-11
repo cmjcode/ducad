@@ -8,8 +8,8 @@ use crate::{CliError, CliResult, Exit};
 #[derive(clap::Args)]
 pub struct Args {
     part: PathBuf,
-    /// Larik CheckItem, atau objek dengan kunci "checks" (format tugas eval).
-    /// Tanpa ini dipakai `design.checks` part.
+    /// JSON array of CheckItem, or an object with a `"checks"` key (eval task format).
+    /// Defaults to the part's `design.checks`.
     #[arg(long)]
     checks: Option<PathBuf>,
     #[arg(long)]
@@ -17,18 +17,37 @@ pub struct Args {
 }
 
 fn read_checks(path: &PathBuf) -> Result<Vec<CheckItem>, CliError> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| CliError::usage(format!("gagal membaca {}: {e}", path.display())))?;
-    let value: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| CliError::usage(format!("{} bukan JSON: {e}", path.display())))?;
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        CliError::usage(if crate::is_id() {
+            format!("gagal membaca {}: {e}", path.display())
+        } else {
+            format!("failed to read {}: {e}", path.display())
+        })
+    })?;
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        CliError::usage(if crate::is_id() {
+            format!("{} bukan JSON: {e}", path.display())
+        } else {
+            format!("{} is not valid JSON: {e}", path.display())
+        })
+    })?;
     let list = match value {
         serde_json::Value::Object(mut o) => o.remove("checks").ok_or_else(|| {
-            CliError::usage(format!("{} tidak punya kunci \"checks\"", path.display()))
+            CliError::usage(if crate::is_id() {
+                format!("{} tidak punya kunci \"checks\"", path.display())
+            } else {
+                format!("{} is missing key \"checks\"", path.display())
+            })
         })?,
         other => other,
     };
-    serde_json::from_value(list)
-        .map_err(|e| CliError::usage(format!("daftar check tidak valid: {e}")))
+    serde_json::from_value(list).map_err(|e| {
+        CliError::usage(if crate::is_id() {
+            format!("daftar check tidak valid: {e}")
+        } else {
+            format!("invalid checks list: {e}")
+        })
+    })
 }
 
 pub fn exec(a: Args) -> CliResult {
@@ -36,9 +55,10 @@ pub fn exec(a: Args) -> CliResult {
     let explicit = a.checks.as_ref().map(read_checks).transpose()?;
     let checks = explicit.as_deref().unwrap_or(&s.design().checks);
     if checks.is_empty() {
-        return Err(CliError::usage(
+        return Err(CliError::usage(crate::tr(
+            "no checks defined (pass --checks or populate design.checks)",
             "tidak ada check (isi --checks atau design.checks)",
-        ));
+        )));
     }
     let summary = s.run_checks(Some(checks));
     if a.json {
@@ -54,13 +74,20 @@ pub fn exec(a: Args) -> CliResult {
             let label = r.id.clone().unwrap_or_else(|| r.kind.to_string());
             println!("{mark} {label}: {}", r.message);
             if let Some(citation) = &r.citation {
-                println!("    dasar: {citation}");
+                println!("    {}: {citation}", crate::tr("basis", "dasar"));
             }
         }
-        println!(
-            "lulus {} · gagal {} · error {} · peringatan {}",
-            summary.pass, summary.fail, summary.error, summary.warn
-        );
+        if crate::is_id() {
+            println!(
+                "lulus {} · gagal {} · error {} · peringatan {}",
+                summary.pass, summary.fail, summary.error, summary.warn
+            );
+        } else {
+            println!(
+                "passed {} · failed {} · error {} · warnings {}",
+                summary.pass, summary.fail, summary.error, summary.warn
+            );
+        }
     }
     Ok(if !summary.is_blocking() {
         Exit::Ok

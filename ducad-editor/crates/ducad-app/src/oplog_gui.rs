@@ -1281,6 +1281,14 @@ impl SetDimExpr {
 }
 
 impl DuCADApp {
+    /// Evaluasi input panjang satu arah ke milimeter dengan menghormati
+    /// `self.unit`, sufik satuan eksplisit (`mm`, `cm`, `in`, `"`), aritmetika,
+    /// dan parameter desain (`$nama`).
+    pub fn eval_length_mm(&self, text: &str) -> Result<f64, String> {
+        let params = self.agent_meta.design.effective_params();
+        self.unit.parse_input_mm_with_params(text, &params)
+    }
+
     /// Nilai input dimensi: `$param`/ekspresi param dievaluasi terhadap
     /// parameter dokumen (mm), selain itu angka/satuan biasa. `Ok((mm,
     /// ekspresi))`; ekspresi `Some` berarti dimensi diikat ke param.
@@ -1290,9 +1298,14 @@ impl DuCADApp {
             return self.unit.parse_input_mm(t).map(|v| (v, None));
         }
         let params = self.agent_meta.design.effective_params();
-        ducad_engine::ops::eval(&ducad_engine::ops::Num::Expr(t.to_string()), &params)
-            .map(|v| (v, Some(t.to_string())))
-            .map_err(|e| e.message)
+        match ducad_engine::ops::eval(&ducad_engine::ops::Num::Expr(t.to_string()), &params) {
+            Ok(v) => Ok((v, Some(t.to_string()))),
+            Err(e) => self
+                .unit
+                .parse_input_mm_with_params(t, &params)
+                .map(|v| (v, Some(t.to_string())))
+                .map_err(|_| e.message),
+        }
     }
 
     /// Perbarui dimensi `index` ke `new_constraint` dan pasang/hapus ikatan
@@ -3350,5 +3363,31 @@ mod tests {
         let steps = app.model_undo.undo_count();
         app.exit_sketching();
         assert_eq!(app.model_undo.undo_count(), steps);
+    }
+
+    #[test]
+    fn unit_and_param_inputs_convert_to_mm_in_fillet_and_chamfer() {
+        let (mut app, id) = app_with_box("Box", [0.0; 3]);
+        app.unit = ducad_core::LengthUnit::Inches;
+        app.agent_meta.design.params.insert("c_mm".to_string(), 1.5);
+        app.selected_bodies.insert(id);
+
+        // 0.1 in pada unit aktif Inches → 2.54 mm di oplog kernel.
+        app.fillet_radius_input = "0.1".to_string();
+        app.fillet_selected_body();
+        let last = serde_json::to_value(app.agent_meta.design.oplog.last().unwrap()).unwrap();
+        assert_eq!(last["op"], "fillet");
+        assert!((last["radius"].as_f64().unwrap() - 2.54).abs() < 1e-6);
+
+        app.undo_model();
+        app.selected_bodies.clear();
+        app.selected_bodies.insert(id);
+
+        // Referensi `$c_mm` dari tabel parameter tetap bernilai mm kanonik (1.5 mm).
+        app.chamfer_distance_input = "$c_mm".to_string();
+        app.chamfer_selected_body();
+        let last = serde_json::to_value(app.agent_meta.design.oplog.last().unwrap()).unwrap();
+        assert_eq!(last["op"], "chamfer");
+        assert!((last["distance"].as_f64().unwrap() - 1.5).abs() < 1e-6);
     }
 }

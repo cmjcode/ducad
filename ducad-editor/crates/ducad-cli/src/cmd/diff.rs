@@ -11,18 +11,19 @@ pub struct Args {
     b: PathBuf,
     #[arg(long)]
     json: bool,
-    /// Jangan hitung volume tambah/hilang dengan boolean kernel.
+    /// Skip boolean kernel calculation for added/removed volume.
     #[arg(long)]
     no_geometry: bool,
-    /// Tulis render diff berwarna (tampak iso) ke SVG.
+    /// Write color-coded isometric diff render to SVG.
     #[arg(long)]
     svg: Option<PathBuf>,
-    /// Tulis render diff berwarna (tampak iso) ke PNG 800x600.
+    /// Write color-coded isometric diff render to PNG (800x600).
     #[arg(long)]
     png: Option<PathBuf>,
 }
 
 pub fn exec(a: Args) -> CliResult {
+    let ind = crate::is_id();
     let sa = open_part(&a.a)?;
     let sb = open_part(&a.b)?;
     let (d, shapes) = diff(&sa, &sb, !a.no_geometry);
@@ -35,8 +36,13 @@ pub fn exec(a: Args) -> CliResult {
             600,
         )?;
         let write = |p: &PathBuf, bytes: &[u8]| {
-            std::fs::write(p, bytes)
-                .map_err(|e| crate::CliError::usage(format!("gagal menulis {}: {e}", p.display())))
+            std::fs::write(p, bytes).map_err(|e| {
+                crate::CliError::usage(if ind {
+                    format!("gagal menulis {}: {e}", p.display())
+                } else {
+                    format!("failed to write {}: {e}", p.display())
+                })
+            })
         };
         if let Some(p) = &a.svg {
             write(p, r.svg.as_bytes())?;
@@ -75,21 +81,44 @@ pub fn exec(a: Args) -> CliResult {
         }
         if let Some(impact) = &d.impact {
             for sheet in &impact.sheets {
-                println!("lembar {} {}: {}", sheet.kind, sheet.name, sheet.reason);
+                println!(
+                    "{} {} {}: {}",
+                    crate::tr("sheet", "lembar"),
+                    sheet.kind,
+                    sheet.name,
+                    sheet.reason
+                );
             }
-            println!("lembar tidak terdampak: {}", impact.unchanged_sheets);
+            println!(
+                "{}: {}",
+                crate::tr("unchanged sheets", "lembar tidak terdampak"),
+                impact.unchanged_sheets
+            );
             for c in &impact.checks {
                 println!("check {}: {:?} → {:?} — {}", c.check, c.old, c.new, c.message);
             }
             if impact.checks_remeasured > 0 {
-                println!("check terukur ulang tanpa ganti status: {}", impact.checks_remeasured);
+                println!(
+                    "{}: {}",
+                    crate::tr(
+                        "checks remeasured without status change",
+                        "check terukur ulang tanpa ganti status"
+                    ),
+                    impact.checks_remeasured
+                );
             }
             for r in &impact.requirements {
-                println!("persyaratan {}: {:?} → {:?}", r.id, r.old, r.new);
+                println!(
+                    "{} {}: {:?} → {:?}",
+                    crate::tr("requirement", "persyaratan"),
+                    r.id,
+                    r.old,
+                    r.new
+                );
             }
         }
         for w in &d.warnings {
-            println!("peringatan: {w}");
+            println!("{}: {w}", crate::tr("warning", "peringatan"));
         }
     }
     Ok(if d.is_empty() {

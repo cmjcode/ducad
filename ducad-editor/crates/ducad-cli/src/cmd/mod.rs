@@ -24,33 +24,59 @@ use serde::Serialize;
 
 use crate::CliError;
 
-/// Cetak `value` sebagai JSON rapi ke stdout.
+/// Print `value` as pretty-formatted JSON to stdout.
 pub fn print_json(value: &impl Serialize) -> Result<(), CliError> {
-    let text = serde_json::to_string_pretty(value)
-        .map_err(|e| CliError::usage(format!("gagal serialisasi JSON: {e}")))?;
+    let text = serde_json::to_string_pretty(value).map_err(|e| {
+        CliError::usage(if crate::is_id() {
+            format!("gagal serialisasi JSON: {e}")
+        } else {
+            format!("failed to serialize JSON: {e}")
+        })
+    })?;
     println!("{text}");
     Ok(())
 }
 
-/// Tulis `value` sebagai JSON rapi ke berkas.
+/// Write `value` as pretty-formatted JSON to a file.
 pub fn write_json(path: &Path, value: &impl Serialize) -> Result<(), CliError> {
-    let text = serde_json::to_string_pretty(value)
-        .map_err(|e| CliError::usage(format!("gagal serialisasi JSON: {e}")))?;
-    std::fs::write(path, text + "\n")
-        .map_err(|e| CliError::usage(format!("gagal menulis {}: {e}", path.display())))
+    let text = serde_json::to_string_pretty(value).map_err(|e| {
+        CliError::usage(if crate::is_id() {
+            format!("gagal serialisasi JSON: {e}")
+        } else {
+            format!("failed to serialize JSON: {e}")
+        })
+    })?;
+    std::fs::write(path, text + "\n").map_err(|e| {
+        CliError::usage(if crate::is_id() {
+            format!("gagal menulis {}: {e}", path.display())
+        } else {
+            format!("failed to write {}: {e}", path.display())
+        })
+    })
 }
 
-/// Urai `--param K=V`.
+/// Parse `--param K=V`.
 pub fn parse_param(s: &str) -> Result<(String, f64), String> {
-    let (k, v) = s
-        .split_once('=')
-        .ok_or_else(|| format!("param '{s}' harus berbentuk K=V"))?;
-    let v: f64 = v
-        .trim()
-        .parse()
-        .map_err(|_| format!("nilai param '{k}' bukan angka: '{v}'"))?;
+    let (k, v) = s.split_once('=').ok_or_else(|| {
+        if crate::is_id() {
+            format!("param '{s}' harus berbentuk K=V")
+        } else {
+            format!("param '{s}' must be K=V")
+        }
+    })?;
+    let v: f64 = v.trim().parse().map_err(|_| {
+        if crate::is_id() {
+            format!("nilai param '{k}' bukan angka: '{v}'")
+        } else {
+            format!("param '{k}' value is not a number: '{v}'")
+        }
+    })?;
     if k.trim().is_empty() {
-        return Err(format!("nama param kosong di '{s}'"));
+        return Err(if crate::is_id() {
+            format!("nama param kosong di '{s}'")
+        } else {
+            format!("empty param name in '{s}'")
+        });
     }
     Ok((k.trim().to_string(), v))
 }

@@ -12,8 +12,64 @@
 mod cmd;
 
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use clap::{Parser, Subcommand};
+
+/// Active CLI human-output language: `0` = English (`en`, default), `1` = Indonesian (`id`).
+static CLI_LANG: AtomicU8 = AtomicU8::new(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliLang {
+    En = 0,
+    Id = 1,
+}
+
+fn parse_lang(s: &str) -> Result<CliLang, String> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "en" | "en-us" | "english" => Ok(CliLang::En),
+        "id" | "id-id" | "indonesian" | "bahasa" => Ok(CliLang::Id),
+        other => Err(format!("unsupported language '{other}' (expected 'en' or 'id')")),
+    }
+}
+
+pub fn set_lang(lang: CliLang) {
+    CLI_LANG.store(lang as u8, Ordering::Relaxed);
+}
+
+pub fn is_id() -> bool {
+    CLI_LANG.load(Ordering::Relaxed) == CliLang::Id as u8
+}
+
+pub fn tr<'a>(en: &'a str, id: &'a str) -> &'a str {
+    if is_id() {
+        id
+    } else {
+        en
+    }
+}
+
+fn init_lang_early() {
+    if let Ok(env_lang) = std::env::var("DUCAD_LANG") {
+        if let Ok(parsed) = parse_lang(&env_lang) {
+            set_lang(parsed);
+        }
+    }
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--lang" {
+            if let Some(val) = args.next() {
+                if let Ok(parsed) = parse_lang(&val) {
+                    set_lang(parsed);
+                }
+            }
+        } else if let Some(val) = arg.strip_prefix("--lang=") {
+            if let Ok(parsed) = parse_lang(val) {
+                set_lang(parsed);
+            }
+        }
+    }
+}
 
 /// Kode keluar CLI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,60 +125,67 @@ pub type CliResult = Result<Exit, CliError>;
 #[command(
     name = "ducad-cli",
     version,
-    about = "CAD B-rep parametrik DUCAD tanpa GUI (satuan mm, sudut derajat)"
+    about = "Headless parametric B-rep CAD for agents and CI (mm units, degree angles)"
 )]
 struct Cli {
+    /// Human-readable output language (`en` or `id`; overrides `DUCAD_LANG`, default `en`).
+    #[arg(long, global = true, value_parser = parse_lang)]
+    lang: Option<CliLang>,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Jalankan file ops (OpFile JSON) dan cetak BatchReport.
+    /// Execute an operations file (OpFile JSON) and print a BatchReport.
     Run(cmd::run::Args),
-    /// Replay part `.ducad` (opsional dengan param baru).
+    /// Replay a `.ducad` part (optionally overriding parameters).
     Replay(cmd::replay::Args),
-    /// Ringkasan part: body, sketch, params.
+    /// Summarize a part: bodies, sketches, parameters, and mass properties.
     Inspect(cmd::inspect::Args),
-    /// Evaluasi checks desain (kode 3 bila ada yang gagal).
+    /// Evaluate design checks (exits with code 3 when blocking checks fail).
     Check(cmd::check::Args),
-    /// Tulis oplog ramah git (satu op per baris).
+    /// Print a git-friendly oplog (one operation per line).
     Oplog(cmd::oplog::Args),
-    /// Bandingkan dua part (kode 1 bila berbeda).
+    /// Compare two parts (exits with code 1 when differences exist).
     Diff(cmd::diff::Args),
-    /// Uji selector face/tepi pada satu body.
+    /// Test face or edge selectors on a body.
     Select(cmd::select::Args),
-    /// Render tampak part ke SVG/PNG.
+    /// Render part views to SVG or PNG.
     Render(cmd::render::Args),
-    /// Daftar/ekspor/impor konfigurasi varian (design table CSV).
+    /// List, export, or import variant configurations (CSV design table).
     Config(cmd::config::Args),
-    /// Jalankan studi simulasi statik (tegangan, deformasi, faktor keamanan).
+    /// Run a static, thermal, frequency, or buckling simulation study.
     Sim(cmd::sim::Args),
-    /// Ekspor part ke STEP/STL/OBJ/GLB.
+    /// Export a part to STEP, STL, OBJ, or GLB.
     Export(cmd::export::Args),
-    /// Bangun artefak manufaktur + laporan untuk CI (kode 3 bila check gagal).
+    /// Build manufacturing artifacts and CI reports (exits with code 3 if checks fail).
     Build(cmd::build::Args),
-    /// Status rilis paket: ajukan review, setujui, atau buka kembali.
+    /// Manage design package release state: submit for review, approve, or reopen.
     Release(cmd::release::Args),
-    /// Minta asisten AI di perangkat mengusulkan perubahan (proposal).
+    /// Ask the on-device AI assistant to propose design edits.
     Assist(cmd::assist::Args),
-    /// Chat agent (Claude/OpenAI/Ollama) yang memodelkan lewat tool MCP.
+    /// Run an AI modeling agent turn (Claude/OpenAI/Ollama) via in-process MCP tools.
     Chat(cmd::chat::Args),
-    /// Korpus golden migrasi kernel: rekam baseline / bandingkan (kode 1 bila beda).
+    /// Kernel migration golden corpus: capture baselines or compare (code 1 on mismatch).
     Golden(cmd::golden::Args),
-    /// Migrasi berkas `.ducad` ke format v4 (body turunan oplog tanpa STEP).
+    /// Migrate `.ducad` files to v4 format (oplog-derived bodies without embedded STEP).
     MigrateFile(cmd::migrate::Args),
-    /// Cetak JSON Schema OpFile.
+    /// Print the OpFile JSON Schema.
     Schema,
 }
 
 fn main() -> ExitCode {
+    init_lang_early();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .target(env_logger::Target::Stderr)
         .init();
     // Pelaksana `render --photo` (engine sendiri bebas wgpu).
     ducad_photoreal::install();
     let cli = Cli::parse();
+    if let Some(lang) = cli.lang {
+        set_lang(lang);
+    }
     let result = match cli.command {
         Command::Run(a) => cmd::run::exec(a),
         Command::Replay(a) => cmd::replay::exec(a),

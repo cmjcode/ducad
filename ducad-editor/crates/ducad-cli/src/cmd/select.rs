@@ -35,15 +35,18 @@ pub fn exec(a: Args) -> CliResult {
             serde_json::json!({ "count": idx.len(), "indices": idx, "items": items })
         }
         _ => {
-            return Err(CliError::usage(
+            return Err(CliError::usage(crate::tr(
+                "pass exactly one of --faces or --edges",
                 "pakai tepat satu dari --faces atau --edges",
-            ))
+            )))
         }
     };
     if a.json {
         print_json(&out)?;
-    } else {
+    } else if crate::is_id() {
         println!("{} cocok: {}", out["count"], out["indices"]);
+    } else {
+        println!("{} matched: {}", out["count"], out["indices"]);
     }
     Ok(Exit::Ok)
 }

@@ -401,6 +401,13 @@ impl FeatureTreeDrawer {
                     Vec2::new(ui.available_width(), 10.0),
                     egui::Sense::click_and_drag(),
                 );
+                handle_resp.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Slider,
+                        true,
+                        t!("a11y-resize-panel"),
+                    )
+                });
                 if handle_resp.hovered() || handle_resp.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                 }
@@ -905,6 +912,13 @@ impl FeatureTreeDrawer {
                                                 Vec2::splat(18.0),
                                                 egui::Sense::click(),
                                             );
+                                            edit_resp.widget_info(|| {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Button,
+                                                    true,
+                                                    t!("feature-tree-edit-params"),
+                                                )
+                                            });
                                             let is_edit_hov = edit_resp.hovered();
                                             if is_edit_hov {
                                                 ui.ctx().set_cursor_icon(
@@ -937,6 +951,18 @@ impl FeatureTreeDrawer {
                                                 Vec2::splat(18.0),
                                                 egui::Sense::click(),
                                             );
+                                            let is_suppressed = node.is_suppressed;
+                                            sup_resp.widget_info(move || {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Button,
+                                                    true,
+                                                    if is_suppressed {
+                                                        t!("feature-tree-unsuppress")
+                                                    } else {
+                                                        t!("feature-tree-suppress")
+                                                    },
+                                                )
+                                            });
                                             let is_sup_hov = sup_resp.hovered();
                                             if is_sup_hov {
                                                 ui.ctx().set_cursor_icon(
@@ -978,6 +1004,13 @@ impl FeatureTreeDrawer {
                                                 Vec2::splat(18.0),
                                                 egui::Sense::click(),
                                             );
+                                            del_resp.widget_info(|| {
+                                                egui::WidgetInfo::labeled(
+                                                    egui::WidgetType::Button,
+                                                    true,
+                                                    t!("feature-tree-delete"),
+                                                )
+                                            });
                                             let is_del_hov = del_resp.hovered();
                                             if is_del_hov {
                                                 ui.ctx().set_cursor_icon(

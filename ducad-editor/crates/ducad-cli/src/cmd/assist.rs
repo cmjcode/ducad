@@ -12,30 +12,30 @@ use crate::{CliError, CliResult, Exit};
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Part `.ducad` atau OpFile `.json`.
+    /// `.ducad` part or OpFile `.json`.
     part: PathBuf,
-    /// `apple` (Foundation Models, macOS 26+) atau `local` (GGUF).
+    /// `apple` (Foundation Models, macOS 26+) or `local` (GGUF).
     #[arg(long, default_value = "apple")]
     backend: String,
     #[arg(long)]
     instruction: String,
-    /// Terapkan proposal lalu simpan ke `--out`.
+    /// Accept the generated proposal and save to `--out`.
     #[arg(long)]
     accept: bool,
     #[arg(long)]
     out: Option<PathBuf>,
-    /// Berkas teks, satu pelajaran per baris (maks 5 dipakai).
+    /// Text file of design lessons, one per line (up to 5 used).
     #[arg(long)]
     lessons: Option<PathBuf>,
     #[arg(long, default_value_t = DEFAULT_MAX_ITERS)]
     max_iters: usize,
-    /// Backend `local`: berkas GGUF.
+    /// `local` backend: path to GGUF model weights.
     #[arg(long)]
     model: Option<PathBuf>,
-    /// Backend `local`: `tokenizer.json`.
+    /// `local` backend: path to `tokenizer.json`.
     #[arg(long)]
     tokenizer: Option<PathBuf>,
-    /// Sertakan transkrip prompt/balasan di keluaran JSON.
+    /// Include prompt/response transcript in JSON output.
     #[arg(long)]
     transcript: bool,
 }

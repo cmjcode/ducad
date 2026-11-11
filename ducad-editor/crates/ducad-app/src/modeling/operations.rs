@@ -59,7 +59,7 @@ impl DuCADApp {
 
     /// Extrude profil dari seleksi entitas sketch saat ini.
     pub fn extrude_selected(&mut self) {
-        let distance: f64 = match self.extrude_distance_input.trim().parse() {
+        let distance: f64 = match self.eval_length_mm(&self.extrude_distance_input) {
             Ok(v) => v,
             Err(_) => {
                 self.model_status = Some("Jarak extrude tidak valid".to_string());
@@ -418,7 +418,7 @@ impl DuCADApp {
                 Some("Pilih persis 2 profil tertutup di kanvas sketsa 2D".to_string());
             return;
         }
-        let height: f64 = match self.loft_height_input.trim().parse() {
+        let height: f64 = match self.eval_length_mm(&self.loft_height_input) {
             Ok(v) => v,
             _ => {
                 self.model_status = Some("Tinggi loft tidak valid".to_string());
@@ -497,7 +497,7 @@ impl DuCADApp {
                 Some("Pilih 2 profil tertutup di kanvas sketsa 2D".to_string());
             return;
         };
-        let height: f64 = match self.loft_height_input.trim().parse() {
+        let height: f64 = match self.eval_length_mm(&self.loft_height_input) {
             Ok(v) => v,
             _ => {
                 self.model_status = Some("Tinggi loft tidak valid".to_string());
@@ -758,13 +758,13 @@ impl DuCADApp {
             self.model_status = Some("Pilih persis 1 body untuk Fillet".to_string());
             return;
         };
-        let Ok(radius) = ducad_core::LengthUnit::Millimeters.parse_input_mm(&self.fillet_radius_input) else {
+        let Ok(radius) = self.eval_length_mm(&self.fillet_radius_input) else {
             self.model_status = Some("Radius fillet tidak valid".to_string());
             return;
         };
         let rays: Vec<PickRay> = self.selected_edges.iter().map(|e| e.ray).collect();
         let radius_end = if self.fillet_variable_enabled {
-            let Ok(r) = ducad_core::LengthUnit::Millimeters.parse_input_mm(&self.fillet_radius_end_input) else {
+            let Ok(r) = self.eval_length_mm(&self.fillet_radius_end_input) else {
                 self.model_status = Some("Radius akhir fillet variabel tidak valid".to_string());
                 return;
             };
@@ -792,7 +792,7 @@ impl DuCADApp {
             self.model_status = Some("Pilih persis 1 body untuk Chamfer".to_string());
             return;
         };
-        let Ok(distance) = ducad_core::LengthUnit::Millimeters.parse_input_mm(&self.chamfer_distance_input) else {
+        let Ok(distance) = self.eval_length_mm(&self.chamfer_distance_input) else {
             self.model_status = Some("Jarak chamfer tidak valid".to_string());
             return;
         };
@@ -839,7 +839,7 @@ impl DuCADApp {
         if text.is_empty() {
             return Some(0.0);
         }
-        match text.parse::<f64>() {
+        match self.eval_length_mm(text) {
             Ok(v) => Some(v),
             Err(_) => {
                 self.model_status = Some("Kedalaman rongga tidak valid".to_string());
@@ -910,7 +910,7 @@ impl DuCADApp {
             self.model_status = Some("Pilih persis 1 body untuk Shell/Hollow".to_string());
             return;
         };
-        let Ok(thickness) = self.shell_thickness_input.trim().parse::<f64>() else {
+        let Ok(thickness) = self.eval_length_mm(&self.shell_thickness_input) else {
             self.model_status = Some("Tebal shell tidak valid".to_string());
             return;
         };
@@ -932,7 +932,7 @@ impl DuCADApp {
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu untuk Shell/Hollow".to_string());
             return;
         };
-        let Ok(thickness) = self.shell_thickness_input.trim().parse::<f64>() else {
+        let Ok(thickness) = self.eval_length_mm(&self.shell_thickness_input) else {
             self.model_status = Some("Tebal shell tidak valid".to_string());
             return;
         };
@@ -962,7 +962,7 @@ impl DuCADApp {
             self.model_status = Some("Pilih persis 1 body untuk Shell Variable Thickness".to_string());
             return;
         };
-        let Ok(thickness) = self.shell_thickness_input.trim().parse::<f64>() else {
+        let Ok(thickness) = self.eval_length_mm(&self.shell_thickness_input) else {
             self.model_status = Some("Tebal default shell tidak valid".to_string());
             return;
         };
@@ -1058,11 +1058,11 @@ impl DuCADApp {
             self.model_status = Some("Pilih 1 body 3D untuk menambahkan tulang penguat (Rib)".to_string());
             return;
         };
-        let Ok(thickness) = self.rib_thickness_input.trim().parse::<f64>() else {
+        let Ok(thickness) = self.eval_length_mm(&self.rib_thickness_input) else {
             self.model_status = Some("Tebal tulang penguat (rib thickness) tidak valid".to_string());
             return;
         };
-        let Ok(depth) = self.rib_depth_input.trim().parse::<f64>() else {
+        let Ok(depth) = self.eval_length_mm(&self.rib_depth_input) else {
             self.model_status = Some("Kedalaman tulang penguat (rib depth) tidak valid".to_string());
             return;
         };

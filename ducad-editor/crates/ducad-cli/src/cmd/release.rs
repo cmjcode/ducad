@@ -14,24 +14,24 @@ use crate::{CliError, CliResult, Exit};
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Part `.ducad`.
+    /// `.ducad` part file.
     part: PathBuf,
-    /// Ajukan untuk direview dengan deskripsi perubahan (masuk tabel revisi).
-    #[arg(long, value_name = "DESKRIPSI", conflicts_with_all = ["approve", "reopen"])]
+    /// Submit for review with a change description (recorded in revision history).
+    #[arg(long, value_name = "DESCRIPTION", conflicts_with_all = ["approve", "reopen"])]
     submit: Option<String>,
-    /// Setujui revisi yang sedang berjalan (butuh `--by`).
+    /// Approve the current revision (requires `--by`).
     #[arg(long, conflicts_with = "reopen")]
     approve: bool,
-    /// Cabut persetujuan / kembalikan ke draf.
+    /// Revoke approval / return package to draft state.
     #[arg(long)]
     reopen: bool,
-    /// Nama pengaju atau penyetuju.
+    /// Submitter or approver name.
     #[arg(long, default_value = "")]
     by: String,
-    /// `YYYY-MM-DD`; default hari ini.
+    /// `YYYY-MM-DD`; defaults to today's date.
     #[arg(long)]
     date: Option<String>,
-    /// Setujui walau ceklis review belum bersih (dicatat di keluaran).
+    /// Approve even when review checklist items are incomplete (recorded in output).
     #[arg(long, requires = "approve")]
     force: bool,
     #[arg(long)]
@@ -39,6 +39,7 @@ pub struct Args {
 }
 
 pub fn exec(a: Args) -> CliResult {
+    let ind = crate::is_id();
     let mut s = open_part(&a.part)?;
     let (mut release, signature) = s.release();
     let date = a.date.clone().unwrap_or_else(today);
@@ -51,20 +52,34 @@ pub fn exec(a: Args) -> CliResult {
 
     if let Some(description) = &a.submit {
         if release.effective_state(&signature) == ReleaseState::Approved {
-            return Err(CliError::usage(format!(
-                "revisi {} sudah disetujui dan desain belum berubah",
-                release.revision
-            )));
+            return Err(CliError::usage(if ind {
+                format!(
+                    "revisi {} sudah disetujui dan desain belum berubah",
+                    release.revision
+                )
+            } else {
+                format!(
+                    "revision {} is already approved and design has not changed",
+                    release.revision
+                )
+            }));
         }
         release.submit(&signature, description, &a.by, &date);
         changed = true;
     } else if a.approve {
         if a.by.trim().is_empty() {
-            return Err(CliError::usage("--approve butuh --by NAMA"));
+            return Err(CliError::usage(crate::tr(
+                "--approve requires --by NAME",
+                "--approve butuh --by NAMA",
+            )));
         }
         if !blockers.is_empty() && !a.force {
             for b in &blockers {
-                eprintln!("ducad-cli: belum boleh disetujui — {b}");
+                if ind {
+                    eprintln!("ducad-cli: belum boleh disetujui — {b}");
+                } else {
+                    eprintln!("ducad-cli: cannot approve yet — {b}");
+                }
             }
             return Ok(Exit::NotReleased);
         }
@@ -92,16 +107,30 @@ pub fn exec(a: Args) -> CliResult {
             "forced": a.force && !blockers.is_empty(),
         }))?;
     } else {
-        println!("status: {} · revisi {}", state.label(), release.revision);
-        if release.approval_is_stale(&signature) {
-            println!("persetujuan sebelumnya tidak berlaku: desain berubah sejak disetujui");
-        }
-        if let Some(ap) = release
-            .approval
-            .as_ref()
-            .filter(|_| state == ReleaseState::Approved)
-        {
-            println!("disetujui {} pada {}", ap.by, ap.date);
+        if ind {
+            println!("status: {} · revisi {}", state.label(), release.revision);
+            if release.approval_is_stale(&signature) {
+                println!("persetujuan sebelumnya tidak berlaku: desain berubah sejak disetujui");
+            }
+            if let Some(ap) = release
+                .approval
+                .as_ref()
+                .filter(|_| state == ReleaseState::Approved)
+            {
+                println!("disetujui {} pada {}", ap.by, ap.date);
+            }
+        } else {
+            println!("status: {} · revision {}", state.label(), release.revision);
+            if release.approval_is_stale(&signature) {
+                println!("previous approval is stale: design changed since approval");
+            }
+            if let Some(ap) = release
+                .approval
+                .as_ref()
+                .filter(|_| state == ReleaseState::Approved)
+            {
+                println!("approved by {} on {}", ap.by, ap.date);
+            }
         }
         for item in &review {
             println!(
