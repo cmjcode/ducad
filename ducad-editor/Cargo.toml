@@ -79,7 +79,7 @@ bytemuck = { version = "1", features = ["derive"] }
 # menidurkan aplikasi (iPadOS `applicationWillResignActive`, Android
 # `onPause`) — dipakai autosave pemulihan di tablet (`platform.rs`).
 # Pemulihan posisi jendela dimatikan lewat `persist_window: false`.
-eframe = { version = "0.36", default-features = false, features = [
+eframe = { version = "0.37", default-features = false, features = [
     "accesskit",
     "default_fonts",
     "persistence",
