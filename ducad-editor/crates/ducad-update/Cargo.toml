@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+publish = false
 
 # Pembaruan otomatis aplikasi desktop dari GitHub Releases. Sengaja tanpa
 # egui: logika rilis/aset/pemasangan bisa diuji sendiri, dan UI-nya ada di

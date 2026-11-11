@@ -1,5 +1,12 @@
 {
-  "flange.dxf": "5c5def9ac371784b:293143",
-  "flange.pdf": "37bb4e3e6630ebc0:109925",
-  "flange.svg": "44b9b99dd26ec8e5:306805"
+  "aarch64": {
+    "flange.dxf": "5c5def9ac371784b:293143",
+    "flange.pdf": "37bb4e3e6630ebc0:109925",
+    "flange.svg": "44b9b99dd26ec8e5:306805"
+  },
+  "x86_64": {
+    "flange.dxf": "6e119ce62ec6cdf0:292447",
+    "flange.pdf": "010bf92135c56e39:109653",
+    "flange.svg": "731a077e71ae0821:305988"
+  }
 }

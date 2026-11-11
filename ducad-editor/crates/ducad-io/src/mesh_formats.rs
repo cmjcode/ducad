@@ -353,7 +353,11 @@ pub fn read_3mf_bytes(bytes: &[u8]) -> Result<Vec<ImportedMesh>> {
     let mut zip =
         zip::ZipArchive::new(std::io::Cursor::new(bytes)).context("3MF: bukan berkas zip")?;
     let name = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter_map(|i| {
+            zip.by_index(i)
+                .ok()
+                .and_then(|f| f.name().ok().map(|n| n.into_owned()))
+        })
         .find(|n| n.to_ascii_lowercase().ends_with(".model"))
         .ok_or_else(|| anyhow!("3MF: tidak ada berkas .model"))?;
     let f = zip.by_name(&name).context("3MF: gagal membuka model")?;

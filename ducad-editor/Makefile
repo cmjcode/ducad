@@ -130,6 +130,10 @@ bundle-macos: create-dirs
 		mkdir -p "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources"; \
 		cp "assets/DUCAD.icns" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources/"; \
 	fi
+	@mkdir -p "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources"
+	@for f in ../LICENSE ../NOTICE; do \
+		if [ -f "$$f" ]; then cp "$$f" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources/"; fi; \
+	done
 	@if [ -f "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)" ]; then \
 		chmod 755 "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)"; \
 	fi
@@ -237,7 +241,8 @@ build-linux: create-dirs
 
 bundle-linux: build-linux
 	@echo "📦 Package Linux"
-	cd $(LINUX_DIR) && tar -czf ducad-$(VERSION)-linux-x86_64.tar.gz $(BIN_NAME)-x86_64 2>/dev/null || true
+	@cp ../LICENSE ../NOTICE $(LINUX_DIR)/ 2>/dev/null || true
+	cd $(LINUX_DIR) && tar -czf ducad-$(VERSION)-linux-x86_64.tar.gz $(BIN_NAME)-x86_64 LICENSE NOTICE 2>/dev/null || true
 	@echo "✅ Linux packaging done."
 
 build-windows: create-dirs
@@ -251,7 +256,8 @@ build-windows: create-dirs
 bundle-windows: build-windows
 	@echo "🪟 Package Windows"
 	@if [ -f $(WINDOWS_DIR)/$(BIN_NAME)-x86_64.exe ]; then \
-		cd $(WINDOWS_DIR) && zip -r ducad-$(VERSION)-windows-x86_64.zip $(BIN_NAME)-x86_64.exe; \
+		cp ../LICENSE ../NOTICE $(WINDOWS_DIR)/ 2>/dev/null || true; \
+		cd $(WINDOWS_DIR) && zip -r ducad-$(VERSION)-windows-x86_64.zip $(BIN_NAME)-x86_64.exe LICENSE NOTICE; \
 	fi
 	@echo "✅ Windows packaging done."
 

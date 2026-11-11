@@ -3,9 +3,11 @@ set -euo pipefail
 
 # Rilis versi baru DUCAD dari berkas VERSION.
 #
-# Pemakaian: scripts/release-tag.sh [--no-push] [--no-bump]
+# Pemakaian: scripts/release-tag.sh [--no-push] [--no-bump] [--build-macos] [--skip-gate]
 #
 # Langkah:
+#   0. Jalankan gerbang mutu wajib (`cargo deny check`, tes layering, dan
+#      `scripts/release-gate.sh`) sebelum mengubah/menandai versi apa pun.
 #   1. Baca versi dari VERSION (root repo), validasi format semver.
 #   2. Bila tag `v<versi>` sudah ada (lokal atau di `origin`), artinya VERSION
 #      belum dinaikkan: patch dinaikkan +1 otomatis (0.7.9 -> 0.7.10) dan
@@ -20,17 +22,33 @@ set -euo pipefail
 
 PUSH=1
 BUMP=1
+RUN_GATE=1
+BUILD_MACOS=0
 for arg in "$@"; do
   case "$arg" in
     --no-push) PUSH=0 ;;
     --no-bump) BUMP=0 ;;
-    -h|--help) sed -n '4,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --build-macos) BUILD_MACOS=1 ;;
+    --skip-gate) RUN_GATE=0 ;;
+    -h|--help) sed -n '4,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "argumen tidak dikenal: $arg" >&2; exit 2 ;;
   esac
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+if [[ "$RUN_GATE" == 1 ]]; then
+  echo "==> Menjalankan gerbang rilis wajib sebelum membuat tag..."
+  if command -v cargo-deny >/dev/null 2>&1; then
+    (cd ducad-editor && cargo deny check)
+  fi
+  (cd ducad-editor && cargo test -p ducad-core --test layering)
+  "$ROOT/scripts/release-gate.sh"
+  echo "==> Gerbang rilis lulus!"
+else
+  echo "peringatan: --skip-gate dipakai; gerbang rilis lokal dilewati (CI release.yml tetap akan menguji)" >&2
+fi
 
 CARGO_TOML="ducad-editor/Cargo.toml"
 CARGO_LOCK="ducad-editor/Cargo.lock"
@@ -89,9 +107,6 @@ echo "==> $CARGO_TOML: version = \"$VERSION\""
 
 # Xcode: Info.plist macOS & iOS membaca $(MARKETING_VERSION) dan
 # $(CURRENT_PROJECT_VERSION), jadi cukup set keduanya di semua konfigurasi.
-# Build number default = angka versi digabung (0.5.2 -> 52), bisa ditimpa
-# lewat env BUILD; harus lebih besar dari build number tertinggi saat ini
-# karena App Store menolak build number yang tidak naik.
 CUR_BUILD="$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9]*\);.*/\1/p' "$PBXPROJ" | sort -n | tail -1)"
 BUILD="${BUILD:-$(echo "${VERSION%%-*}" | tr -d . | sed 's/^0*//')}"
 if ! [[ "$BUILD" =~ ^[0-9]+$ ]] || (( BUILD <= ${CUR_BUILD:-0} )); then
@@ -129,5 +144,6 @@ else
   echo "==> --no-push: jalankan 'git push origin $BRANCH && git push origin $TAG' bila siap"
 fi
 
-
-cd ducad-editor && ./build_macos.sh 
+if [[ "$BUILD_MACOS" == 1 ]]; then
+  ./build_macos.sh macos
+fi

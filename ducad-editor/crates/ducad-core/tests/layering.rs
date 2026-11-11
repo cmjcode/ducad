@@ -40,7 +40,8 @@ const ALLOWED: &[(&str, &[&str])] = &[
         ],
     ),
     ("ducad-assist", &["ducad-engine"]),
-    ("ducad-mcp", &["ducad-engine", "ducad-kernel"]),
+    ("ducad-photoreal", &["ducad-core", "ducad-engine"]),
+    ("ducad-mcp", &["ducad-engine", "ducad-kernel", "ducad-photoreal"]),
     (
         "ducad-ui",
         &[
@@ -62,6 +63,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "ducad-io",
             "ducad-sim",
             "ducad-engine",
+            "ducad-photoreal",
             "ducad-assist",
             "ducad-chat",
             "ducad-mcp",
@@ -78,6 +80,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "ducad-io",
             "ducad-sim",
             "ducad-engine",
+            "ducad-photoreal",
             "ducad-assist",
             "ducad-chat",
             "ducad-mcp",

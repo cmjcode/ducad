@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+publish = false
 
 # Simulasi FEA statik linier. Sengaja tanpa kernel CAD dan tanpa GUI: masukan
 # hanya mesh permukaan + indeks face. Dijaga tes

@@ -10,7 +10,7 @@ exclude = ["vendors/solidcraft"]
 [workspace.package]
 version = "0.8.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-only"
 authors = ["Yulius Jayuda <yulius.jayuda@gmail.com>"]
 
 [workspace.dependencies]
@@ -127,7 +127,7 @@ hex = "0.4"
 # ekstraksi .zip rilis Windows (Linux memakai `tar` sistem, macOS `hdiutil`).
 # Keduanya sudah ada di pohon dependensi lewat crate lain.
 sha2 = "0.10"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
 # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).
 rfd = "0.17"

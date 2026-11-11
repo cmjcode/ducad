@@ -1,6 +1,5 @@
-# Konfigurasi cargo-deny. Job CI-nya BELUM memblokir merge (lihat
-# `continue-on-error` di .github/workflows/ci.yml) sampai backlog pertama
-# dibereskan sekali.
+# Konfigurasi cargo-deny. Job CI `deny` di .github/workflows/ci.yml bersifat
+# MEMBLOKIR merge dan rilis.
 
 [graph]
 # Hanya platform yang benar-benar dibangun; tanpa ini cargo-deny ikut
@@ -16,12 +15,31 @@ targets = [
 [advisories]
 version = 2
 yanked = "warn"
-ignore = []
+# Hanya advisori status `unmaintained` tanpa celah keamanan & tanpa upgrade
+# langsung di hulu yang diizinkan sementara dengan alasan eksplisit. Seluruh
+# advisori kerentanan keamanan (`vulnerability`) WAJIB diperbaiki, bukan di-ignore.
+ignore = [
+    # Transitive dari kernel geometri truck (`truck-base` -> `cgmath`, `truck-derivers` -> `proc-macro-error`).
+    { id = "RUSTSEC-2026-0196", reason = "Transitive unmaintained crate (cgmath) di dalam kernel truck; tidak ada celah keamanan." },
+    { id = "RUSTSEC-2024-0370", reason = "Transitive unmaintained proc-macro (proc-macro-error) di dalam truck-derivers; hanya jalan saat kompilasi." },
+    # Transitive dari `image` (`exr`/`pulp` & `ravif`/`rav1e` -> `paste`).
+    { id = "RUSTSEC-2024-0436", reason = "Transitive unmaintained proc-macro (paste) dari crate image; tidak ada celah keamanan." },
+    # Transitive dari `eframe` -> `accesskit_unix` -> `zbus 5` (`zvariant`, `zbus_names`, `zvariant_derive` digabung ke zbus 6).
+    { id = "RUSTSEC-2026-0370", reason = "Digabung ke zbus 6; masih ditarik transitif oleh accesskit_unix di eframe 0.36." },
+    { id = "RUSTSEC-2026-0371", reason = "Digabung ke zbus 6; masih ditarik transitif oleh accesskit_unix di eframe 0.36." },
+    { id = "RUSTSEC-2026-0372", reason = "Digabung ke zbus 6; masih ditarik transitif oleh accesskit_unix di eframe 0.36." },
+    # Parser font sketsa 2D (`ducad-sketch`); berstatus unmaintained tanpa CVE, dijadwalkan migrasi ke `skrifa`.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser diarsipkan tanpa celah keamanan; dijadwalkan migrasi ke fontations/skrifa." },
+    # Terkunci ke `rusqlite 0.40` karena konflik `links = sqlite3` dengan pustaka `mnemonic` (`d86c5616`).
+    # DUCAD hanya membuka berkas SQLite internal milik sendiri di `~/.ducad/` (bukan berkas + `-wal` dari luar).
+    { id = "RUSTSEC-2026-0459", reason = "Terkunci ke rusqlite 0.40 oleh links=sqlite3 di mnemonic; DUCAD tidak pernah membuka berkas DB/-wal dari pihak luar." },
+]
 
 [licenses]
 version = 2
-# DUCAD sendiri MIT OR Apache-2.0 (lihat workspace.package.license).
+# DUCAD sendiri berlisensi AGPL-3.0-only (lihat LICENSE dan workspace.package.license).
 allow = [
+    "AGPL-3.0-only",
     "MIT",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
@@ -34,11 +52,11 @@ allow = [
     "CC0-1.0",
     "BSL-1.0",
     "OFL-1.1",
+    # Font bawaan egui (`epaint_default_fonts`).
+    "Ubuntu-font-1.0",
     # Daftar akar CA Mozilla (`webpki-roots`), ditarik `ureq` untuk verifikasi
     # TLS saat ticket polling OAuth. CDLA-Permissive-2.0 adalah lisensi DATA
-    # permisif (tanpa copyleft, tanpa kewajiban selain pemberitahuan) — crate
-    # itu memang berisi sertifikat, bukan kode. Ditambahkan sadar saat
-    # Sign in with Apple masuk; lihat docs/adr/0003-identitas-auth-ducad.md §5.
+    # permisif (tanpa copyleft, tanpa kewajiban selain pemberitahuan).
     "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
@@ -46,6 +64,9 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Izinkan dependensi lokal workspace/path & git ber-rev tanpa string versi semu,
+# sambil tetap menolak wildcard versi crates.io (`foo = "*"`).
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

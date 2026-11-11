@@ -146,9 +146,15 @@ fn drawing_golden_hashes_are_stable() {
 
     let file = "tests/golden/drawing.hashes.truck.json";
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file);
+    let arch = std::env::consts::ARCH;
     if std::env::var_os("DUCAD_UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let text = serde_json::to_string_pretty(&actual).unwrap() + "\n";
+        let mut by_arch: BTreeMap<String, BTreeMap<String, String>> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        by_arch.insert(arch.to_string(), actual);
+        let text = serde_json::to_string_pretty(&by_arch).unwrap() + "\n";
         std::fs::write(&path, text).unwrap();
         return;
     }
@@ -158,10 +164,16 @@ fn drawing_golden_hashes_are_stable() {
             path.display()
         )
     });
-    let expected: BTreeMap<String, String> = serde_json::from_str(&text).unwrap();
+    let by_arch: BTreeMap<String, BTreeMap<String, String>> = serde_json::from_str(&text).unwrap();
+    let expected = by_arch.get(arch).unwrap_or_else(|| {
+        panic!(
+            "hash golden untuk arsitektur `{arch}` belum ada di {}; jalankan dengan DUCAD_UPDATE_GOLDEN=1",
+            path.display()
+        )
+    });
     assert_eq!(
-        actual, expected,
-        "keluaran lembar berubah; bila disengaja perbarui dengan DUCAD_UPDATE_GOLDEN=1"
+        &actual, expected,
+        "keluaran lembar berubah pada `{arch}`; bila disengaja perbarui dengan DUCAD_UPDATE_GOLDEN=1"
     );
 }
 

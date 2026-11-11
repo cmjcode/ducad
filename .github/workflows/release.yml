@@ -72,9 +72,43 @@ jobs:
           fi
           echo "version=$WANT" >> "$GITHUB_OUTPUT"
 
+  # Rilis TIDAK BOLEH terbit bila audit dependensi, kontrak layering, atau
+  # gerbang workflow designer gagal.
+  gate:
+    name: gerbang kualitas & keamanan rilis
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pasang dependensi sistem Linux
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
+            libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ducad-editor
+          key: release-gate
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: ducad-editor/Cargo.toml
+          command: check
+      - name: Cek kontrak pelapisan crate
+        run: cargo test -p ducad-core --test layering
+      - name: Gerbang workflow designer
+        working-directory: .
+        run: scripts/release-gate.sh
+
   build:
     name: paket (${{ matrix.platform }})
-    needs: version
+    needs: [version, gate]
     strategy:
       fail-fast: false
       matrix:
@@ -131,15 +165,16 @@ jobs:
           mkdir -p "dist/ci/$APP" "dist/ci/$TOOLS"
           for b in ducad ducad-cli ducad-mcp; do cp "target/release/$b$EXE" "dist/ci/$APP/"; done
           cp assets/icon.png "dist/ci/$APP/"
+          cp ../LICENSE ../NOTICE "dist/ci/$APP/"
           printf '%s\n' "$VERSION" > "dist/ci/$APP/VERSION"
-          cp "target/release/ducad-cli$EXE" "target/release/ducad-mcp$EXE" "dist/ci/$TOOLS/"
+          cp "target/release/ducad-cli$EXE" "target/release/ducad-mcp$EXE" ../LICENSE ../NOTICE "dist/ci/$TOOLS/"
           cd dist/ci
           if [ "$RUNNER_OS" = "Windows" ]; then
             7z a -tzip "$APP.zip" "$APP" >/dev/null
             7z a -tzip "$TOOLS.zip" "./$TOOLS/*" >/dev/null
           else
             tar -czf "$APP.tar.gz" "$APP"
-            tar -C "$TOOLS" -czf "$TOOLS.tar.gz" ducad-cli ducad-mcp
+            tar -C "$TOOLS" -czf "$TOOLS.tar.gz" ducad-cli ducad-mcp LICENSE NOTICE
           fi
           for f in *.zip *.tar.gz; do
             [ -f "$f" ] && sha256sum "$f" > "$f.sha256"
@@ -165,6 +200,7 @@ jobs:
             -d Version="$VERSION" \
             -d BinDir=target/release \
             -d AssetsDir=assets \
+            -d RootDir=.. \
             -d VersionFile="dist/ci/ducad-$VERSION-windows-x86_64/VERSION" \
             -o "dist/ci/$MSI"
           wix msi validate "dist/ci/$MSI"
@@ -181,7 +217,7 @@ jobs:
           $dir = Join-Path $env:LOCALAPPDATA "Programs\DUCAD"
           $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v `"$env:RUNNER_TEMP\msi-install.log`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 60; throw "msiexec /i gagal: $($p.ExitCode)" }
-          foreach ($f in "ducad.exe", "ducad-cli.exe", "ducad-mcp.exe", "icon.png", "VERSION") {
+          foreach ($f in "ducad.exe", "ducad-cli.exe", "ducad-mcp.exe", "icon.png", "VERSION", "LICENSE", "NOTICE") {
             if (-not (Test-Path (Join-Path $dir $f))) { throw "berkas tidak terpasang: $f" }
           }
           if ((Get-Content (Join-Path $dir "VERSION")).Trim() -ne $env:VERSION) { throw "VERSION terpasang tidak cocok" }

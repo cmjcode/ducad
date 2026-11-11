@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+publish = false
 
 # Pustaka berisi seluruh aplikasi; binary desktop dan `ducad-android`
 # (cdylib `android_main`) sama-sama memakainya.

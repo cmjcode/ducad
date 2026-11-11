@@ -19,9 +19,9 @@ Arah panah = "bergantung pada". Tabel ini **kontrak** yang dijaga
 - `ducad-render` — renderer wgpu. → core, sketch
 - `ducad-io` — `.ducad`, STL/OBJ/GLB/3MF, SVG/PDF/DXF, tata letak gambar kerja. → core, sketch, kernel, ink
 - `ducad-engine` — modeling headless: `Op`/oplog, `compute`, selector, `Session`, checks, paket desain, proyek contoh (`samples`). **Sumber kebenaran pemodelan** (ADR 0010). → core, sketch, kernel, io, sim
-- `ducad-assist` → engine; `ducad-mcp` → engine, kernel
+- `ducad-assist` → engine; `ducad-photoreal` (eksperimental) → core, engine; `ducad-mcp` → engine, kernel, photoreal
 - `ducad-ui` — widget egui. → core, sketch, kernel, io, glass, i18n, cloud
-- `ducad-cli` → core, sketch, kernel, io, sim, engine, assist, chat, mcp
+- `ducad-cli` → core, sketch, kernel, io, sim, engine, photoreal, assist, chat, mcp
 - `ducad-app` — GUI (`ducad`). → semua di atas kecuali cli
 - `ducad-android` → app
 

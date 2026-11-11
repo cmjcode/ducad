@@ -1,0 +1,56 @@
+DUCAD — Third-Party Software Notices
+====================================
+
+DUCAD is Copyright (c) 2026 PT. VNEU TEKNOLOGI INDONESIA / Yulius Jayuda and
+released under the GNU Affero General Public License v3.0 only (AGPL-3.0-only).
+See LICENSE for the full license text.
+
+This distribution incorporates third-party open-source software components
+under permissive licenses as detailed below and in `ducad-editor/docs/ATTRIBUTION.md`.
+
+-------------------------------------------------------------------------------
+1. SolidCraft (vendored in `ducad-editor/vendors/solidcraft`)
+-------------------------------------------------------------------------------
+SolidCraft
+Copyright (c) 2026 SolidCraft contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(`ducad-editor/vendors/solidcraft/LICENSE-MIT`, `LICENSE-APACHE`).
+Source: https://github.com/tangency-labs/solidcraft
+
+Modified by DUCAD (`ducad_ext.rs` and workspace manifest adjustments; marked
+with `DUCAD:` in source).
+
+-------------------------------------------------------------------------------
+2. truck & matext4cgmath (vendored in `ducad-editor/vendors/solidcraft/vendor`)
+-------------------------------------------------------------------------------
+truck (`truck-modeling`, `truck-shapeops`, `truck-meshalgo`, `truck-stepio`,
+`truck-geometry`, `truck-topology`, `truck-polymesh`, `truck-geotrait`, `truck-base`)
+and `matext4cgmath`
+Copyright (c) RICOS Co. Ltd.
+Licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/ricosjp/truck
+
+Includes upstream SolidCraft modifications documented in
+`ducad-editor/vendors/solidcraft/vendor/README.md` (marked with `SolidCraft:`).
+
+-------------------------------------------------------------------------------
+3. TextureCraft (pinned git dependency in `ducad-photoreal`)
+-------------------------------------------------------------------------------
+TextureCraft (`texturecraft-render`, `texturecraft-geom`, `texturecraft-compose`,
+`texturecraft-core`, `texturecraft-texel`, `texturecraft-bake`)
+Copyright (c) 2026 ArtCraft Team and the TextureCraft contributors.
+Licensed under the MIT License or the Apache License, Version 2.0.
+Source: https://github.com/storytold/texturecraft
+
+ArtCraft and TextureCraft names, wordmarks, and logos are trademarks of their
+respective owners and are not used to endorse or brand DUCAD.
+
+-------------------------------------------------------------------------------
+4. Additional Crates & Bundled Fonts
+-------------------------------------------------------------------------------
+All Cargo dependencies and their respective permissive licenses (MIT, Apache-2.0,
+BSD-2-Clause, BSD-3-Clause, ISC, Zlib, MPL-2.0, Unicode-3.0, OFL-1.1,
+Ubuntu-font-1.0, CDLA-Permissive-2.0) are audited via `cargo deny check`
+(`ducad-editor/deny.toml`).
+

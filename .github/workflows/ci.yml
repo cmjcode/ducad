@@ -115,7 +115,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -231,15 +231,11 @@ jobs:
           --known tests/goldens/known_failures.truck.txt
 
   # ---------------------------------------------------------------------
-  # Audit dependensi. Sengaja TIDAK memblokir merge untuk sekarang:
-  # backlog advisory/lisensi belum pernah dibereskan, dan gate merah sejak
-  # hari pertama hanya melatih orang mengabaikannya. Hapus
-  # `continue-on-error` begitu `cargo deny check` hijau sekali.
+  # Audit dependensi (advisories, bans, licenses, sources). MEMBLOKIR.
   # ---------------------------------------------------------------------
   deny:
-    name: cargo-deny (belum memblokir)
+    name: cargo-deny
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2

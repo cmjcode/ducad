@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+publish = false
 description = "Asisten AI lokal/offline DUCAD: model mengusulkan aksi, hasilnya selalu proposal (P11)"
 
 [features]

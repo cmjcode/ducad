@@ -57,6 +57,8 @@
         <File Id="DucadMcpExe" Source="$(BinDir)\ducad-mcp.exe" />
         <File Id="IconPng" Source="$(AssetsDir)\icon.png" />
         <File Id="VersionFile" Source="$(VersionFile)" Name="VERSION" />
+        <File Id="LicenseFile" Source="$(RootDir)\LICENSE" Name="LICENSE" />
+        <File Id="NoticeFile" Source="$(RootDir)\NOTICE" Name="NOTICE" />
 
         <!-- `ducad-cli` / `ducad-mcp` bisa dipanggil dari terminal. -->
         <Environment Id="PathAppend" Name="PATH" Value="[INSTALLFOLDER]"
