@@ -1629,7 +1629,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "ducad-android"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "android-activity",
  "android_logger",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-app"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1657,6 +1657,7 @@ dependencies = [
  "ducad-io",
  "ducad-kernel",
  "ducad-mcp",
+ "ducad-photoreal",
  "ducad-render",
  "ducad-sim",
  "ducad-sketch",
@@ -1667,7 +1668,7 @@ dependencies = [
  "egui-wgpu",
  "egui_icons",
  "env_logger",
- "glam",
+ "glam 0.33.5",
  "image",
  "indexmap",
  "kurbo",
@@ -1691,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-assist"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -1705,7 +1706,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-chat"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1718,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-cli"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1729,6 +1730,7 @@ dependencies = [
  "ducad-io",
  "ducad-kernel",
  "ducad-mcp",
+ "ducad-photoreal",
  "ducad-sim",
  "env_logger",
  "log",
@@ -1738,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-cloud"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1758,9 +1760,9 @@ dependencies = [
 
 [[package]]
 name = "ducad-core"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
- "glam",
+ "glam 0.33.5",
  "serde",
  "serde_json",
  "slotmap",
@@ -1768,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-engine"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "ducad-core",
@@ -1776,7 +1778,7 @@ dependencies = [
  "ducad-kernel",
  "ducad-sim",
  "ducad-sketch",
- "glam",
+ "glam 0.33.5",
  "i_overlay",
  "log",
  "resvg",
@@ -1790,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-glass"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1800,7 +1802,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-i18n"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
@@ -1811,12 +1813,12 @@ dependencies = [
 
 [[package]]
 name = "ducad-ink"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "criterion",
  "ducad-core",
  "ducad-sketch",
- "glam",
+ "glam 0.33.5",
  "kurbo",
  "proptest",
  "rstar",
@@ -1827,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-io"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1835,7 +1837,7 @@ dependencies = [
  "ducad-ink",
  "ducad-kernel",
  "ducad-sketch",
- "glam",
+ "glam 0.33.5",
  "log",
  "miniz_oxide",
  "proptest",
@@ -1847,12 +1849,12 @@ dependencies = [
 
 [[package]]
 name = "ducad-kernel"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "criterion",
  "ducad-core",
- "glam",
+ "glam 0.33.5",
  "log",
  "serde",
  "solidcraft-geom",
@@ -1861,13 +1863,14 @@ dependencies = [
 
 [[package]]
 name = "ducad-mcp"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "dirs",
  "ducad-engine",
  "ducad-kernel",
+ "ducad-photoreal",
  "env_logger",
  "log",
  "schemars",
@@ -1876,14 +1879,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ducad-photoreal"
+version = "0.8.0"
+dependencies = [
+ "ducad-core",
+ "ducad-engine",
+ "glam 0.33.5",
+ "log",
+ "png",
+ "texturecraft-compose",
+ "texturecraft-core",
+ "texturecraft-geom",
+ "texturecraft-render",
+ "texturecraft-texel",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "ducad-render"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "bytemuck",
  "criterion",
  "ducad-sketch",
  "egui-wgpu",
- "glam",
+ "glam 0.33.5",
  "kurbo",
  "log",
  "lyon_path",
@@ -1894,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-sim"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "schemars",
  "serde",
@@ -1904,11 +1924,11 @@ dependencies = [
 
 [[package]]
 name = "ducad-sketch"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "criterion",
  "ducad-core",
- "glam",
+ "glam 0.33.5",
  "i_overlay",
  "kurbo",
  "proptest",
@@ -1921,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-ui"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "ducad-cloud",
  "ducad-core",
@@ -1933,14 +1953,14 @@ dependencies = [
  "egui",
  "egui_icons",
  "epaint_default_fonts",
- "glam",
+ "glam 0.33.5",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "ducad-update"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "hex",
  "log",
@@ -2840,6 +2860,22 @@ dependencies = [
  "khronos_api",
  "log",
  "xml-rs",
+]
+
+[[package]]
+name = "glam"
+version = "0.15.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3abb554f8ee44336b72d522e0a7fe86a29e09f839a36022fa869a7dfe941a54b"
+
+[[package]]
+name = "glam"
+version = "0.30.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
+dependencies = [
+ "bytemuck",
+ "serde_core",
 ]
 
 [[package]]
@@ -3853,6 +3889,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "mikktspace"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d0b56b403871a8f992ca626d52cc0a690d4841baea8955dc4af6304ac62f8b0"
+dependencies = [
+ "glam 0.15.2",
 ]
 
 [[package]]
@@ -6375,6 +6420,77 @@ checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "texturecraft-bake"
+version = "0.3.1"
+source = "git+https://github.com/storytold/texturecraft?rev=c00735cb7f6ddadfa7f44d22f2d33c3d38747f05#c00735cb7f6ddadfa7f44d22f2d33c3d38747f05"
+dependencies = [
+ "bytemuck",
+ "rayon",
+ "texturecraft-core",
+ "texturecraft-geom",
+ "texturecraft-texel",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "texturecraft-compose"
+version = "0.3.1"
+source = "git+https://github.com/storytold/texturecraft?rev=c00735cb7f6ddadfa7f44d22f2d33c3d38747f05#c00735cb7f6ddadfa7f44d22f2d33c3d38747f05"
+dependencies = [
+ "half",
+ "rayon",
+ "texturecraft-core",
+ "texturecraft-geom",
+ "texturecraft-texel",
+]
+
+[[package]]
+name = "texturecraft-core"
+version = "0.3.1"
+source = "git+https://github.com/storytold/texturecraft?rev=c00735cb7f6ddadfa7f44d22f2d33c3d38747f05#c00735cb7f6ddadfa7f44d22f2d33c3d38747f05"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "texturecraft-geom"
+version = "0.3.1"
+source = "git+https://github.com/storytold/texturecraft?rev=c00735cb7f6ddadfa7f44d22f2d33c3d38747f05#c00735cb7f6ddadfa7f44d22f2d33c3d38747f05"
+dependencies = [
+ "glam 0.30.10",
+ "mikktspace",
+ "rayon",
+ "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "texturecraft-render"
+version = "0.3.1"
+source = "git+https://github.com/storytold/texturecraft?rev=c00735cb7f6ddadfa7f44d22f2d33c3d38747f05#c00735cb7f6ddadfa7f44d22f2d33c3d38747f05"
+dependencies = [
+ "bytemuck",
+ "half",
+ "log",
+ "pollster 0.4.0",
+ "rayon",
+ "texturecraft-bake",
+ "texturecraft-compose",
+ "texturecraft-core",
+ "texturecraft-geom",
+ "texturecraft-texel",
+ "wasm-bindgen-futures",
+ "wgpu",
+]
+
+[[package]]
+name = "texturecraft-texel"
+version = "0.3.1"
+source = "git+https://github.com/storytold/texturecraft?rev=c00735cb7f6ddadfa7f44d22f2d33c3d38747f05#c00735cb7f6ddadfa7f44d22f2d33c3d38747f05"
 
 [[package]]
 name = "thiserror"

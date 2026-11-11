@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use ducad_engine::render::{render_svg, svg_to_png, RenderOptions, View};
+use ducad_engine::render::{render_photo, render_svg, svg_to_png, RenderOptions, View};
 use ducad_engine::Session;
 
 use super::open_part;
@@ -23,6 +23,16 @@ pub struct Args {
     /// Batasi ke body tertentu (boleh diulang).
     #[arg(long = "body")]
     bodies: Vec<String>,
+    /// Render foto-realistis (path tracing) alih-alih garis; hanya `.png`.
+    #[arg(long)]
+    photo: bool,
+    /// Sampel per piksel untuk `--photo` (lebih banyak = lebih bersih, lebih lama).
+    #[arg(long, requires = "photo")]
+    samples: Option<u32>,
+    /// Lingkungan studio untuk `--photo`: studio_soft | studio_contrast |
+    /// overcast | sunset | warehouse | night.
+    #[arg(long, requires = "photo")]
+    env: Option<String>,
 }
 
 fn parse_view(s: &str) -> Result<View, String> {
@@ -73,6 +83,35 @@ pub fn write_view(
         .map_err(|e| CliError::usage(format!("gagal menulis {}: {e}", path.display())))
 }
 
+/// Render foto-realistis lalu tulis PNG.
+#[allow(clippy::too_many_arguments)]
+pub fn write_photo(
+    s: &Session,
+    view: View,
+    path: &Path,
+    width: u32,
+    height: u32,
+    bodies: Option<Vec<String>>,
+    samples: Option<u32>,
+    environment: Option<String>,
+) -> Result<(), CliError> {
+    let r = render_photo(
+        s,
+        &RenderOptions {
+            view,
+            width,
+            height,
+            hidden_lines: false,
+            bodies,
+        },
+        samples,
+        environment,
+    )?;
+    eprintln!("render foto: {} sampel/piksel lewat {}", r.samples, r.backend);
+    std::fs::write(path, r.png)
+        .map_err(|e| CliError::usage(format!("gagal menulis {}: {e}", path.display())))
+}
+
 pub fn exec(a: Args) -> CliResult {
     let png = match a
         .out
@@ -85,8 +124,17 @@ pub fn exec(a: Args) -> CliResult {
         Some("svg") => false,
         _ => return Err(CliError::usage("--out harus berakhiran .svg atau .png")),
     };
+    if a.photo && (!png || a.hidden) {
+        return Err(CliError::usage(
+            "--photo menghasilkan .png dan tidak bisa digabung dengan --hidden",
+        ));
+    }
     let s = open_part(&a.part)?;
     let bodies = (!a.bodies.is_empty()).then_some(a.bodies);
+    if a.photo {
+        write_photo(&s, a.view, &a.out, a.size.0, a.size.1, bodies, a.samples, a.env)?;
+        return Ok(Exit::Ok);
+    }
     write_view(
         &s, a.view, png, &a.out, a.size.0, a.size.1, a.hidden, bodies,
     )?;

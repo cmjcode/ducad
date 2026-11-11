@@ -1,0 +1,29 @@
+[package]
+name = "ducad-photoreal"
+description = "Mode Render DUCAD: path tracing fisik di atas renderer TextureCraft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# Crate ini SENGAJA terpisah dari `ducad-render` (viewport interaktif):
+# path tracer TextureCraft menarik ±10 ribu baris kode pihak ketiga, dan
+# pemakainya (CLI/MCP/app) bisa memilih ikut atau tidak lewat fitur.
+#
+# Inti crate (`scene`, `gpu`) menerima slice mesh polos. Hanya modul
+# `engine` yang mengenal DUCAD: ia mendaftarkan diri sebagai pelaksana
+# render foto `ducad-engine`, yang sendiri dilarang bergantung pada wgpu.
+
+[dependencies]
+ducad-core = { workspace = true }
+ducad-engine = { workspace = true }
+png = "0.18"
+# Hanya untuk tipe vektor yang dikembalikan `ducad-engine` (`View::direction_up`).
+glam = { workspace = true }
+texturecraft-render = { workspace = true }
+texturecraft-geom = { workspace = true }
+texturecraft-compose = { workspace = true }
+texturecraft-core = { workspace = true }
+texturecraft-texel = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }

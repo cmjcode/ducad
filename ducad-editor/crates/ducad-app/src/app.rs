@@ -323,6 +323,8 @@ pub struct DuCADApp {
     pub history_drawer_open: bool,
     pub cmf_drawer_open: bool,
     pub lighting_drawer_open: bool,
+    /// Mode Render foto-realistis (path tracing) di viewport.
+    pub photo: crate::photo_mode::PhotoMode,
     pub planes_drawer_open: bool,
     pub feature_tree_drawer_open: bool,
     pub assembly_drawer_open: bool,
@@ -794,6 +796,7 @@ impl DuCADApp {
             history_drawer_open: false,
             cmf_drawer_open: false,
             lighting_drawer_open: false,
+            photo: Default::default(),
             planes_drawer_open: false,
             feature_tree_drawer_open: false,
             assembly_drawer_open: false,
@@ -986,6 +989,11 @@ impl DuCADApp {
             prefs_path: crate::cloud_ui::PrefsState::default_path(),
             license_override: None,
         };
+        // Mode Render memakai perangkat wgpu yang sama dengan egui.
+        app.photo.attach(render_state.clone());
+        // Pelaksana `render_view { "style": "photo" }` untuk jembatan agent
+        // (engine sendiri bebas wgpu).
+        ducad_photoreal::install();
         // Preferensi lokal dulu (bahasa/satuan/ikon tetap setelah restart),
         // lalu akun: tier dan preferensi dari perangkat lain menyusul di latar.
         app.prefs = crate::cloud_ui::PrefsState::load(&app.prefs_path);
@@ -1181,6 +1189,7 @@ impl DuCADApp {
             history_drawer_open: false,
             cmf_drawer_open: false,
             lighting_drawer_open: false,
+            photo: Default::default(),
             planes_drawer_open: false,
             feature_tree_drawer_open: false,
             assembly_drawer_open: false,
@@ -1937,6 +1946,10 @@ impl DuCADApp {
                 curvature_config: self.inspect_tools.curvature,
             },
         ));
+
+        // Mode Render menutupi scene raster dengan gambar path-traced;
+        // digambar sebelum input dinamis supaya popup tetap di atasnya.
+        self.photo_frame(ui, rect);
 
         self.dynamic_input_ui(ui, rect, raw_cursor);
     }
@@ -3772,9 +3785,31 @@ impl eframe::App for DuCADApp {
                         self.studio_config.key_intensity,
                         self.studio_config.fill_intensity,
                         self.studio_config.rim_intensity,
+                        ducad_ui::PhotoPanelUi {
+                            active: self.photo.active,
+                            environment: ducad_photoreal::Environment::ALL
+                                .iter()
+                                .position(|e| *e == self.photo.environment)
+                                .unwrap_or(0),
+                            samples: self.photo.samples(),
+                            target_samples: self.photo.target_samples(),
+                            on_gpu: self.photo.on_gpu(),
+                        },
                         max_drawer_h,
                     ) {
                         match ev {
+                            ducad_ui::LightingDrawerEvent::TogglePhotoRender => {
+                                let active = !self.photo.active;
+                                self.photo.set_active(active);
+                            }
+                            ducad_ui::LightingDrawerEvent::SetPhotoEnvironment(i) => {
+                                if let Some(env) = ducad_photoreal::Environment::ALL.get(i) {
+                                    self.photo.set_environment(*env);
+                                }
+                            }
+                            ducad_ui::LightingDrawerEvent::SavePhotoPng => {
+                                self.photo_save_png();
+                            }
                             ducad_ui::LightingDrawerEvent::SetPreset(p) => {
                                 self.studio_config.preset = match p {
                                     ducad_ui::StudioLightingPresetUi::CleanStudio => {

@@ -77,7 +77,7 @@ Catatan pengerjaan Fase 0 (2026-10-19):
 - 0.11: Inspect dan Salin oplog lewat command palette (bukan tombol di FT).
 - 0.12: solver sudah menjepit `MateLimits`; yang ditambah UI Min/Maks di drawer Assembly.
 - 0.13: `AssemblyTree::rigid_groups` (serde default, berkas lama tetap terbaca) + solver menggerakkan anggota grup sebagai satu body; perintah lewat palette.
-- 0.15: PNG dari renderer garis `render_view` (sama dengan MCP/CLI). **Belum**: preset studio berbayang — renderer saat ini hanya garis.
+- 0.15: PNG dari renderer garis `render_view` (sama dengan MCP/CLI). Render berbayang kini ada sebagai Mode Render path-traced (2026-11-11, crate `ducad-photoreal`): drawer Lighting → Render Foto (+ Simpan PNG), `render_view { "style": "photo" }`, dan `ducad-cli render --photo`. **Belum**: pilihan gaya foto di dialog Export PNG (resolusi tinggi baru lewat CLI), dan uji di iPad nyata.
 - Semua perintah baru masuk command palette lewat `ParityCmd` (`types.rs`); butir uji manual di `CEKLIS_UJI_GUI.md` bagian A18.
 
 Kriteria selesai Fase 0: setiap item punya entri FTL en/id, ada di command palette, masuk

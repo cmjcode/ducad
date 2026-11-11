@@ -1227,6 +1227,12 @@ Application Support/DUCAD) agar tutorial tampil seperti pertama kali.
 | B5.5 | Ganti tema terang/gelap dan ganti bahasa — tidak ada teks yang hilang atau kepanjangan | ☐ |
 | B5.6 | Ganti satuan (mm/cm/inci) mengubah tampilan angka secara konsisten | ☐ |
 | B5.7 | Semua pintasan papan ketik di tabel README masih benar | ☐ |
+| B5.8 | Drawer Lighting → **Render Foto** ON: viewport berganti gambar path-traced yang makin bersih; pil status kiri-bawah menghitung sampel dan menulis GPU; berhenti sendiri di target | ☐ |
+| B5.9 | Mode Render: orbit/zoom → gambar mulai ulang dan mengikuti kamera; lampu utama tetap di kiri kamera (bayangan jatuh ke kanan) dari sudut mana pun | ☐ |
+| B5.10 | Mode Render: body krom memantulkan body di sebelahnya, kaca membiaskan dan tembus pandang, plastik glossy punya highlight; ubah material di CMF → gambar diperbarui | ☐ |
+| B5.11 | Mode Render: ganti **Studio** (6 pilihan) → pencahayaan berubah; tidak ada garis horizon keras saat kamera mendatar | ☐ |
+| B5.12 | Mode Render: **Simpan PNG** → berkas tertulis dan sama dengan yang tampil; OFF → viewport biasa kembali, seleksi/gizmo berfungsi | ☐ |
+| B5.13 | Mode Render menyala sambil mengedit (extrude/fillet) → antarmuka tidak membeku; gambar menyusul setelah geometri berubah | ☐ |
 
 ### B6. iPad (kalau ada perangkatnya)
 
@@ -1247,6 +1253,8 @@ Application Support/DUCAD) agar tutorial tampil seperti pertama kali.
 | B6.13 | Pencil 2/Pro: ketuk ganda → tool aktif ↔ Pilih, ada haptik; hover di atas entitas → highlight sebelum ujung menyentuh | ☐ |
 | B6.14 | Panel memakai isian datar (Liquid Glass GPU mati bawaan di tablet); nyalakan di ⚙ → kaca tampil, frame tetap lancar | ☐ |
 | B6.15 | Buka 3 app berat lain sampai iPadOS memberi peringatan memori → status "cache dibebaskan", DUCAD tidak tertutup | ☐ |
+| B6.16 | Drawer Lighting → **Render Foto** ON di iPad nyata: gambar path-traced muncul, pil status menulis **GPU** (bukan CPU), orbit dengan jari tetap responsif, app tidak ditutup iPadOS. BELUM PERNAH diuji di perangkat — catat model iPad, waktu sampai 192 sampel, dan apakah jatuh ke CPU | ☐ |
+| B6.17 | Mode Render di iPad: **Simpan PNG** → berkas `render.png` di "Di iPad Ini ▸ DUCAD" dan share sheet muncul | ☐ |
 
 ### B7. Android tablet (kalau ada perangkatnya)
 

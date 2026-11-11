@@ -26,7 +26,151 @@ pub enum LightingDrawerEvent {
     SetSsaoIntensity(f32),
     ToggleFloorShadow,
     SetFloorShadowIntensity(f32),
+    /// Nyalakan/matikan Mode Render (path tracing) di viewport.
+    TogglePhotoRender,
+    /// Pilih lingkungan studio Mode Render (indeks ke [`PHOTO_ENVIRONMENT_KEYS`]).
+    SetPhotoEnvironment(usize),
+    /// Simpan gambar Mode Render sekarang sebagai PNG.
+    SavePhotoPng,
     Close,
+}
+
+/// Kunci terjemahan nama lingkungan Mode Render, urut sama dengan
+/// `ducad_photoreal::Environment::ALL`.
+pub const PHOTO_ENVIRONMENT_KEYS: [&str; 6] = [
+    "photo-env-studio-soft",
+    "photo-env-studio-contrast",
+    "photo-env-overcast",
+    "photo-env-sunset",
+    "photo-env-warehouse",
+    "photo-env-night",
+];
+
+/// Keadaan Mode Render untuk ditampilkan di drawer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PhotoPanelUi {
+    pub active: bool,
+    /// Indeks lingkungan terpilih ke [`PHOTO_ENVIRONMENT_KEYS`].
+    pub environment: usize,
+    pub samples: u32,
+    pub target_samples: u32,
+    /// `Some(true)` = GPU, `Some(false)` = CPU, `None` = belum mulai.
+    pub on_gpu: Option<bool>,
+}
+
+/// Bagian Mode Render: tombol nyala/mati, lingkungan, kemajuan, simpan PNG.
+fn photo_section(ui: &mut Ui, photo: PhotoPanelUi) -> Option<LightingDrawerEvent> {
+    let mut event = None;
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(format!(
+                "{} {}",
+                egui_icons::icons::ICON_CAMERA.codepoint,
+                t!("photo-title")
+            ))
+            .size(10.5)
+            .strong()
+            .color(TEXT_PRIMARY),
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let toggle = egui::Button::new(
+                RichText::new(if photo.active { "ON" } else { "OFF" })
+                    .size(9.5)
+                    .strong()
+                    .color(if photo.active {
+                        Color32::WHITE
+                    } else {
+                        TEXT_SECONDARY
+                    }),
+            )
+            .fill(if photo.active {
+                ACCENT_BLUE
+            } else {
+                Color32::from_rgba_premultiplied(35, 38, 48, 180)
+            })
+            .corner_radius(CornerRadius::same(4))
+            .min_size(Vec2::new(38.0, 18.0));
+            if ui.add(toggle).clicked() {
+                event = Some(LightingDrawerEvent::TogglePhotoRender);
+            }
+        });
+    });
+    ui.label(
+        RichText::new(t!("photo-desc"))
+            .size(8.5)
+            .color(TEXT_MUTED),
+    );
+
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(t!("photo-environment"))
+                .size(9.5)
+                .color(TEXT_SECONDARY),
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let current = PHOTO_ENVIRONMENT_KEYS
+                .get(photo.environment)
+                .copied()
+                .unwrap_or(PHOTO_ENVIRONMENT_KEYS[0]);
+            egui::ComboBox::from_id_salt("photo_environment_combo")
+                .selected_text(RichText::new(t!(current)).size(9.5))
+                .width(120.0)
+                .show_ui(ui, |ui| {
+                    for (i, key) in PHOTO_ENVIRONMENT_KEYS.iter().enumerate() {
+                        if ui
+                            .selectable_label(i == photo.environment, t!(*key))
+                            .clicked()
+                            && i != photo.environment
+                        {
+                            event = Some(LightingDrawerEvent::SetPhotoEnvironment(i));
+                        }
+                    }
+                });
+        });
+    });
+
+    if photo.active {
+        let target = photo.target_samples.max(1);
+        let fraction = (photo.samples as f32 / target as f32).clamp(0.0, 1.0);
+        let backend = match photo.on_gpu {
+            Some(true) => "GPU",
+            Some(false) => "CPU",
+            None => "",
+        };
+        ui.add(
+            egui::ProgressBar::new(fraction)
+                .desired_height(6.0)
+                .fill(ACCENT_BLUE),
+        );
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(t!(
+                    "photo-progress",
+                    samples = photo.samples,
+                    target = target,
+                    backend = backend
+                ))
+                .size(8.5)
+                .color(TEXT_MUTED),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let save = egui::Button::new(
+                    RichText::new(format!(
+                        "{} {}",
+                        egui_icons::icons::ICON_DOWNLOAD.codepoint,
+                        t!("photo-save")
+                    ))
+                    .size(9.5)
+                    .color(TEXT_PRIMARY),
+                )
+                .corner_radius(CornerRadius::same(4));
+                if ui.add_enabled(photo.samples > 0, save).clicked() {
+                    event = Some(LightingDrawerEvent::SavePhotoPng);
+                }
+            });
+        });
+    }
+    event
 }
 
 #[derive(Debug, Clone, Default)]
@@ -52,6 +196,7 @@ impl LightingDrawer {
         key_intensity: f32,
         fill_intensity: f32,
         rim_intensity: f32,
+        photo: PhotoPanelUi,
         max_height: f32,
     ) -> Option<LightingDrawerEvent> {
         let mut event = None;
@@ -141,6 +286,13 @@ impl LightingDrawer {
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(4.0, 6.0);
+
+                        // --- Mode Render (path tracing) Section ---
+                        if let Some(ev) = photo_section(ui, photo) {
+                            event = Some(ev);
+                        }
+                        ui.add_space(2.0);
+                        ui.separator();
 
                         // --- Studio Lighting Presets Section ---
                         ui.label(

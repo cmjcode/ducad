@@ -292,13 +292,16 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "render_view",
             "Render view",
-            "Render a view of the part as a PNG image (optionally save the SVG) for visual verification. With `overlay`, render a study result as a color map instead (runs the study if its result is missing or stale).",
+            "Render a view as PNG (optionally save the SVG) to verify the part. `style: photo` = path-traced studio image, optional `samples` and `environment` (slow, presentation only). `overlay` = study color map (runs the study if stale).",
             schema(
                 json!({ "session": session_prop(), "view": view.clone(), "hidden_lines": { "type": "boolean" },
                         "width": { "type": "integer", "minimum": 16, "maximum": 4096 },
                         "height": { "type": "integer", "minimum": 16, "maximum": 4096 },
                         "bodies": { "type": "array", "items": { "type": "string" } },
                         "save_svg": { "type": "string" },
+                        "style": { "type": "string", "enum": ["lines", "photo"] },
+                        "samples": { "type": "integer", "minimum": 1, "maximum": 4096 },
+                        "environment": { "type": "string", "enum": ["studio_soft", "studio_contrast", "overcast", "sunset", "warehouse", "night"] },
                         "overlay": { "type": "string", "enum": ["stress", "displacement", "safety_factor"],
                                      "description": "Color the body by a study result: von Mises stress (MPa), displacement magnitude (mm) or safety factor." },
                         "study": { "type": "string", "description": "Id of the study op to show; may be omitted when the design has exactly one study. Needs `overlay`." },

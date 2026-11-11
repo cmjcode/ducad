@@ -35,9 +35,9 @@
          perlu main.m/AppDelegate Objective-C terpisah — binary Rust ini
          LANGSUNG jadi executable .app-nya. -->
     <key>CFBundleVersion</key>
-    <string>710</string>
+    <string>80</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.7.10</string>
+    <string>0.8.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>MinimumOSVersion</key>

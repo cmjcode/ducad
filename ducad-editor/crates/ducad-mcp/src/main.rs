@@ -7,6 +7,8 @@ fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .target(env_logger::Target::Stderr)
         .init();
+    // Pelaksana `render_view { "style": "photo" }` (engine sendiri bebas wgpu).
+    ducad_photoreal::install();
     let mut args = std::env::args().skip(1);
     let mut root = std::env::current_dir()?;
     let mut attach = false;

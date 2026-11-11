@@ -8,7 +8,7 @@ members = ["crates/*"]
 exclude = ["vendors/solidcraft"]
 
 [workspace.package]
-version = "0.7.10"
+version = "0.8.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Yulius Jayuda <yulius.jayuda@gmail.com>"]
@@ -30,6 +30,19 @@ ducad-mcp = { path = "crates/ducad-mcp" }
 ducad-sim = { path = "crates/ducad-sim" }
 ducad-glass = { path = "crates/ducad-glass" }
 ducad-update = { path = "crates/ducad-update" }
+ducad-photoreal = { path = "crates/ducad-photoreal" }
+
+# Mode Render foto-realistis (`ducad-photoreal`): path tracer, BVH, dan
+# lingkungan studio dari TextureCraft — Rust murni, `unsafe` dilarang,
+# MIT OR Apache-2.0, wgpu 30 (sama dengan egui-wgpu kita). Belum terbit di
+# crates.io, jadi DIPAKU ke satu rev: proyeknya masih pra-rilis dan API-nya
+# bergerak. Menaikkan rev = PR tersendiri + jalankan
+# `cargo test -p ducad-photoreal`.
+texturecraft-render = { git = "https://github.com/storytold/texturecraft", rev = "c00735cb7f6ddadfa7f44d22f2d33c3d38747f05" }
+texturecraft-geom = { git = "https://github.com/storytold/texturecraft", rev = "c00735cb7f6ddadfa7f44d22f2d33c3d38747f05" }
+texturecraft-compose = { git = "https://github.com/storytold/texturecraft", rev = "c00735cb7f6ddadfa7f44d22f2d33c3d38747f05" }
+texturecraft-core = { git = "https://github.com/storytold/texturecraft", rev = "c00735cb7f6ddadfa7f44d22f2d33c3d38747f05" }
+texturecraft-texel = { git = "https://github.com/storytold/texturecraft", rev = "c00735cb7f6ddadfa7f44d22f2d33c3d38747f05" }
 
 dirs = "6.0"
 fluent-bundle = "0.16"

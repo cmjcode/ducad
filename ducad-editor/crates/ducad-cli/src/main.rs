@@ -120,6 +120,8 @@ fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .target(env_logger::Target::Stderr)
         .init();
+    // Pelaksana `render --photo` (engine sendiri bebas wgpu).
+    ducad_photoreal::install();
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Run(a) => cmd::run::exec(a),

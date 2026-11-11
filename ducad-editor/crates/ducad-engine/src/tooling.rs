@@ -260,6 +260,12 @@ fn call_core_tool_inner(
                 study: Option<String>,
                 #[serde(default)]
                 deform_scale: Option<f64>,
+                #[serde(default)]
+                style: crate::render::RenderStyle,
+                #[serde(default)]
+                samples: Option<u32>,
+                #[serde(default)]
+                environment: Option<String>,
             }
             let a: A = args(a)?;
             let _ = a.session;
@@ -269,6 +275,31 @@ fn call_core_tool_inner(
                 .map(|p| paths.resolve(p))
                 .transpose()?;
             let (w, h) = (a.width.unwrap_or(800), a.height.unwrap_or(600));
+            if a.style == crate::render::RenderStyle::Photo {
+                if a.overlay.is_some() || a.save_svg.is_some() || a.hidden_lines {
+                    return Err(OpError::invalid(
+                        "style \"photo\" cannot be combined with `overlay`, `save_svg` or `hidden_lines`",
+                    ));
+                }
+                let options = RenderOptions {
+                    view: a.view,
+                    width: w,
+                    height: h,
+                    hidden_lines: false,
+                    bodies: a.bodies,
+                };
+                let r = crate::render::render_photo_core(core, &options, a.samples, a.environment)?;
+                return Ok(ToolOut {
+                    payload: json!({ "style": "photo", "backend": r.backend, "samples": r.samples }),
+                    image_png: Some(r.png),
+                    is_error: false,
+                });
+            }
+            if a.samples.is_some() || a.environment.is_some() {
+                return Err(OpError::invalid(
+                    "`samples` and `environment` need style \"photo\"",
+                ));
+            }
             if let Some(overlay) = a.overlay {
                 let id = crate::sim::pick_study(core.meta, a.study.as_deref())?;
                 let report = crate::sim::run_study(core, &id, &ducad_sim::CancelToken::new())?;

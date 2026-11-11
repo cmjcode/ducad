@@ -354,6 +354,11 @@ impl DuCADApp {
                 PaletteAction::ToggleStudioLighting,
             ),
             (
+                ducad_i18n::t!("photo-title"),
+                String::new(),
+                PaletteAction::TogglePhotoRender,
+            ),
+            (
                 format!("Ganti Tema ({})", self.theme.toggled().label()),
                 String::new(),
                 PaletteAction::ToggleTheme,
@@ -554,6 +559,10 @@ impl DuCADApp {
             PaletteAction::ToggleStudioLighting => {
                 self.lighting_drawer_open = !self.lighting_drawer_open;
                 self.studio_config.enabled = self.lighting_drawer_open;
+            }
+            PaletteAction::TogglePhotoRender => {
+                let active = !self.photo.active;
+                self.photo.set_active(active);
             }
             PaletteAction::ToggleConstruction => {
                 self.toggle_construction_action();

@@ -289,6 +289,8 @@ pub enum PaletteAction {
     ToggleReduceTransparency,
     ToggleZebraView,
     ToggleStudioLighting,
+    /// Nyalakan/matikan Mode Render foto-realistis (path tracing).
+    TogglePhotoRender,
     ToggleConstruction,
     OpenDrawingSheet,
     SetSketchPlane(ducad_render::PlaneKind),
@@ -664,6 +666,7 @@ impl PaletteAction {
             | PaletteAction::ToggleLiquidGlass
             | PaletteAction::ToggleReduceTransparency
             | PaletteAction::ToggleStudioLighting
+            | PaletteAction::TogglePhotoRender
             | PaletteAction::SetTouchDesignMode(_)
             | PaletteAction::TogglePalmRejection
             | PaletteAction::StartTutorial

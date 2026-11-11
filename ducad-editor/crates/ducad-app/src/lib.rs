@@ -60,6 +60,7 @@ pub mod oplog_direct;
 pub mod oplog_gui;
 pub mod oplog_undo;
 pub mod overlay;
+pub mod photo_mode;
 pub mod plastic_tools;
 pub mod platform;
 pub mod proposal_ui;

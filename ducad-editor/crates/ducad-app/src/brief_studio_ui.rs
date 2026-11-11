@@ -535,6 +535,11 @@ impl DuCADApp {
             if let Some(path) = std::env::var_os("DUCAD_OPEN_FILE").filter(|p| !p.is_empty()) {
                 self.open_native_path(std::path::PathBuf::from(path));
             }
+            // `DUCAD_START_PHOTO=1`: mulai dengan Mode Render menyala
+            // (demo/uji tanpa klik; biasanya bersama `DUCAD_OPEN_FILE`).
+            if std::env::var_os("DUCAD_START_PHOTO").is_some_and(|v| v != "0" && !v.is_empty()) {
+                self.photo.set_active(true);
+            }
             if std::env::var_os("DUCAD_START_BRIEF").is_some_and(|v| v != "0" && !v.is_empty()) {
                 self.open_brief_studio();
                 // `DUCAD_BRIEF_PAGE=<n>`: lembar yang ditampilkan (mulai 1).

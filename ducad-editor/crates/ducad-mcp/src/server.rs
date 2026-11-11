@@ -656,6 +656,43 @@ mod tests {
         assert_eq!(r["content"][1]["type"], "image");
         assert_eq!(r["content"][1]["mimeType"], "image/png");
 
+        // Gaya foto: path tracer dipasang biner lewat `ducad_photoreal::install`
+        // (GPU bila ada adapter, selain itu CPU — keduanya memberi PNG).
+        ducad_photoreal::install();
+        let r = call(
+            &mut s,
+            70,
+            "render_view",
+            json!({ "view": "iso", "style": "photo", "width": 64, "height": 48, "samples": 4 }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(r["content"][1]["mimeType"], "image/png");
+        let payload = text(&r);
+        assert_eq!(payload["style"], "photo");
+        assert_eq!(payload["samples"], 4);
+        assert!(matches!(payload["backend"].as_str(), Some("gpu" | "cpu")));
+        // `samples`/`environment` hanya berarti untuk gaya foto.
+        let r = call(&mut s, 71, "render_view", json!({ "samples": 4 }));
+        assert_eq!(r["isError"], true);
+        // Gaya foto tidak digabung dengan opsi renderer garis.
+        let r = call(
+            &mut s,
+            72,
+            "render_view",
+            json!({ "style": "photo", "hidden_lines": true }),
+        );
+        assert_eq!(r["isError"], true);
+        let r = call(
+            &mut s,
+            73,
+            "render_view",
+            json!({ "style": "photo", "environment": "disko" }),
+        );
+        assert_eq!(r["isError"], true);
+        assert!(text(&r)["error"]["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("studio_soft")));
+
         let r = call(
             &mut s,
             8,
@@ -751,7 +788,10 @@ mod tests {
         let r =
             handle_message(&mut s, r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#).unwrap();
         let size = r.to_string().len();
-        assert!(size < 40 * 1024, "tools/list terlalu besar: {size} byte");
+        // Anggaran konteks agent. Dinaikkan dari 40 KiB ke 42 KiB saat
+        // `render_view` mendapat `style`/`samples`/`environment` (Mode Render,
+        // ADR 0012): daftar sebelumnya sudah tinggal ±100 byte dari batas.
+        assert!(size < 42 * 1024, "tools/list terlalu besar: {size} byte");
         for t in r["result"]["tools"].as_array().unwrap() {
             let name = t["name"].as_str().unwrap();
             assert!(t["title"].is_string(), "{name}");

@@ -123,7 +123,9 @@ pub use left_toolbar::{
     rail_button_side, rail_square_btn, rail_square_btn_enabled, LeftToolbar, ToolbarEvent,
     ToolbarTool,
 };
-pub use lighting_drawer::{LightingDrawer, LightingDrawerEvent};
+pub use lighting_drawer::{
+    LightingDrawer, LightingDrawerEvent, PhotoPanelUi, PHOTO_ENVIRONMENT_KEYS,
+};
 pub use onboarding::{
     Onboarding, OnboardingChapter, OnboardingEvent, OnboardingGoal, OnboardingState,
     OnboardingStep, OnboardingStepKind, OnboardingTarget, OverviewPage, MOD_KEY,

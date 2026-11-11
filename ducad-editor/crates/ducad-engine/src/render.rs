@@ -23,7 +23,7 @@ pub enum View {
 
 impl View {
     /// (arah `eye − target` belum dinormalisasi, `up`).
-    pub(crate) fn direction_up(self) -> (Vec3, Vec3) {
+    pub fn direction_up(self) -> (Vec3, Vec3) {
         match self {
             View::Iso => (Vec3::new(1.0, -1.0, 1.0), Vec3::Z),
             View::Front => (Vec3::new(0.0, -1.0, 0.0), Vec3::Z),
@@ -397,6 +397,120 @@ fn render_picked(
             hidden_segments,
         });
     }
+}
+
+/// Gaya gambar `render_view`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderStyle {
+    /// Garis tepi vektor (HLR) — cepat, deterministik, untuk verifikasi bentuk.
+    #[default]
+    Lines,
+    /// Foto-realistis (path tracing): material, bayangan, dan pantulan nyata.
+    Photo,
+}
+
+/// Jumlah sampel bawaan render foto (cukup bersih setelah denoise).
+pub const PHOTO_DEFAULT_SAMPLES: u32 = 96;
+/// Batas sampel render foto lewat tool (menjaga waktu respons agent).
+pub const PHOTO_MAX_SAMPLES: u32 = 4096;
+
+/// Permintaan render foto-realistis.
+///
+/// Engine SENGAJA tidak merender sendiri: path tracer membutuhkan wgpu, dan
+/// `ducad-engine` tidak boleh bergantung padanya (lihat tes
+/// `engine_has_no_gui_dependency`). Binari yang mampu (CLI, server MCP,
+/// aplikasi) mendaftarkan pelaksananya lewat [`install_photo_renderer`] —
+/// lihat `ducad_photoreal::install`.
+pub struct PhotoRequest<'a> {
+    pub bodies: Vec<(&'a ducad_core::Body, &'a crate::model::BodyGeometry)>,
+    pub view: View,
+    pub width: u32,
+    pub height: u32,
+    pub samples: u32,
+    /// Kunci lingkungan studio (mis. `studio_soft`); `None` = bawaan.
+    pub environment: Option<String>,
+}
+
+/// Hasil render foto.
+#[derive(Debug, Clone)]
+pub struct PhotoOutput {
+    pub png: Vec<u8>,
+    /// Jalur hitung yang dipakai: `"gpu"` atau `"cpu"`.
+    pub backend: &'static str,
+    pub samples: u32,
+}
+
+/// Pelaksana render foto yang didaftarkan binari.
+pub type PhotoRenderer = fn(&PhotoRequest<'_>) -> OpResult<PhotoOutput>;
+
+static PHOTO_RENDERER: std::sync::OnceLock<PhotoRenderer> = std::sync::OnceLock::new();
+
+/// Daftarkan pelaksana render foto. Panggilan kedua diabaikan (pelaksana
+/// pertama tetap dipakai).
+pub fn install_photo_renderer(renderer: PhotoRenderer) {
+    let _ = PHOTO_RENDERER.set(renderer);
+}
+
+/// Apakah build ini bisa merender foto.
+pub fn photo_renderer_available() -> bool {
+    PHOTO_RENDERER.get().is_some()
+}
+
+fn render_photo_picked(
+    picked: Vec<(&ducad_core::Body, &crate::model::BodyGeometry)>,
+    opt: &RenderOptions,
+    samples: Option<u32>,
+    environment: Option<String>,
+) -> OpResult<PhotoOutput> {
+    let Some(renderer) = PHOTO_RENDERER.get() else {
+        return Err(OpError::new(
+            OpErrorCode::Unsupported,
+            "photo rendering is not available in this build",
+        )
+        .with_hint("use style \"lines\" (the default) instead"));
+    };
+    if opt.width == 0 || opt.height == 0 || opt.width > 4096 || opt.height > 4096 {
+        return Err(OpError::invalid(format!(
+            "ukuran render foto harus 1..=4096 piksel (diberikan {}x{})",
+            opt.width, opt.height
+        )));
+    }
+    if picked.is_empty() {
+        return Err(OpError::invalid("tidak ada body untuk dirender"));
+    }
+    renderer(&PhotoRequest {
+        bodies: picked,
+        view: opt.view,
+        width: opt.width,
+        height: opt.height,
+        samples: samples
+            .unwrap_or(PHOTO_DEFAULT_SAMPLES)
+            .clamp(1, PHOTO_MAX_SAMPLES),
+        environment,
+    })
+}
+
+/// Render foto-realistis body sesi (`opt.hidden_lines` tidak berlaku).
+pub fn render_photo(
+    s: &Session,
+    opt: &RenderOptions,
+    samples: Option<u32>,
+    environment: Option<String>,
+) -> OpResult<PhotoOutput> {
+    let picked = pick_bodies(opt, |n| s.body(n), s.model())?;
+    render_photo_picked(picked, opt, samples, environment)
+}
+
+/// Seperti [`render_photo`] tetapi di atas state pinjaman (jembatan live).
+pub fn render_photo_core(
+    core: &crate::session::SessionCore,
+    opt: &RenderOptions,
+    samples: Option<u32>,
+    environment: Option<String>,
+) -> OpResult<PhotoOutput> {
+    let picked = pick_bodies(opt, |n| core.body(n), core.model)?;
+    render_photo_picked(picked, opt, samples, environment)
 }
 
 /// Rasterisasi SVG ke PNG berlatar putih.
