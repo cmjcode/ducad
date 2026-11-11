@@ -127,7 +127,7 @@ hex = "0.4"
 # tanda tangan Ed25519/Minisign pada manifest `.sha256`, dan ekstraksi .zip
 # rilis Windows (Linux memakai `tar` sistem, macOS `hdiutil`). Semuanya sudah
 # ada di pohon dependensi lewat crate lain.
-sha2 = "0.10"
+sha2 = "0.11"
 ring = "0.17"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
