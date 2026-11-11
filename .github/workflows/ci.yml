@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
           components: rustfmt
@@ -58,7 +58,7 @@ jobs:
     name: clippy + test (crate tanpa kernel)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
           components: clippy
@@ -87,7 +87,7 @@ jobs:
     name: kernel (clippy + test + wasm32)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
           components: clippy
@@ -118,7 +118,7 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
           components: clippy
@@ -139,7 +139,7 @@ jobs:
     name: gerbang workflow designer
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Pasang dependensi sistem Linux
         working-directory: .
         run: |
@@ -173,7 +173,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Pasang dependensi sistem Linux
         if: runner.os == 'Linux'
@@ -237,7 +237,7 @@ jobs:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           manifest-path: ducad-editor/Cargo.toml
