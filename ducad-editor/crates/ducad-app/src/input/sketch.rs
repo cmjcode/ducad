@@ -143,28 +143,11 @@ impl DuCADApp {
             self.sweep_path_plane_idx = None;
             self.hovered_plane_idx = None;
         }
-        // Alat berbasis face memilih sisi lewat klik face, dari jalur mana pun
+        // Shell memilih sisi yang dibuka lewat klik face, dari jalur mana pun
         // tool diaktifkan (toolbar, palet perintah, menu konteks, pintasan).
-        let is_face_pick = matches!(
-            tool,
-            ToolKind::Shell
-                | ToolKind::HoleWizard
-                | ToolKind::DraftAngle
-                | ToolKind::SplitBody
-                | ToolKind::Rib
-        );
-        let was_face_pick = matches!(
-            self.tool,
-            ToolKind::Shell
-                | ToolKind::HoleWizard
-                | ToolKind::DraftAngle
-                | ToolKind::SplitBody
-                | ToolKind::Rib
-        );
-        if is_face_pick {
+        if tool == ToolKind::Shell {
             self.picking_mode = PickMode::Face;
-        } else if (was_face_pick && self.picking_mode == PickMode::Face) || tool == ToolKind::Select
-        {
+        } else if self.tool == ToolKind::Shell && self.picking_mode == PickMode::Face {
             self.picking_mode = PickMode::None;
         }
         self.tool = tool;
@@ -1420,229 +1403,79 @@ impl DuCADApp {
                     self.set_tool(ToolKind::Select);
                 }
             }
-            let text_focus = self.has_text_input_focus(ui.ctx());
-            let is_sk = self.is_sketching;
-            let cur_mode = self.app_mode;
-
-            // Pintasan mode Solid 3D (`!is_sketching`).
-            if ui.input(|i| {
-                self.commands
-                    .is_pressed("solid.enter_sketch", i, text_focus, is_sk, cur_mode)
-            }) {
+            if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::S)) && !self.is_sketching {
                 self.enter_sketching();
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.extrude", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.extrude_from_palette();
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.revolve", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.open_revolve_dialog();
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.boolean", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::Boolean);
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.hole_wizard", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::HoleWizard);
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.shell", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::Shell);
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.pattern", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::Pattern);
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.draft_angle", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::DraftAngle);
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.helix", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::Helix);
-            } else if ui.input(|i| {
-                self.commands
-                    .is_pressed("tool.rib", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::Rib);
             }
-
+            if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::P)) && !self.is_sketching {
+                self.set_tool(ToolKind::Pattern);
+            }
             if self.is_sketching {
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("sketch.dimension", i, text_focus, is_sk, cur_mode)
-                }) && self.tool == ToolKind::Select
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::D))
+                    && self.tool == ToolKind::Select
                 {
                     self.dimension_hotkey();
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.line", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::L)) {
                     self.set_tool(ToolKind::Line);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.rectangle", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::R)) {
                     self.set_tool(ToolKind::Rectangle);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.circle", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::C)) {
                     self.set_tool(ToolKind::Circle);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.ellipse", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.shift && i.key_pressed(egui::Key::E)) {
                     self.set_tool(ToolKind::Ellipse);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.extend", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.modifiers.shift && i.key_pressed(egui::Key::E)) {
                     self.set_tool(ToolKind::Extend);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.polygon", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::Y)) {
                     self.set_tool(ToolKind::Polygon);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.arc", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::A)) {
                     self.set_tool(ToolKind::Arc);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.offset", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::O)) {
                     self.set_tool(ToolKind::Offset);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.mirror", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::M)) {
                     self.set_tool(ToolKind::Mirror);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.fillet_2d", i, text_focus, is_sk, cur_mode)
-                }) {
-                    self.set_tool(ToolKind::Fillet2D);
-                }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.freehand", i, text_focus, is_sk, cur_mode)
-                }) {
-                    self.set_tool(ToolKind::Freehand);
-                }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.spline", i, text_focus, is_sk, cur_mode)
-                }) {
-                    self.set_tool(ToolKind::Spline);
-                }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.trim", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::T)) {
                     self.set_tool(ToolKind::Trim);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.text", i, text_focus, is_sk, cur_mode)
-                        || self
-                            .commands
-                            .is_pressed("vector.text", i, text_focus, is_sk, cur_mode)
-                }) {
-                    self.set_tool(ToolKind::Text);
-                }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.pattern_2d", i, text_focus, is_sk, cur_mode)
-                }) {
-                    self.set_tool(ToolKind::Pattern);
-                }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("vector.pen_bezier", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::P)) {
                     self.set_tool(ToolKind::PenBezier);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("vector.node_edit", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::N)) {
                     self.set_tool(ToolKind::NodeEdit);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("vector.eyedropper", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::I)) {
                     self.set_tool(ToolKind::Eyedropper);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("vector.gradient", i, text_focus, is_sk, cur_mode)
-                }) {
-                    self.set_tool(ToolKind::Gradient);
-                }
-                if !text_focus
-                    && ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::G))
-                {
+                if ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::G)) {
                     self.group_selected_entities();
                 }
-                if !text_focus
-                    && ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::G))
-                {
+                if ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::G)) {
                     self.ungroup_selected_entities();
                 }
-                if !text_focus
-                    && ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::L))
-                {
+                if ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::L)) {
                     self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Union);
                 }
-                if !text_focus
-                    && ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::L))
-                {
+                if ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::L)) {
                     self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Difference);
                 }
-                if !text_focus && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::CloseBracket)) {
+                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::CloseBracket)) {
                     self.apply_context_action(ducad_ui::ContextAction::BringForward);
                 }
-                if !text_focus && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::OpenBracket)) {
+                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::OpenBracket)) {
                     self.apply_context_action(ducad_ui::ContextAction::SendBackward);
                 }
-                if ui.input(|i| {
-                    self.commands
-                        .is_pressed("tool.revolve_2d", i, text_focus, is_sk, cur_mode)
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::V)) {
                     self.open_revolve_dialog();
                 }
-                if ui.input(|i| {
-                    self.commands.is_pressed(
-                        "sketch.toggle_construction",
-                        i,
-                        text_focus,
-                        is_sk,
-                        cur_mode,
-                    )
-                }) {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::X)) {
                     self.toggle_construction_action();
                 }
             }
@@ -2759,7 +2592,7 @@ impl DuCADApp {
             }
             ToolKind::Fillet2D => {
                 self.last_snap = None;
-                if let Ok(val) = self.eval_length_mm(&self.dynamic_input) {
+                if let Ok(val) = self.dynamic_input.trim().parse::<f64>() {
                     if val > 0.0 {
                         self.fillet_2d_radius = val;
                     }

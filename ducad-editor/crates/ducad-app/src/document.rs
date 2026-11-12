@@ -263,7 +263,7 @@ impl DuCADApp {
             self.apply_create_pick_datum_plane();
             return;
         }
-        let offset_val = self.eval_length_mm(&self.datum_offset_input).unwrap_or(20.0);
+        let offset_val = self.datum_offset_input.trim().parse::<f64>().unwrap_or(20.0);
         let angle_val = self.datum_angle_input.trim().parse::<f64>().unwrap_or(45.0);
 
         let (name, plane) = match self.datum_mode {

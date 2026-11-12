@@ -97,55 +97,6 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
-    pub const ALL: [ToolKind; 46] = [
-        ToolKind::Select,
-        ToolKind::Line,
-        ToolKind::Rectangle,
-        ToolKind::Circle,
-        ToolKind::Ellipse,
-        ToolKind::Polygon,
-        ToolKind::Slot,
-        ToolKind::Spline,
-        ToolKind::Point,
-        ToolKind::Freehand,
-        ToolKind::Text,
-        ToolKind::Fillet2D,
-        ToolKind::Chamfer2D,
-        ToolKind::Arc,
-        ToolKind::Offset,
-        ToolKind::Mirror,
-        ToolKind::Trim,
-        ToolKind::Extend,
-        ToolKind::Break,
-        ToolKind::CoincidentPick,
-        ToolKind::FixedPick,
-        ToolKind::SymmetricPick,
-        ToolKind::Pattern,
-        ToolKind::PenBezier,
-        ToolKind::NodeEdit,
-        ToolKind::ShapeBuilder,
-        ToolKind::Eyedropper,
-        ToolKind::Gradient,
-        ToolKind::Extrude,
-        ToolKind::Revolve,
-        ToolKind::Loft,
-        ToolKind::Sweep,
-        ToolKind::Helix,
-        ToolKind::Shell,
-        ToolKind::Rib,
-        ToolKind::DraftAngle,
-        ToolKind::SplitBody,
-        ToolKind::Boolean,
-        ToolKind::DatumPlane,
-        ToolKind::SectionView,
-        ToolKind::ZebraInspection,
-        ToolKind::DraftAnalysis,
-        ToolKind::Measure,
-        ToolKind::MeasureAngle,
-        ToolKind::HoleWizard,
-        ToolKind::History,
-    ];
-
     pub fn to_toolbar_tool(self) -> ToolbarTool {
         match self {
             ToolKind::Select => ToolbarTool::Select,
@@ -192,7 +143,7 @@ impl ToolKind {
             ToolKind::DraftAnalysis => ToolbarTool::DraftAnalysis,
             ToolKind::Measure => ToolbarTool::Measure,
             ToolKind::MeasureAngle => ToolbarTool::MeasureAngle,
-            ToolKind::HoleWizard => ToolbarTool::HoleWizard,
+            ToolKind::HoleWizard => ToolbarTool::Select,
             ToolKind::History => ToolbarTool::History,
         }
     }
@@ -237,7 +188,6 @@ impl ToolKind {
             ToolbarTool::DraftAngle => ToolKind::DraftAngle,
             ToolbarTool::SplitBody => ToolKind::SplitBody,
             ToolbarTool::Boolean => ToolKind::Boolean,
-            ToolbarTool::HoleWizard => ToolKind::HoleWizard,
             ToolbarTool::DatumPlane => ToolKind::DatumPlane,
             ToolbarTool::SectionView => ToolKind::SectionView,
             ToolbarTool::ZebraInspection => ToolKind::ZebraInspection,
@@ -326,12 +276,6 @@ pub enum PaletteAction {
     ToggleLiquidGlass,
     /// Nyalakan/matikan "Kurangi transparansi".
     ToggleReduceTransparency,
-    /// Tampilkan/sembunyikan label teks di bawah ikon toolbar kiri.
-    ToggleToolbarLabels,
-    /// Nyalakan/matikan preferensi aksesibilitas "Kurangi gerak".
-    ToggleReduceMotion,
-    /// Sesuaikan skala UI (`-1` perkecil, `0` reset 100%, `+1` perbesar).
-    AdjustUiScale(i8),
     ToggleZebraView,
     ToggleStudioLighting,
     /// Nyalakan/matikan Mode Render foto-realistis (path tracing).
@@ -675,13 +619,7 @@ impl PaletteAction {
             | PaletteAction::SetSketchPlane(_)
             | PaletteAction::CreateDatumPlane => PaletteGroup::Mode,
             PaletteAction::File(_) | PaletteAction::OpenDrawingSheet => PaletteGroup::File,
-            PaletteAction::SetTool(
-                ToolKind::Measure
-                | ToolKind::MeasureAngle
-                | ToolKind::SectionView
-                | ToolKind::ZebraInspection
-                | ToolKind::DraftAnalysis,
-            )
+            PaletteAction::SetTool(ToolKind::Measure | ToolKind::MeasureAngle)
             | PaletteAction::ClearMeasurements
             | PaletteAction::ToggleMassPanel
             | PaletteAction::ToggleSimPanel
@@ -699,28 +637,22 @@ impl PaletteAction {
                 | ToolKind::DraftAngle
                 | ToolKind::SplitBody
                 | ToolKind::Boolean
-                | ToolKind::HoleWizard
-                | ToolKind::Pattern
                 | ToolKind::DatumPlane,
             )
             | PaletteAction::OpenRevolveDialog
             | PaletteAction::ExtrudeSelection => PaletteGroup::Solid,
-            PaletteAction::SetTool(ToolKind::History)
-            | PaletteAction::Undo
-            | PaletteAction::Redo
-            | PaletteAction::ModelUndo
-            | PaletteAction::ModelRedo
-            | PaletteAction::DeleteSelection => PaletteGroup::Edit,
             PaletteAction::SetTool(_)
             | PaletteAction::ToggleConstruction
             | PaletteAction::ConvertToClosedObjects
             | PaletteAction::ToggleInkSmartShape => PaletteGroup::Sketch,
+            PaletteAction::Undo
+            | PaletteAction::Redo
+            | PaletteAction::ModelUndo
+            | PaletteAction::ModelRedo
+            | PaletteAction::DeleteSelection => PaletteGroup::Edit,
             PaletteAction::ToggleTheme
             | PaletteAction::ToggleLiquidGlass
             | PaletteAction::ToggleReduceTransparency
-            | PaletteAction::ToggleToolbarLabels
-            | PaletteAction::ToggleReduceMotion
-            | PaletteAction::AdjustUiScale(_)
             | PaletteAction::ToggleStudioLighting
             | PaletteAction::TogglePhotoRender
             | PaletteAction::SetTouchDesignMode(_)

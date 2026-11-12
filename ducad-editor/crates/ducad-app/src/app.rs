@@ -247,14 +247,6 @@ pub struct DuCADApp {
     pub liquid_glass: bool,
     /// "Kurangi transparansi": panel datar pekat walau Liquid Glass nyala.
     pub reduce_transparency: bool,
-    /// Preferensi aksesibilitas "Kurangi gerak" (durasi animasi 0 ms).
-    pub reduce_motion: bool,
-    /// Faktor skala UI (`0.75..=1.5`, default `1.0`).
-    pub ui_scale: f32,
-    /// Antrean toast notifikasi bertingkat (Info/Warning/Error).
-    pub notifications: crate::notifications::NotificationQueue,
-    /// Registri tunggal perintah & pintasan papan ketik.
-    pub commands: crate::command_registry::CommandRegistry,
     /// Backdrop GPU Liquid Glass terpasang di `callback_resources` (false
     /// pada app tanpa GPU yang dipakai tes).
     pub glass_gpu_ready: bool,
@@ -368,7 +360,7 @@ pub struct DuCADApp {
     pub mobile: crate::mobile::MobileState,
     /// Pembaruan otomatis dari GitHub Releases (desktop); lihat `update_ui.rs`.
     pub update: crate::update_ui::UpdateCtl,
-    pub left_toolbar_content_sig: Option<(bool, bool, bool)>,
+    pub left_toolbar_content_sig: Option<bool>,
 
     // Fase 4: resize body 3D via pill dimensi langsung di viewport (bukan panel —
     // lihat `editing_body_dim_axis` di overlay/dimensions.rs).
@@ -729,10 +721,6 @@ impl DuCADApp {
             theme,
             liquid_glass: !crate::platform::is_mobile(),
             reduce_transparency: false,
-            reduce_motion: false,
-            ui_scale: 1.0,
-            notifications: Default::default(),
-            commands: Default::default(),
             glass_gpu_ready: true,
             icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
@@ -758,7 +746,7 @@ impl DuCADApp {
             studio_config: ducad_render::StudioConfig::default(),
             zebra_config: ducad_render::ZebraConfig::default(),
             draft_config: ducad_render::DraftConfig::default(),
-            touch_config: ducad_ui::TouchDesignConfig::for_platform(crate::platform::is_mobile()),
+            touch_config: ducad_ui::TouchDesignConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -969,7 +957,6 @@ impl DuCADApp {
         app.prefs = crate::cloud_ui::PrefsState::load(&app.prefs_path);
         let local_prefs = app.prefs.prefs.clone();
         app.apply_user_prefs(&local_prefs);
-        app.apply_theme_options(&cc.egui_ctx);
         app.cloud_on_login();
         app.init_mobile(cc);
         // Instans ini hasil "Mulai ulang" setelah pembaruan: dokumen sudah
@@ -1110,10 +1097,6 @@ impl DuCADApp {
             theme: ThemeMode::default(),
             liquid_glass: true,
             reduce_transparency: false,
-            reduce_motion: false,
-            ui_scale: 1.0,
-            notifications: Default::default(),
-            commands: Default::default(),
             glass_gpu_ready: false,
             icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
@@ -1139,7 +1122,7 @@ impl DuCADApp {
             studio_config: ducad_render::StudioConfig::default(),
             zebra_config: ducad_render::ZebraConfig::default(),
             draft_config: ducad_render::DraftConfig::default(),
-            touch_config: ducad_ui::TouchDesignConfig::for_platform(crate::platform::is_mobile()),
+            touch_config: ducad_ui::TouchDesignConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -1343,42 +1326,6 @@ impl DuCADApp {
             // penolakan Free diuji tersendiri di `cloud_ui`.
             license_override: Some(ducad_core::LicenseTier::Pro),
         }
-    }
-
-    /// Terapkan tema visual beserta opsi aksesibilitas, ukuran sentuh, dan skala UI.
-    pub fn apply_theme_options(&self, ctx: &egui::Context) {
-        ducad_ui::apply_with_options(
-            ctx,
-            self.theme,
-            ducad_ui::ThemeOptions {
-                touch_target_y: self.touch_config.touch_target_size,
-                ui_scale: self.ui_scale,
-                reduce_motion: self.reduce_motion,
-            },
-        );
-    }
-
-    /// True bila fokus berada di kotak teks atau popup input angka sehingga
-    /// pintasan satu huruf tidak boleh memicu alat di kanvas.
-    pub fn has_text_input_focus(&self, ctx: &egui::Context) -> bool {
-        ctx.egui_wants_keyboard_input()
-            || self.palette.is_open()
-            || self.rename_popup_open
-            || self.editing_dimension_entity.is_some()
-            || self.editing_edge_dim.is_some()
-            || self.editing_body_dim_axis.is_some()
-            || self.gizmo_dimension_editing
-            || self.face_gizmo_dimension_editing
-            || self.vertex_gizmo_dimension_editing
-            || self.edge_gizmo_dimension_editing
-            || self.sketch_corner_dimension_editing
-            || self.pattern_dimension_editing_x
-            || self.pattern_dimension_editing_y
-            || self.pattern_dimension_editing_z
-            || self.pattern_dimension_editing_angle
-            || self.pattern_dimension_editing_radius
-            || self.editing_hole_ruler_idx.is_some()
-            || self.body_rotate_editing
     }
 
     /// Catat aktivitas baru ke SQLite bersama snapshot dokumen penuh, lalu perbarui cache riwayat.
@@ -2120,86 +2067,81 @@ impl eframe::App for DuCADApp {
             }
         }
 
-        if self.palette.is_open() {
-            // Biarkan palet yang terbuka mengonsumsi ketikan sendiri kecuali toggle pembukanya.
-            let palette_pressed = ctx.input(|i| {
-                (i.modifiers.command && i.key_pressed(egui::Key::K))
-                    || (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::P))
-            });
-            if palette_pressed {
-                self.palette.toggle();
-            }
-        } else {
-            let palette_pressed = ctx.input(|i| {
-                (i.modifiers.command && i.key_pressed(egui::Key::K))
-                    || (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::P))
-            });
-            if palette_pressed {
-                self.palette.toggle();
-            }
-            let text_focus = self.has_text_input_focus(&ctx);
-            let is_sk = self.is_sketching;
-            let cur_mode = self.app_mode;
+        let palette_pressed = ctx.input(|i| {
+            (i.modifiers.command && i.key_pressed(egui::Key::K))
+                || (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::P))
+        });
+        if palette_pressed {
+            self.palette.toggle();
+        }
+        // Chat AI (P13.3).
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::A)) {
+            self.toggle_chat();
+        }
+        // Shortcut mode memakai ⌘⌥ (Cmd+Alt), BUKAN ⌘⇧: di macOS ⌘⇧3/4/5 adalah
+        // screenshot & rekam layar sistem, sehingga pengguna yang mengambil
+        // screenshot tanpa sengaja pindah ke mode Vektor/Tinta dan kameranya
+        // terkunci di tampilan Top.
+        let mode_key = |i: &egui::InputState, key: egui::Key| {
+            i.modifiers.command && i.modifiers.alt && !i.modifiers.shift && i.key_pressed(key)
+        };
+        let mode_sketch_pressed = ctx.input(|i| mode_key(i, egui::Key::Num2));
+        let mode_3d_pressed = ctx.input(|i| mode_key(i, egui::Key::Num3));
+        let mode_vector_pressed = ctx.input(|i| mode_key(i, egui::Key::Num4));
+        let mode_ink_pressed = ctx.input(|i| mode_key(i, egui::Key::Num5));
+        if mode_vector_pressed {
+            self.set_app_mode(crate::mode::AppMode::Vector);
+        }
+        if mode_ink_pressed {
+            self.set_app_mode(crate::mode::AppMode::Ink);
+        }
+        if mode_sketch_pressed {
+            self.enter_sketching();
+        }
+        if mode_3d_pressed {
+            self.exit_sketching();
+        }
 
-            if ctx.input(|i| self.commands.is_pressed("ai.chat", i, text_focus, is_sk, cur_mode)) {
-                self.toggle_chat();
-            }
-            // Shortcut mode memakai ⌘⌥ (Cmd+Alt), BUKAN ⌘⇧: di macOS ⌘⇧3/4/5 adalah
-            // screenshot & rekam layar sistem.
-            if ctx.input(|i| self.commands.is_pressed("mode.vector", i, text_focus, is_sk, cur_mode)) {
-                self.set_app_mode(crate::mode::AppMode::Vector);
-            }
-            if ctx.input(|i| self.commands.is_pressed("mode.ink", i, text_focus, is_sk, cur_mode)) {
-                self.set_app_mode(crate::mode::AppMode::Ink);
-            }
-            if ctx.input(|i| self.commands.is_pressed("mode.sketch", i, text_focus, is_sk, cur_mode)) {
-                self.enter_sketching();
-            }
-            if ctx.input(|i| self.commands.is_pressed("mode.solid", i, text_focus, is_sk, cur_mode)) {
-                self.exit_sketching();
-            }
+        let undo_pressed = ctx.input(|i| {
+            i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z)
+        });
+        let redo_pressed = ctx.input(|i| {
+            i.modifiers.command
+                && (i.key_pressed(egui::Key::Y)
+                    || (i.modifiers.shift && i.key_pressed(egui::Key::Z)))
+        });
+        if undo_pressed {
+            self.undo();
+        }
+        if redo_pressed {
+            self.redo();
+        }
 
-            let undo_pressed = ctx.input(|i| {
-                self.commands.is_pressed("edit.undo", i, text_focus, is_sk, cur_mode)
-            });
-            let redo_pressed = ctx.input(|i| {
-                self.commands.is_pressed("edit.redo", i, text_focus, is_sk, cur_mode)
-                    || (i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Y))
-            });
-            if undo_pressed && !text_focus {
-                self.undo();
-            }
-            if redo_pressed && !text_focus {
-                self.redo();
-            }
+        let save_as_pressed = ctx.input(|i| {
+            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::S)
+        });
+        let save_pressed = ctx.input(|i| {
+            i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::S)
+        });
+        let open_pressed = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O));
+        if save_as_pressed {
+            self.save_native_as();
+        } else if save_pressed {
+            self.save_native();
+        }
+        if open_pressed {
+            self.open_native();
+        }
 
-            if ctx.input(|i| self.commands.is_pressed("file.save_as", i, text_focus, is_sk, cur_mode)) {
-                self.save_native_as();
-            } else if ctx.input(|i| self.commands.is_pressed("file.save", i, text_focus, is_sk, cur_mode)) {
-                self.save_native();
-            }
-            if ctx.input(|i| self.commands.is_pressed("file.open", i, text_focus, is_sk, cur_mode)) {
-                self.open_native();
-            }
-            if ctx.input(|i| {
-                self.commands.is_pressed("file.drawing_sheet", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.open_drawing_sheet();
-            }
-            if ctx.input(|i| {
-                self.commands.is_pressed("tool.datum_plane", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.activate_tool_from_ui(ToolKind::DatumPlane);
-            }
-            if ctx.input(|i| self.commands.is_pressed("view.zebra", i, text_focus, is_sk, cur_mode)) {
-                self.zebra_config.enabled = !self.zebra_config.enabled;
-            }
-            if ctx.input(|i| {
-                self.commands.is_pressed("view.studio_lighting", i, text_focus, is_sk, cur_mode)
-            }) {
-                self.lighting_drawer_open = !self.lighting_drawer_open;
-                self.studio_config.enabled = self.lighting_drawer_open;
-            }
+        let z_pressed = ctx.input(|i| {
+            !i.modifiers.command
+                && !i.modifiers.alt
+                && !i.modifiers.ctrl
+                && !i.modifiers.shift
+                && i.key_pressed(egui::Key::Z)
+        });
+        if z_pressed && !self.is_sketching && self.editing_dimension_entity.is_none() {
+            self.zebra_config.enabled = !self.zebra_config.enabled;
         }
 
         // Sidebar Chat AI terkunci di kanan sebagai jendela kaca di atas
@@ -2306,9 +2248,6 @@ impl eframe::App for DuCADApp {
             ai_on_device: (!crate::assist_ui::backend_name().is_empty()).then_some(
                 self.ai.privacy == crate::assist_ui::AiPrivacy::OfflineOnly,
             ),
-            show_toolbar_labels: self.left_toolbar.show_labels,
-            reduce_motion: self.reduce_motion,
-            ui_scale: self.ui_scale,
         };
 
         // HUD header aktif (Slot, Polygon, Loft, Spline, …) butuh pita penuh
@@ -2363,36 +2302,15 @@ impl eframe::App for DuCADApp {
                                 TopBarFileOp::ImportStep => self.import_step(),
                                 TopBarFileOp::ImportStl => self.import_stl(),
                                 TopBarFileOp::ImportDxf => self.import_dxf(),
-                                TopBarFileOp::ImportIges => {
-                                    self.run_parity_cmd(crate::types::ParityCmd::ImportIges, &ctx)
-                                }
-                                TopBarFileOp::ImportMesh => {
-                                    self.run_parity_cmd(crate::types::ParityCmd::ImportMesh, &ctx)
-                                }
-                                TopBarFileOp::InsertSvg => {
-                                    self.run_parity_cmd(crate::types::ParityCmd::InsertSvg, &ctx)
-                                }
                                 TopBarFileOp::ExportStep => self.export_step(),
                                 TopBarFileOp::ExportStl => self.export_stl(),
                                 TopBarFileOp::ExportObj => self.export_obj(),
                                 TopBarFileOp::ExportGlb => self.export_glb(),
-                                TopBarFileOp::ExportThreeMf => {
-                                    self.run_parity_cmd(crate::types::ParityCmd::ExportThreeMf, &ctx)
-                                }
-                                TopBarFileOp::ExportIges => {
-                                    self.run_parity_cmd(crate::types::ParityCmd::ExportIges, &ctx)
-                                }
-                                TopBarFileOp::ExportPng => {
-                                    self.run_parity_cmd(crate::types::ParityCmd::ExportPng, &ctx)
-                                }
                                 TopBarFileOp::ExportDxf => self.export_dxf(),
                                 TopBarFileOp::ExportSvg => self.export_sketch_svg(),
                                 TopBarFileOp::ExportPdf => self.export_drawing_pdf(),
                                 TopBarFileOp::ExportDrawingDxf => self.export_drawing_dxf(),
                                 TopBarFileOp::ExportDrawingSvg => self.export_drawing_svg(),
-                                TopBarFileOp::ExportViewDxf => {
-                                    self.run_parity_cmd(crate::types::ParityCmd::ExportViewDxf, &ctx)
-                                }
                                 TopBarFileOp::ExportVectorSnapshot => {
                                     self.export_vector_snapshot()
                                 }
@@ -2400,30 +2318,13 @@ impl eframe::App for DuCADApp {
                             },
                             TopBarEvent::ToggleTheme => {
                                 self.theme = self.theme.toggled();
-                                self.apply_theme_options(&ctx);
-                                self.user_prefs_changed();
+                                ducad_ui::apply_theme(&ctx, self.theme);
                             }
                             TopBarEvent::ToggleLiquidGlass => {
                                 self.liquid_glass = !self.liquid_glass;
-                                self.user_prefs_changed();
                             }
                             TopBarEvent::ToggleReduceTransparency => {
                                 self.reduce_transparency = !self.reduce_transparency;
-                                self.user_prefs_changed();
-                            }
-                            TopBarEvent::ToggleToolbarLabels => {
-                                self.left_toolbar.show_labels = !self.left_toolbar.show_labels;
-                                self.user_prefs_changed();
-                            }
-                            TopBarEvent::ToggleReduceMotion => {
-                                self.reduce_motion = !self.reduce_motion;
-                                self.apply_theme_options(&ctx);
-                                self.user_prefs_changed();
-                            }
-                            TopBarEvent::SetUiScale(scale) => {
-                                self.ui_scale = scale.clamp(0.75, 1.5);
-                                self.apply_theme_options(&ctx);
-                                self.user_prefs_changed();
                             }
                             TopBarEvent::OpenCommandPalette => {
                                 self.palette.open();
@@ -2479,20 +2380,14 @@ impl eframe::App for DuCADApp {
                             }
                             TopBarEvent::SetTouchDesignMode(m) => {
                                 self.touch_config.set_mode(m);
-                                self.apply_theme_options(&ctx);
-                                self.model_status = Some(ducad_i18n::t!(
-                                    "touch-mode-active",
-                                    mode = m.label()
-                                ));
+                                ducad_ui::apply_with_touch(&ctx, self.theme, self.touch_config.touch_target_size);
+                                self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
                             }
                             TopBarEvent::CycleTouchDesignMode => {
                                 let next = self.touch_config.mode.next();
                                 self.touch_config.set_mode(next);
-                                self.apply_theme_options(&ctx);
-                                self.model_status = Some(ducad_i18n::t!(
-                                    "touch-mode-active",
-                                    mode = next.label()
-                                ));
+                                ducad_ui::apply_with_touch(&ctx, self.theme, self.touch_config.touch_target_size);
+                                self.model_status = Some(format!("Mode Sentuh aktif: {}", next.label()));
                             }
                             TopBarEvent::ToggleChecksPanel => {
                                 self.checks.panel_open = !self.checks.panel_open;
@@ -2610,13 +2505,8 @@ impl eframe::App for DuCADApp {
             self.left_toolbar.is_sketching = self.is_sketching;
             self.left_toolbar.is_vector_mode = self.app_mode == crate::mode::AppMode::Vector;
             self.left_toolbar.icon_size = self.icon_size;
-            let toolbar_sig = (
-                self.is_sketching,
-                self.app_mode == crate::mode::AppMode::Vector,
-                self.left_toolbar.show_labels,
-            );
-            let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(toolbar_sig);
-            self.left_toolbar_content_sig = Some(toolbar_sig);
+            let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
+            self.left_toolbar_content_sig = Some(self.is_sketching);
             // Rail kiri dipusatkan vertikal, tetapi dijaga di bawah pita header
             // dan di atas kartu panduan tool (pojok kiri bawah) — di layar iPad
             // yang pendek, tombol paling bawah (Datum, Loft) dulu menumpuk kartu.
@@ -2648,7 +2538,18 @@ impl eframe::App for DuCADApp {
                             }
                             ToolbarEvent::SelectTool(t) => {
                                 let kind = ToolKind::from_toolbar_tool(t);
-                                self.activate_tool_from_ui(kind);
+                                // `set_tool` lebih dulu: ia mengatur mode pilih-face
+                                // tool Shell dari jalur mana pun (toolbar, palet, menu konteks).
+                                self.set_tool(kind);
+                                match kind {
+                                    ToolKind::DraftAngle | ToolKind::SplitBody | ToolKind::Rib => {
+                                        self.picking_mode = PickMode::Face;
+                                    }
+                                    ToolKind::Select => {
+                                        self.picking_mode = PickMode::None;
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                     }
@@ -3088,9 +2989,7 @@ impl eframe::App for DuCADApp {
                                         self.vector_extrude_state.per_object = true;
                                     }
                                     ducad_ui::LayersPanelEvent::ExtrudeLayer(lid) => {
-                                        let dist: f64 = self
-                                            .eval_length_mm(&self.vector_extrude_state.depth_input)
-                                            .unwrap_or(10.0);
+                                        let dist: f64 = self.vector_extrude_state.depth_input.trim().parse().unwrap_or(10.0);
                                         self.extrude_layer(
                                             lid,
                                             dist,
@@ -4546,7 +4445,6 @@ impl eframe::App for DuCADApp {
                                 self.selected.len(),
                                 has_closed,
                                 &mut self.vector_extrude_state,
-                                self.unit,
                                 self.icon_size,
                             )
                         } else {
@@ -4570,7 +4468,10 @@ impl eframe::App for DuCADApp {
                                 ContextAction::Extrude => {
                                     if self.app_mode == crate::mode::AppMode::Vector {
                                         let dist = self
-                                            .eval_length_mm(&self.vector_extrude_state.depth_input)
+                                            .vector_extrude_state
+                                            .depth_input
+                                            .trim()
+                                            .parse::<f64>()
                                             .unwrap_or(10.0);
                                         self.extrude_vector_selection(
                                             dist,
@@ -4903,9 +4804,9 @@ impl eframe::App for DuCADApp {
         }
 
         let sel_summary = if !self.selected.is_empty() {
-            ducad_i18n::t!("status-entities-selected", count = self.selected.len())
+            format!("{} entitas terpilih", self.selected.len())
         } else if !self.selected_bodies.is_empty() {
-            ducad_i18n::t!("status-bodies-selected", count = self.selected_bodies.len())
+            format!("{} body terpilih", self.selected_bodies.len())
         } else {
             self.status_text()
         };
@@ -4936,15 +4837,12 @@ impl eframe::App for DuCADApp {
                 }
             }
             // Satu tindakan berikutnya, di bawah pil status (Step 5).
-            let mut toast_y_offset = 28.0;
             if let Some(next) = self.next_action() {
                 let hint_anchor = status_anchor + egui::vec2(0.0, 28.0);
                 if CanvasHud::show_next_action(ui, hint_anchor, &next.text()) {
                     self.next_action_hidden = true;
                 }
-                toast_y_offset = 58.0;
             }
-            self.show_notifications(&ctx, status_anchor + egui::vec2(0.0, toast_y_offset));
         }
 
         // Dihitung ulang: event top bar di atas bisa mengubah label (tema, seleksi).
@@ -5107,7 +5005,7 @@ impl DuCADApp {
         if regions.len() != 2 {
             return None;
         }
-        let height: f64 = match self.eval_length_mm(&self.loft_height_input) {
+        let height: f64 = match self.loft_height_input.trim().parse() {
             Ok(v) if v > 0.0 => v,
             _ => return None,
         };

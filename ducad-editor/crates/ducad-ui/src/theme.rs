@@ -3,7 +3,7 @@
 //! Diterapkan sekali lewat [`apply`] saat startup, lalu lagi tiap kali
 //! [`ThemeMode`] berubah (toggle tema dari toolbar/command palette/settings).
 
-use ducad_glass::{GlassFrame, GlassMode, GlassPreset};
+use ducad_glass::{GlassFrame, GlassMaterial, GlassMode, GlassPreset};
 use egui::{Color32, CornerRadius, Frame, Margin, Stroke, Style, Vec2, Visuals};
 
 /// Tinggi minimum widget interaktif (tombol, checkbox, combo box, dst),
@@ -45,158 +45,11 @@ pub const BG_CARD_DARK: Color32 = Color32::from_rgba_premultiplied(26, 30, 38, 1
 pub const BG_HOVER_DARK: Color32 = Color32::from_rgba_premultiplied(40, 45, 56, 160); // Hover fill (~63%)
 pub const BORDER_SUBTLE: Color32 = Color32::from_rgba_premultiplied(50, 56, 68, 130); // Thin glass border
 pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(245, 245, 247);
-/// Teks sekunder (WCAG AA >= 4.5:1 di atas `BG_PANEL_DARK`: ~7.5:1).
-pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(174, 176, 184);
-/// Teks redup/petunjuk (WCAG AA >= 4.5:1 di atas `BG_PANEL_DARK`: ~5.0:1).
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(142, 144, 152);
-
-// Token Warna Mode Terang
-pub const BG_CANVAS_LIGHT: Color32 = Color32::from_rgb(232, 235, 240);
-pub const BG_PANEL_LIGHT: Color32 = Color32::from_rgba_premultiplied(238, 240, 245, 240);
-pub const BG_POPUP_LIGHT: Color32 = Color32::from_rgb(250, 251, 254);
-pub const BG_CARD_LIGHT: Color32 = Color32::from_rgba_premultiplied(224, 228, 236, 236);
-pub const BG_HOVER_LIGHT: Color32 = Color32::from_rgba_premultiplied(206, 212, 224, 236);
-pub const BORDER_SUBTLE_LIGHT: Color32 = Color32::from_rgba_premultiplied(170, 176, 188, 215);
-pub const TEXT_PRIMARY_LIGHT: Color32 = Color32::from_rgb(24, 26, 32);
-pub const TEXT_SECONDARY_LIGHT: Color32 = Color32::from_rgb(68, 72, 82);
-pub const TEXT_MUTED_LIGHT: Color32 = Color32::from_rgb(92, 96, 108);
-
-/// Sistem token tipografi (lantai minimum 12 pt demi keterbacaan teknis).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TypographyTokens {
-    pub min: f32,
-    pub caption: f32,
-    pub body: f32,
-    pub button: f32,
-    pub mono: f32,
-    pub subheading: f32,
-    pub heading: f32,
-}
-
-pub const TYPOGRAPHY: TypographyTokens = TypographyTokens {
-    min: 12.0,
-    caption: 12.0,
-    body: 13.0,
-    button: 13.0,
-    mono: 12.5,
-    subheading: 14.0,
-    heading: 16.0,
-};
-
-/// Sistem token jarak tata letak.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SpacingTokens {
-    pub xxs: f32,
-    pub xs: f32,
-    pub sm: f32,
-    pub md: f32,
-    pub lg: f32,
-    pub xl: f32,
-}
-
-pub const SPACING: SpacingTokens = SpacingTokens {
-    xxs: 2.0,
-    xs: 4.0,
-    sm: 8.0,
-    md: 12.0,
-    lg: 16.0,
-    xl: 24.0,
-};
-
-/// Sistem token radius sudut.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RadiusTokens {
-    pub xs: u8,
-    pub sm: u8,
-    pub md: u8,
-    pub lg: u8,
-    pub pill: u8,
-}
-
-pub const RADIUS: RadiusTokens = RadiusTokens {
-    xs: 4,
-    sm: 6,
-    md: 8,
-    lg: 10,
-    pill: 14,
-};
-
-/// Token warna semantik sadar-tema (Gelap & Terang).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ThemeTokens {
-    pub dark: bool,
-    pub bg_canvas: Color32,
-    pub bg_panel: Color32,
-    pub bg_popup: Color32,
-    pub bg_card: Color32,
-    pub bg_hover: Color32,
-    pub bg_button_idle: Color32,
-    pub border_subtle: Color32,
-    pub text_primary: Color32,
-    pub text_secondary: Color32,
-    pub text_muted: Color32,
-    pub accent_primary: Color32,
-    pub accent_warning: Color32,
-    pub accent_success: Color32,
-    pub accent_danger: Color32,
-}
-
-impl ThemeTokens {
-    pub const fn from_mode(mode: ThemeMode) -> Self {
-        match mode {
-            ThemeMode::Dark => Self {
-                dark: true,
-                bg_canvas: BG_CANVAS,
-                bg_panel: BG_PANEL_DARK,
-                bg_popup: BG_POPUP_DARK,
-                bg_card: BG_CARD_DARK,
-                bg_hover: BG_HOVER_DARK,
-                bg_button_idle: Color32::from_rgba_premultiplied(30, 33, 40, 140),
-                border_subtle: BORDER_SUBTLE,
-                text_primary: TEXT_PRIMARY,
-                text_secondary: TEXT_SECONDARY,
-                text_muted: TEXT_MUTED,
-                accent_primary: ACCENT_BLUE,
-                accent_warning: ACCENT_ORANGE,
-                accent_success: ACCENT_GREEN,
-                accent_danger: ACCENT_RED,
-            },
-            ThemeMode::Light => Self {
-                dark: false,
-                bg_canvas: BG_CANVAS_LIGHT,
-                bg_panel: BG_PANEL_LIGHT,
-                bg_popup: BG_POPUP_LIGHT,
-                bg_card: BG_CARD_LIGHT,
-                bg_hover: BG_HOVER_LIGHT,
-                bg_button_idle: Color32::from_rgba_premultiplied(218, 222, 232, 225),
-                border_subtle: BORDER_SUBTLE_LIGHT,
-                text_primary: TEXT_PRIMARY_LIGHT,
-                text_secondary: TEXT_SECONDARY_LIGHT,
-                text_muted: TEXT_MUTED_LIGHT,
-                accent_primary: Color32::from_rgb(0, 102, 214),
-                accent_warning: Color32::from_rgb(196, 102, 0),
-                accent_success: Color32::from_rgb(24, 142, 58),
-                accent_danger: Color32::from_rgb(210, 42, 34),
-            },
-        }
-    }
-
-    pub fn from_ui(ui: &egui::Ui) -> Self {
-        if ui.visuals().dark_mode {
-            Self::from_mode(ThemeMode::Dark)
-        } else {
-            Self::from_mode(ThemeMode::Light)
-        }
-    }
-
-    pub fn for_ui(ui: &egui::Ui) -> Self {
-        Self::from_ui(ui)
-    }
-}
+pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(142, 142, 147);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(99, 99, 102);
 
 /// Mode tema aplikasi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ThemeMode {
     Light,
     #[default]
@@ -211,11 +64,11 @@ impl ThemeMode {
         }
     }
 
-    /// Label tombol toggle terlokalisasi, sudah termasuk ikon.
-    pub fn label(self) -> String {
+    /// Label tombol toggle, sudah termasuk ikon.
+    pub fn label(self) -> &'static str {
         match self {
-            ThemeMode::Light => ducad_i18n::t!("theme-light"),
-            ThemeMode::Dark => ducad_i18n::t!("theme-dark"),
+            ThemeMode::Light => "☀ Terang",
+            ThemeMode::Dark => "🌙 Gelap",
         }
     }
 
@@ -263,34 +116,11 @@ impl ThemeMode {
             }
             ThemeMode::Light => {
                 let mut v = Visuals::light();
-                v.panel_fill = BG_PANEL_LIGHT;
-                v.window_fill = BG_POPUP_LIGHT;
-                v.faint_bg_color = BG_CARD_LIGHT;
-                v.extreme_bg_color = Color32::WHITE;
-                v.window_stroke = Stroke::new(1.0, BORDER_SUBTLE_LIGHT);
-                v.window_corner_radius = CornerRadius::same(RADIUS.lg);
-                v.menu_corner_radius = CornerRadius::same(RADIUS.md);
-
-                v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY_LIGHT);
-                v.widgets.inactive.bg_fill = Color32::from_rgba_premultiplied(218, 222, 232, 225);
-                v.widgets.inactive.corner_radius = CornerRadius::same(RADIUS.sm);
-                v.widgets.inactive.bg_stroke = Stroke::new(0.5, BORDER_SUBTLE_LIGHT);
-                v.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY_LIGHT);
-
-                v.widgets.hovered.bg_fill = BG_HOVER_LIGHT;
-                v.widgets.hovered.corner_radius = CornerRadius::same(RADIUS.sm);
-                v.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT_BLUE);
-                v.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY_LIGHT);
-
-                v.widgets.active.bg_fill = ACCENT_BLUE;
-                v.widgets.active.corner_radius = CornerRadius::same(RADIUS.sm);
-                v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT_BLUE);
-                v.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
-
-                v.widgets.open.bg_fill = BG_CARD_LIGHT;
-                v.widgets.open.corner_radius = CornerRadius::same(RADIUS.sm);
-                v.widgets.open.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY_LIGHT);
-
+                v.window_corner_radius = CornerRadius::same(10);
+                v.menu_corner_radius = CornerRadius::same(8);
+                v.widgets.inactive.corner_radius = CornerRadius::same(6);
+                v.widgets.hovered.corner_radius = CornerRadius::same(6);
+                v.widgets.active.corner_radius = CornerRadius::same(6);
                 // Lihat catatan di mode gelap: unmultiplied + teks gelap agar terbaca
                 // di atas biru muda translusen.
                 v.selection.bg_fill = Color32::from_rgba_unmultiplied(10, 132, 255, 70);
@@ -324,17 +154,10 @@ pub fn glass_frame() -> GlassFrame {
 
 /// Frame bilah alat berisi ikon: kaca sedikit lebih bening daripada panel teks.
 pub fn toolbar_frame() -> GlassFrame {
-    GlassFrame::preset(GlassPreset::Toolbar, GlassMode::Dark)
+    glass_frame()
         .inner_margin(Margin::same(4))
-        .corner_radius(CornerRadius::same(RADIUS.md))
-        .shadow(egui::Shadow {
-            offset: [0, 3],
-            blur: 12,
-            spread: 0,
-            color: Color32::from_black_alpha(70),
-        })
-        .fill(BG_PANEL_DARK)
-        .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+        .corner_radius(CornerRadius::same(8))
+        .material(GlassMaterial::preset(GlassPreset::Toolbar, GlassMode::Dark))
 }
 
 /// Frame popup/menu bermaterial kaca paling pekat (preset `Popup`): menumpuk
@@ -372,10 +195,9 @@ pub fn glass_window<R>(
     area_id: egui::Id,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-    popup_frame()
-        .inner_margin(Margin::symmetric(10, 5))
-        .corner_radius(CornerRadius::same(RADIUS.lg))
+    glass_frame()
         .shadow(egui::Shadow::NONE)
+        .material(GlassMaterial::preset(GlassPreset::Popup, GlassMode::Dark))
         .paint_behind_window(ui, area_id, add_contents)
 }
 
@@ -384,23 +206,10 @@ pub fn card_frame() -> Frame {
     Frame {
         inner_margin: Margin::same(6),
         outer_margin: Margin::symmetric(0, 2),
-        corner_radius: CornerRadius::same(RADIUS.sm),
+        corner_radius: CornerRadius::same(6),
         shadow: egui::Shadow::NONE,
         fill: BG_CARD_DARK,
         stroke: Stroke::new(0.5, BORDER_SUBTLE),
-    }
-}
-
-/// Kartu inspector sadar-tema (Gelap / Terang).
-pub fn card_frame_for(ui: &egui::Ui) -> Frame {
-    let tok = ThemeTokens::from_ui(ui);
-    Frame {
-        inner_margin: Margin::same(6),
-        outer_margin: Margin::symmetric(0, 2),
-        corner_radius: CornerRadius::same(RADIUS.sm),
-        shadow: egui::Shadow::NONE,
-        fill: tok.bg_card,
-        stroke: Stroke::new(0.5, tok.border_subtle),
     }
 }
 
@@ -455,43 +264,15 @@ fn install_fonts(ctx: &egui::Context) {
     ));
 }
 
-/// Opsi aksesibilitas & ergonomi antarmuka untuk [`apply_with_options`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ThemeOptions {
-    pub touch_target_y: f32,
-    pub ui_scale: f32,
-    pub reduce_motion: bool,
-}
-
-impl Default for ThemeOptions {
-    fn default() -> Self {
-        Self {
-            touch_target_y: MIN_TOUCH_TARGET,
-            ui_scale: 1.0,
-            reduce_motion: false,
-        }
-    }
-}
-
 /// Terapkan tema + gaya target-sentuh ke context egui.
 pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
-    apply_with_options(ctx, mode, ThemeOptions::default());
+    install_fonts(ctx);
+
+    apply_with_touch(ctx, mode, MIN_TOUCH_TARGET);
 }
 
 /// Terapkan tema + gaya target-sentuh kustom (misalnya 44pt Apple HIG untuk iPad) ke context egui.
 pub fn apply_with_touch(ctx: &egui::Context, mode: ThemeMode, touch_target_y: f32) {
-    apply_with_options(
-        ctx,
-        mode,
-        ThemeOptions {
-            touch_target_y,
-            ..ThemeOptions::default()
-        },
-    );
-}
-
-/// Terapkan tema, target sentuh, skala UI, tipografi minimum 12 pt, dan preferensi kurangi gerak.
-pub fn apply_with_options(ctx: &egui::Context, mode: ThemeMode, opts: ThemeOptions) {
     install_fonts(ctx);
 
     let theme = match mode {
@@ -499,39 +280,14 @@ pub fn apply_with_options(ctx: &egui::Context, mode: ThemeMode, opts: ThemeOptio
         ThemeMode::Light => egui::Theme::Light,
     };
     ctx.set_theme(theme);
-    ctx.set_zoom_factor(opts.ui_scale.clamp(0.75, 2.0));
 
     let mut style = Style {
         visuals: mode.visuals(),
         ..Default::default()
     };
-    style.animation_time = if opts.reduce_motion { 0.0 } else { 0.12 };
-    style.spacing.interact_size.y = opts.touch_target_y.max(MIN_TOUCH_TARGET);
-    style.spacing.button_padding = Vec2::new(SPACING.sm, SPACING.xs);
-    style.spacing.item_spacing = Vec2::new(SPACING.xs, SPACING.xs);
-
-    // Lantai tipografi minimum 12 pt di seluruh gaya teks standar egui.
-    style.text_styles.insert(
-        egui::TextStyle::Small,
-        egui::FontId::proportional(TYPOGRAPHY.caption),
-    );
-    style.text_styles.insert(
-        egui::TextStyle::Body,
-        egui::FontId::proportional(TYPOGRAPHY.body),
-    );
-    style.text_styles.insert(
-        egui::TextStyle::Button,
-        egui::FontId::proportional(TYPOGRAPHY.button),
-    );
-    style.text_styles.insert(
-        egui::TextStyle::Monospace,
-        egui::FontId::monospace(TYPOGRAPHY.mono),
-    );
-    style.text_styles.insert(
-        egui::TextStyle::Heading,
-        egui::FontId::proportional(TYPOGRAPHY.heading),
-    );
-
+    style.spacing.interact_size.y = touch_target_y.max(MIN_TOUCH_TARGET);
+    style.spacing.button_padding = Vec2::new(8.0, 4.0);
+    style.spacing.item_spacing = Vec2::new(4.0, 4.0);
     ctx.set_style_of(theme, style);
 }
 
@@ -673,51 +429,5 @@ mod tests {
                 v.selection.stroke.color
             );
         }
-    }
-
-    #[test]
-    fn semantic_tokens_meet_wcag_aa_contrast_in_both_themes() {
-        for mode in [ThemeMode::Dark, ThemeMode::Light] {
-            let tok = ThemeTokens::from_mode(mode);
-            let panel = over(tok.bg_panel, tok.bg_canvas);
-            for (name, fg) in [
-                ("text_primary", tok.text_primary),
-                ("text_secondary", tok.text_secondary),
-                ("text_muted", tok.text_muted),
-            ] {
-                let ratio = contrast(fg, panel);
-                assert!(
-                    ratio >= 4.5,
-                    "{mode:?} {name}: kontras {ratio:.2} < 4.5 (fg={fg:?}, panel={panel:?})"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn typography_tokens_never_drop_below_12pt_and_reduce_motion_zeroes_anim() {
-        let ctx = egui::Context::default();
-        apply_with_options(
-            &ctx,
-            ThemeMode::Light,
-            ThemeOptions {
-                touch_target_y: TOUCH_TARGET_IPAD,
-                ui_scale: 1.25,
-                reduce_motion: true,
-            },
-        );
-        let style = ctx.global_style();
-        assert_eq!(style.animation_time, 0.0);
-        assert_eq!(style.spacing.interact_size.y, TOUCH_TARGET_IPAD);
-        for (ts, font) in &style.text_styles {
-            assert!(
-                font.size >= 12.0,
-                "TextStyle {ts:?} berukuran {} < 12.0 pt",
-                font.size
-            );
-        }
-        let mut out = ctx.run_ui(Default::default(), |_| {});
-        out.textures_delta.clear();
-        assert!((ctx.zoom_factor() - 1.25).abs() < 1e-4);
     }
 }

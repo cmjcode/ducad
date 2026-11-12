@@ -60,7 +60,6 @@ pub struct GlassFrame {
     /// (rim spekular menggantikan garisnya), jadi ukuran panel tidak berubah.
     pub stroke: Stroke,
     pub material: GlassMaterial,
-    preset: Option<GlassPreset>,
 }
 
 impl GlassFrame {
@@ -74,16 +73,12 @@ impl GlassFrame {
             fill: material.fallback_fill(),
             stroke: Stroke::NONE,
             material,
-            preset: None,
         }
     }
 
-    /// Frame dengan preset bawaan. Saat dirender di dalam `Ui` bertema terang
-    /// (`!ui.visuals().dark_mode`), preset otomatis beradaptasi ke `GlassMode::Light`.
+    /// Frame dengan preset bawaan.
     pub fn preset(preset: GlassPreset, mode: GlassMode) -> Self {
-        let mut s = Self::new(GlassMaterial::preset(preset, mode));
-        s.preset = Some(preset);
-        s
+        Self::new(GlassMaterial::preset(preset, mode))
     }
 
     #[inline]
@@ -125,29 +120,6 @@ impl GlassFrame {
     #[inline]
     pub fn material(mut self, material: GlassMaterial) -> Self {
         self.material = material;
-        self.preset = None;
-        self
-    }
-
-    /// Menyesuaikan material dan isian fallback terhadap mode gelap/terang
-    /// aktif di `ui` bila frame dibangun dari preset bawaan.
-    fn adapted_for_ui(mut self, ui: &Ui) -> Self {
-        if !ui.visuals().dark_mode {
-            if let Some(preset) = self.preset {
-                let light_mat = GlassMaterial::preset(preset, GlassMode::Light);
-                self.material = light_mat;
-                self.fill = match preset {
-                    GlassPreset::Popup => ui.visuals().window_fill,
-                    _ => light_mat.fallback_fill(),
-                };
-                if self.stroke.width > 0.0 {
-                    self.stroke.color = ui.visuals().window_stroke.color;
-                }
-                if self.shadow != Shadow::NONE {
-                    self.shadow.color = Color32::from_black_alpha(32);
-                }
-            }
-        }
         self
     }
 
@@ -188,17 +160,16 @@ impl GlassFrame {
         extend: Margin,
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> R {
-        let frame = self.adapted_for_ui(ui);
         let background = ui.painter().add(Shape::Noop);
         let inner = add_contents(ui);
-        let rect = (ui.min_rect() + frame.inner_margin) + extend;
+        let rect = (ui.min_rect() + self.inner_margin) + extend;
         let shape = if runtime(ui.ctx()).uses_gpu() {
-            frame.glass_shape(ui, rect)
+            self.glass_shape(ui, rect)
         } else {
             Shape::Vec(vec![
-                Shape::from(frame.shadow.as_shape(rect, frame.corner_radius)),
-                Shape::rect_filled(rect, frame.corner_radius, frame.fill),
-                Shape::rect_stroke(rect, frame.corner_radius, frame.stroke, egui::StrokeKind::Inside),
+                Shape::from(self.shadow.as_shape(rect, self.corner_radius)),
+                Shape::rect_filled(rect, self.corner_radius, self.fill),
+                Shape::rect_stroke(rect, self.corner_radius, self.stroke, egui::StrokeKind::Inside),
             ])
         };
         ui.painter().set(background, shape);
@@ -235,14 +206,13 @@ impl GlassFrame {
     /// untuk kartu yang digambar manual dengan `Painter` (mis. panduan tool
     /// beranimasi). Panggil SEBELUM menggambar isinya.
     pub fn paint(&self, ui: &Ui, rect: egui::Rect) {
-        let frame = (*self).adapted_for_ui(ui);
         let shape = if runtime(ui.ctx()).uses_gpu() {
-            frame.glass_shape(ui, rect)
+            self.glass_shape(ui, rect)
         } else {
             Shape::Vec(vec![
-                Shape::from(frame.shadow.as_shape(rect, frame.corner_radius)),
-                Shape::rect_filled(rect, frame.corner_radius, frame.fill),
-                Shape::rect_stroke(rect, frame.corner_radius, frame.stroke, egui::StrokeKind::Inside),
+                Shape::from(self.shadow.as_shape(rect, self.corner_radius)),
+                Shape::rect_filled(rect, self.corner_radius, self.fill),
+                Shape::rect_stroke(rect, self.corner_radius, self.stroke, egui::StrokeKind::Inside),
             ])
         };
         ui.painter().add(shape);
@@ -262,12 +232,7 @@ impl GlassFrame {
                 (true, false) => 0.35,
                 _ => 0.0,
             };
-            let anim_secs = if ui.style().animation_time <= 0.0 {
-                0.0
-            } else {
-                0.18
-            };
-            let strength = ui.ctx().animate_value_with_time(anim_id, target, anim_secs);
+            let strength = ui.ctx().animate_value_with_time(anim_id, target, 0.18);
             if let Some(pos) = pos {
                 uniform = uniform.with_press(pos, strength * self.material.interactive);
             }
@@ -295,9 +260,8 @@ impl GlassFrame {
 
     /// Tampilkan konten di dalam frame; padanan `egui::Frame::show`.
     pub fn show<R>(self, ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
-        let frame = self.adapted_for_ui(ui);
         if !runtime(ui.ctx()).uses_gpu() {
-            return frame.flat().show(ui, add_contents);
+            return self.flat().show(ui, add_contents);
         }
 
         // Tempat latar kaca dipesan lebih dulu supaya berada di bawah konten.
@@ -308,8 +272,8 @@ impl GlassFrame {
         let layout = Frame {
             fill: Color32::TRANSPARENT,
             shadow: Shadow::NONE,
-            stroke: Stroke::new(frame.stroke.width, Color32::TRANSPARENT),
-            ..frame.flat()
+            stroke: Stroke::new(self.stroke.width, Color32::TRANSPARENT),
+            ..self.flat()
         };
         let mut prepared = layout.begin(ui);
         let inner = add_contents(&mut prepared.content_ui);
@@ -317,7 +281,7 @@ impl GlassFrame {
         let response = prepared.end(ui);
 
         if ui.is_rect_visible(rect) {
-            let shape = frame.glass_shape(ui, rect);
+            let shape = self.glass_shape(ui, rect);
             ui.painter().set(background, shape);
         }
 

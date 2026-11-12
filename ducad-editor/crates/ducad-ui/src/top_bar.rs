@@ -9,11 +9,10 @@
 //! (tool-tool sketsa 2D) tetap tinggal di `LeftToolbar`.
 
 use crate::theme::{
-    glass_frame, ThemeTokens, ACCENT_BLUE, ACCENT_GREEN, MIN_TOUCH_TARGET, RADIUS,
-    TOUCH_TARGET_IPAD, TYPOGRAPHY,
+    glass_frame, ACCENT_BLUE, ACCENT_GREEN, BG_HOVER_DARK, BG_POPUP_DARK, BORDER_SUBTLE, MIN_TOUCH_TARGET, TEXT_PRIMARY,
+    TEXT_SECONDARY,
 };
 use crate::touch::{TouchDesignConfig, TouchDesignMode};
-use crate::unit_input::localized_unit_label;
 use ducad_cloud::DucadAccount;
 use ducad_i18n::{current_language, t, Language};
 use egui::containers::menu::MenuConfig;
@@ -41,22 +40,15 @@ pub enum TopBarFileOp {
     ImportStep,
     ImportStl,
     ImportDxf,
-    ImportIges,
-    ImportMesh,
-    InsertSvg,
     ExportStep,
     ExportStl,
     ExportObj,
     ExportGlb,
-    ExportThreeMf,
-    ExportIges,
-    ExportPng,
     ExportDxf,
     ExportSvg,
     ExportPdf,
     ExportDrawingDxf,
     ExportDrawingSvg,
-    ExportViewDxf,
     /// Tangkapan vektor 2D dari sudut pandang kamera viewport saat ini.
     ExportVectorSnapshot,
     OpenDrawingSheet,
@@ -104,12 +96,6 @@ pub enum TopBarEvent {
     ToggleLiquidGlass,
     /// Nyalakan/matikan "Kurangi transparansi" (panel datar pekat).
     ToggleReduceTransparency,
-    /// Tampilkan/sembunyikan label teks di toolbar kiri.
-    ToggleToolbarLabels,
-    /// Nyalakan/matikan "Kurangi gerak" (animasi 0 ms).
-    ToggleReduceMotion,
-    /// Atur faktor skala UI (`1.0`, `1.15`, `1.25`, `1.5`).
-    SetUiScale(f32),
     OpenCommandPalette,
     SetUnit(LengthUnit),
     SetLanguage(Language),
@@ -219,9 +205,6 @@ pub struct TopBarState {
     /// Updater desktop aktif — menu "Periksa Pembaruan" hanya tampil bila
     /// true (di iPad/tablet pembaruan lewat App Store).
     pub updates_enabled: bool,
-    pub show_toolbar_labels: bool,
-    pub reduce_motion: bool,
-    pub ui_scale: f32,
 }
 
 pub struct TopBar;
@@ -246,35 +229,40 @@ impl TopBar {
         let bar_frame = glass_frame();
         let bar_margin = bar_frame.inner_margin;
         bar_frame.show(ui, |ui| {
-            let tok = ThemeTokens::from_ui(ui);
             // Rect LUAR bar (termasuk inner margin frame) — anchor menu hamburger.
             let bar_outer_rect = ui.max_rect() + bar_margin;
-            // Kunci tinggi minimum widget interaktif header ke nilai tetap di desktop
-            // agar tinggi bar tidak melompat saat mode sentuh di-cycle; di perangkat
-            // iPad/tablet sejati (`state.is_ipad`), hormati target sentuh 44 pt HIG.
-            let target_h = if state.is_ipad {
-                TOUCH_TARGET_IPAD
-            } else {
-                MIN_TOUCH_TARGET
-            };
-            ui.spacing_mut().interact_size.y = target_h;
+            // Kunci tinggi minimum widget interaktif header ke nilai tetap.
+            // `apply_with_touch` (dipanggil `App` tiap mode sentuh berganti)
+            // mengubah `interact_size.y` GLOBAL ke 36/40/44 px per mode — dan itu
+            // tinggi minimum semua tombol egui — sehingga tanpa kunci ini seluruh
+            // tombol header dan tinggi bar ikut melompat tiap klik toggle mode.
+            // Target sentuh besar tetap berlaku untuk UI lain di luar header.
+            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
 
-            let bar_h = if state.is_ipad {
-                Self::bar_height(icon_sz).max(TOUCH_TARGET_IPAD)
-            } else {
-                Self::bar_height(icon_sz)
-            };
+            // Tinggi header sengaja TIDAK diikat ke `touch_config.touch_target_size`:
+            // tombol header memakai `icon_size` (lihat `header_icon_btn`), jadi mengikat
+            // bar ke touch target hanya bikin tingginya melompat 36/40/44 px tiap mode
+            // sentuh di-cycle tanpa memperbesar area sentuh satu tombol pun.
+            let bar_h = Self::bar_height(icon_sz);
             ui.set_height(bar_h);
+            // `horizontal_centered` (bukan `horizontal`) supaya baris tombol dipusatkan
+            // vertikal di dalam `bar_h`. `set_height` di atas mengunci max height ui,
+            // jadi sisa ruang terbagi rata atas-bawah — bukan menumpuk di bawah baris
+            // seperti `horizontal` yang rata-atas.
             ui.horizontal_centered(|ui| {
+                // 1. Hamburger Menu Button (Three Lines) - New, Open, Save, Import
+                //
+                // Bukan `ui.menu_button`: popup bawaan egui menempel ke rect tombol
+                // (gap 0, rata kiri tombol) sehingga menu tampak menabrak bar dan
+                // menjorok ke kanan dari tepi bar. Di sini anchor = tepi LUAR bar
+                // (kiri bar, bawah bar) + gap kecil supaya menu rapi sejajar bar.
+                // Tag `MenuConfig` wajib agar `ui.menu_button` di dalamnya menjadi
+                // submenu dan `ui.close()` menutup menu ini.
                 let menu_btn = ui.add(egui::Button::new(
                     RichText::new(ICON_MENU.codepoint)
                         .size(icon_sz)
-                        .color(tok.text_primary),
+                        .color(TEXT_PRIMARY),
                 ));
-                let menu_a11y = t!("menu-file");
-                menu_btn.widget_info(move || {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, menu_a11y.clone())
-                });
                 let menu_anchor = egui::Rect::from_min_max(
                     egui::pos2(bar_outer_rect.left(), menu_btn.rect.top()),
                     egui::pos2(menu_btn.rect.right(), bar_outer_rect.bottom()),
@@ -340,11 +328,8 @@ impl TopBar {
                             |ui| crate::theme::glass_menu(ui, |ui| {
                                 let items = [
                                     (t!("menu-import-step"), TopBarFileOp::ImportStep),
-                                    (t!("menu-import-iges"), TopBarFileOp::ImportIges),
                                     (t!("menu-import-stl"), TopBarFileOp::ImportStl),
-                                    (t!("menu-import-mesh"), TopBarFileOp::ImportMesh),
                                     (t!("menu-import-dxf"), TopBarFileOp::ImportDxf),
-                                    (t!("menu-insert-svg"), TopBarFileOp::InsertSvg),
                                 ];
                                 for (label, op) in items {
                                     if ui.button(label).clicked() {
@@ -375,8 +360,8 @@ impl TopBar {
                             ui.label(
                                 RichText::new(t!("menu-all-commands"))
                                     .strong()
-                                    .size(TYPOGRAPHY.caption)
-                                    .color(tok.text_secondary),
+                                    .size(10.5)
+                                    .color(TEXT_SECONDARY),
                             );
                             let max_h = ui.ctx().content_rect().height() * 0.6;
                             for group in &state.command_groups {
@@ -461,8 +446,8 @@ impl TopBar {
                     ui.label(
                         RichText::new(display_doc_name)
                             .strong()
-                            .size(TYPOGRAPHY.caption)
-                            .color(tok.text_primary),
+                            .size(12.0)
+                            .color(TEXT_PRIMARY),
                     )
                     .on_hover_text(&state.document_name);
                 });
@@ -561,14 +546,13 @@ impl TopBar {
                             .order(egui::Order::Tooltip)
                             .show(ui.ctx(), |ui| {
                                 glass_frame().show(ui, |ui| {
-                                    let tok = ThemeTokens::from_ui(ui);
-                                    ui.set_width(180.0);
+                                    ui.set_width(170.0);
                                     ui.spacing_mut().item_spacing = Vec2::new(2.0, 4.0);
                                     ui.label(
                                         RichText::new(t!("topbar-sketch-plane", plane = ""))
                                             .strong()
-                                            .size(TYPOGRAPHY.caption)
-                                            .color(tok.text_secondary),
+                                            .size(10.0)
+                                            .color(TEXT_SECONDARY),
                                     );
                                     ui.separator();
 
@@ -587,7 +571,7 @@ impl TopBar {
                                                 "{} {}",
                                                 ICON_LAYERS_OFF.codepoint, label
                                             ))
-                                            .size(TYPOGRAPHY.caption),
+                                            .size(11.5),
                                         );
                                         if btn.on_hover_text(sub).clicked() {
                                             event = Some(TopBarEvent::SelectSketchPlane(idx));
@@ -600,8 +584,8 @@ impl TopBar {
                                         ui.label(
                                             RichText::new(t!("datum-planes-header"))
                                                 .strong()
-                                                .size(TYPOGRAPHY.caption)
-                                                .color(tok.text_secondary),
+                                                .size(9.5)
+                                                .color(TEXT_SECONDARY),
                                         );
                                         for (idx, name) in &state.custom_planes {
                                             let plane_active = state.active_plane_name.contains(name);
@@ -611,7 +595,7 @@ impl TopBar {
                                                     "{} {}",
                                                     ICON_LAYERS_OFF.codepoint, name
                                                 ))
-                                                .size(TYPOGRAPHY.caption),
+                                                .size(11.0),
                                             );
                                             if btn.clicked() {
                                                 event = Some(TopBarEvent::SelectSketchPlane(*idx));
@@ -623,8 +607,8 @@ impl TopBar {
                                     ui.separator();
                                     let new_plane_btn = ui.button(
                                         RichText::new(t!("datum-plane-new"))
-                                            .size(TYPOGRAPHY.caption)
-                                            .color(tok.accent_primary),
+                                            .size(10.5)
+                                            .color(ACCENT_BLUE),
                                     );
                                     if new_plane_btn.clicked() {
                                         event = Some(TopBarEvent::CreateDatumPlane);
@@ -633,8 +617,8 @@ impl TopBar {
 
                                     let manage_btn = ui.button(
                                         RichText::new(format!("{} {}", ICON_LAYERS_OFF.codepoint, t!("planes-drawer-title")))
-                                            .size(TYPOGRAPHY.caption)
-                                            .color(tok.text_primary),
+                                            .size(10.5)
+                                            .color(TEXT_PRIMARY),
                                     );
                                     if manage_btn.clicked() {
                                         event = Some(TopBarEvent::TogglePlanesDrawer);
@@ -695,7 +679,7 @@ impl TopBar {
                         icon_sz,
                         false,
                         &ds_title,
-                        Some("⌘D"),
+                        Some("D"),
                         Some(&ds_sub),
                         None,
                         None,
@@ -757,7 +741,7 @@ impl TopBar {
                 } else {
                     ui.add_space(2.0);
                     ui.menu_button(
-                        RichText::new(ICON_CATEGORY.codepoint).size(icon_sz).color(tok.text_primary),
+                        RichText::new(ICON_CATEGORY.codepoint).size(icon_sz).color(TEXT_PRIMARY),
                         |ui| crate::theme::glass_menu(ui, |ui| {
                             ui.set_min_width(170.0);
                             let m_title = t!("hud-show-dimensions");
@@ -786,7 +770,7 @@ impl TopBar {
                                 }
                             }
                         }),
-                    ).response.on_hover_text(t!("topbar-more-tools"));
+                    ).response.on_hover_text("Menu Alat Tambahan (Ukuran, Zebra, Gambar 2D, Assembly)");
                 }
 
                 // Ujung kanan kelompok tombol kiri: awal celah tengah yang bisa
@@ -795,21 +779,11 @@ impl TopBar {
 
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)
                 let right_cluster_start = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let tok = ThemeTokens::from_ui(ui);
                     // Sisi paling kanan: Tombol Akun DUCAD / Cloud
                     let acct_btn_resp = if let Some(acc) = &state.account {
                         let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
-                        let acct_tip = t!(
-                            "topbar-account-logged-in",
-                            name = acc.display_title(),
-                            email = acc.email.as_str()
-                        );
-                        let acct_a11y = acct_tip.clone();
-                        resp.widget_info(move || {
-                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, acct_a11y.clone())
-                        });
                         if resp.hovered() {
-                            ui.painter().rect_filled(rect, CornerRadius::same(RADIUS.pill), tok.bg_hover);
+                            ui.painter().rect_filled(rect, CornerRadius::same(14), BG_HOVER_DARK);
                         }
                         let avatar_rect = egui::Rect::from_center_size(rect.center(), Vec2::splat(icon_sz + 4.0));
                         crate::account_drawer::paint_avatar(
@@ -817,37 +791,31 @@ impl TopBar {
                             avatar_rect,
                             state.account_avatar.as_ref(),
                             &acc.initials(),
-                            Stroke::new(1.0, tok.accent_primary),
+                            Stroke::new(1.0, ACCENT_BLUE),
                         );
-                        ui.painter().circle_filled(rect.right_bottom() - vec2(2.0, 2.0), 4.0, tok.bg_popup);
+                        // Titik status aktif, dengan cincin gelap agar terpisah dari foto
+                        ui.painter().circle_filled(rect.right_bottom() - vec2(2.0, 2.0), 4.0, BG_POPUP_DARK);
                         ui.painter().circle_filled(rect.right_bottom() - vec2(2.0, 2.0), 3.0, ACCENT_GREEN);
-                        resp.on_hover_text(acct_tip)
+                        resp.on_hover_text(format!("Akun DUCAD: {} ({})", acc.display_title(), acc.email))
                     } else if state.is_authenticating {
                         let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
-                        let conn_tip = t!("topbar-account-connecting");
-                        let conn_a11y = conn_tip.clone();
-                        resp.widget_info(move || {
-                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, conn_a11y.clone())
-                        });
                         ui.painter().text(
                             rect.center(),
                             Align2::CENTER_CENTER,
                             ICON_SYNC.codepoint,
                             egui::FontId::proportional(icon_sz),
-                            tok.accent_primary,
+                            ACCENT_BLUE,
                         );
-                        resp.on_hover_text(conn_tip)
+                        resp.on_hover_text("Menghubungkan ke browser...")
                     } else {
-                        let acct_title = t!("topbar-account-title");
-                        let acct_sub = t!("topbar-account-login-sub");
                         header_icon_btn(
                             ui,
                             ICON_PERSON.codepoint,
                             icon_sz,
                             state.account_drawer_open,
-                            &acct_title,
+                            "Akun DUCAD",
                             None,
-                            Some(&acct_sub),
+                            Some("Masuk ke Cloud / SSO"),
                             None,
                             None,
                         )
@@ -899,17 +867,14 @@ impl TopBar {
                     } else {
                         None
                     };
-                    let touch_mode_label = state.touch_config.mode.label();
-                    let touch_title = t!("touch-mode-tooltip", mode = touch_mode_label.as_str());
-                    let touch_desc = state.touch_config.mode.description();
                     let touch_btn = header_icon_btn(
                         ui,
                         state.touch_config.mode.material_icon(),
                         icon_sz,
                         state.touch_config.mode != TouchDesignMode::PencilAndFinger,
-                        &touch_title,
+                        &format!("Mode Sentuh: {}", state.touch_config.mode.label()),
                         None,
-                        Some(&touch_desc),
+                        Some(state.touch_config.mode.description()),
                         touch_bg,
                         touch_stroke,
                     );
@@ -974,155 +939,195 @@ impl TopBar {
 /// Isi submenu "Ekspor" di burger menu (dulu tombol Share/Export terpisah
 /// di header kanan).
 fn export_menu_items(ui: &mut Ui, event: &mut Option<TopBarEvent>) {
-    let drawing_items = [
-        (ICON_PICTURE_AS_PDF.codepoint, t!("menu-export-pdf"), TopBarFileOp::ExportPdf),
-        (
-            ICON_PICTURE_AS_PDF.codepoint,
-            t!("menu-export-drawing-dxf"),
-            TopBarFileOp::ExportDrawingDxf,
-        ),
-        (
-            ICON_PICTURE_AS_PDF.codepoint,
-            t!("menu-export-drawing-svg"),
-            TopBarFileOp::ExportDrawingSvg,
-        ),
-        (
-            ICON_PICTURE_AS_PDF.codepoint,
-            t!("menu-export-view-dxf"),
-            TopBarFileOp::ExportViewDxf,
-        ),
-        (
-            ICON_PICTURE_AS_PDF.codepoint,
-            t!("menu-export-vector-snapshot"),
-            TopBarFileOp::ExportVectorSnapshot,
-        ),
-        (
-            ICON_PICTURE_AS_PDF.codepoint,
-            t!("menu-export-png"),
-            TopBarFileOp::ExportPng,
-        ),
-    ];
-    if ui
-        .button(format!(
-            "{} {}",
-            ICON_PICTURE_AS_PDF.codepoint,
-            t!("menu-drawing-sheet")
-        ))
-        .clicked()
-    {
-        *event = Some(TopBarEvent::OpenDrawingSheet);
-        ui.close();
-    }
-    for (icon, label, op) in drawing_items {
-        if ui.button(format!("{icon} {label}")).clicked() {
-            *event = Some(TopBarEvent::File(op));
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-drawing-sheet")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::OpenDrawingSheet);
             ui.close();
         }
-    }
-    ui.separator();
-    let cad_items = [
-        (t!("menu-export-step"), TopBarFileOp::ExportStep),
-        (t!("menu-export-iges"), TopBarFileOp::ExportIges),
-        (t!("menu-export-3mf"), TopBarFileOp::ExportThreeMf),
-        (t!("menu-export-stl"), TopBarFileOp::ExportStl),
-        (t!("menu-export-obj"), TopBarFileOp::ExportObj),
-        (t!("menu-export-glb"), TopBarFileOp::ExportGlb),
-        (t!("menu-export-dxf"), TopBarFileOp::ExportDxf),
-        (t!("menu-export-svg"), TopBarFileOp::ExportSvg),
-    ];
-    for (label, op) in cad_items {
-        if ui.button(format!("{} {}", ICON_UPLOAD.codepoint, label)).clicked() {
-            *event = Some(TopBarEvent::File(op));
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-export-pdf")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportPdf));
             ui.close();
         }
-    }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-export-drawing-svg")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportDrawingSvg));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-export-vector-snapshot")
+            ))
+            .clicked()
+        {
+            *event =
+                Some(TopBarEvent::File(TopBarFileOp::ExportVectorSnapshot));
+            ui.close();
+        }
+        ui.separator();
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-step")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportStep));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-stl")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportStl));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-obj")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportObj));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-glb")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportGlb));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-dxf")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportDxf));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-svg")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportSvg));
+            ui.close();
+        }
 }
 
-/// Isi submenu "Pengaturan" di burger menu: tema, Liquid Glass, label toolbar,
-/// kurangi gerak, skala UI, bahasa, ukuran ikon, satuan, dan mode sentuh.
+/// Isi submenu "Pengaturan" di burger menu (dulu tombol ⚙ terpisah di
+/// header kanan): tema, Liquid Glass, bahasa, ukuran ikon, satuan, mode sentuh.
 fn settings_menu_items(
     ui: &mut Ui,
     state: &TopBarState,
     icon_sz: f32,
     event: &mut Option<TopBarEvent>,
 ) {
-    let tok = ThemeTokens::from_ui(ui);
-    if ui
-        .button(format!("{} {}", ICON_PALETTE.codepoint, t!("menu-theme")))
-        .clicked()
-    {
-        *event = Some(TopBarEvent::ToggleTheme);
-        ui.close();
-    }
-    let glass = ducad_glass::runtime(ui.ctx());
-    let mut glass_on = glass.enabled;
-    if ui
-        .checkbox(
-            &mut glass_on,
-            format!("{} {}", ICON_BLUR_ON.codepoint, t!("menu-liquid-glass")),
-        )
-        .changed()
-    {
-        *event = Some(TopBarEvent::ToggleLiquidGlass);
-    }
-    let mut reduce = glass.reduce_transparency;
-    if ui
-        .add_enabled(
-            glass.enabled,
-            egui::Checkbox::new(
-                &mut reduce,
-                format!("{} {}", ICON_OPACITY.codepoint, t!("menu-reduce-transparency")),
-            ),
-        )
-        .changed()
-    {
-        *event = Some(TopBarEvent::ToggleReduceTransparency);
-    }
-    let mut labels_on = state.show_toolbar_labels;
-    if ui
-        .checkbox(&mut labels_on, t!("settings-toolbar-labels"))
-        .changed()
-    {
-        *event = Some(TopBarEvent::ToggleToolbarLabels);
-    }
-    let mut reduce_motion = state.reduce_motion;
-    if ui
-        .checkbox(&mut reduce_motion, t!("settings-reduce-motion"))
-        .changed()
-    {
-        *event = Some(TopBarEvent::ToggleReduceMotion);
-    }
-    if ui
-        .button(format!(
-            "{} {} (⌘K / ⌘⇧P)",
-            ICON_SEARCH.codepoint,
-            t!("menu-command-palette")
-        ))
-        .clicked()
-    {
-        *event = Some(TopBarEvent::OpenCommandPalette);
-        ui.close();
-    }
-    if state.updates_enabled {
-        ui.separator();
         if ui
-            .button(format!("{} {}", ICON_SYNC.codepoint, t!("menu-check-updates")))
+            .button(format!("{} {}", ICON_PALETTE.codepoint, t!("menu-theme")))
             .clicked()
         {
-            *event = Some(TopBarEvent::CheckForUpdates);
+            *event = Some(TopBarEvent::ToggleTheme);
             ui.close();
         }
-    }
-    ui.separator();
-    ui.menu_button(
-        format!(
-            "{} {} ({})",
-            ICON_LANGUAGE.codepoint,
-            t!("lang-current"),
-            current_language().display_name()
-        ),
-        |ui| {
-            crate::theme::glass_menu(ui, |ui| {
+        // Liquid Glass: keadaan dibaca dari runtime yang diisi aplikasi.
+        let glass = ducad_glass::runtime(ui.ctx());
+        let mut glass_on = glass.enabled;
+        if ui
+            .checkbox(
+                &mut glass_on,
+                format!("{} {}", ICON_BLUR_ON.codepoint, t!("menu-liquid-glass")),
+            )
+            .changed()
+        {
+            *event = Some(TopBarEvent::ToggleLiquidGlass);
+        }
+        let mut reduce = glass.reduce_transparency;
+        if ui
+            .add_enabled(
+                glass.enabled,
+                egui::Checkbox::new(
+                    &mut reduce,
+                    format!(
+                        "{} {}",
+                        ICON_OPACITY.codepoint,
+                        t!("menu-reduce-transparency")
+                    ),
+                ),
+            )
+            .changed()
+        {
+            *event = Some(TopBarEvent::ToggleReduceTransparency);
+        }
+        if ui
+            .button(format!(
+                "{} {} (⌘K / ⌘⇧P)",
+                ICON_SEARCH.codepoint,
+                t!("menu-command-palette")
+             ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::OpenCommandPalette);
+            ui.close();
+        }
+        if state.updates_enabled {
+            ui.separator();
+            if ui
+                .button(format!("{} {}", ICON_SYNC.codepoint, t!("menu-check-updates")))
+                .clicked()
+            {
+                *event = Some(TopBarEvent::CheckForUpdates);
+                ui.close();
+            }
+        }
+        ui.separator();
+        // Language selector
+        ui.menu_button(
+            format!(
+                "{} {} ({})",
+                ICON_LANGUAGE.codepoint,
+                t!("lang-current"),
+                current_language().display_name()
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
                 for lang in Language::all() {
                     let is_sel = current_language() == *lang;
                     let prefix = if is_sel { "✔ " } else { "   " };
@@ -1134,40 +1139,21 @@ fn settings_menu_items(
                         ui.close();
                     }
                 }
-            })
-        },
-    );
-    ui.separator();
-    ui.menu_button(
-        format!(
-            "{} ({:.0}%)",
-            t!("settings-ui-scale"),
-            (state.ui_scale * 100.0).round()
-        ),
-        |ui| {
-            crate::theme::glass_menu(ui, |ui| {
-                for scale in [1.0_f32, 1.15, 1.25, 1.5] {
-                    let is_sel = (state.ui_scale - scale).abs() < 0.02;
-                    let prefix = if is_sel { "✔ " } else { "   " };
-                    if ui
-                        .button(format!("{prefix}{:.0}%", scale * 100.0))
-                        .clicked()
-                    {
-                        *event = Some(TopBarEvent::SetUiScale(scale));
-                        ui.close();
-                    }
-                }
-            })
-        },
-    );
-    ui.menu_button(
-        format!("{} ({:.0}px)", t!("settings-icon-size"), icon_sz),
-        |ui| {
-            crate::theme::glass_menu(ui, |ui| {
+            }),
+        );
+        ui.separator();
+        // Icon size selector
+        ui.menu_button(
+            format!(
+                "🔘 {} ({:.0}px)",
+                t!("settings-icon-size"),
+                icon_sz
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
                 for (label, size) in [
-                    (t!("settings-icon-small"), 14.0),
-                    (t!("settings-icon-medium"), 16.0),
-                    (t!("settings-icon-standard"), 18.0),
+                    ("14 px (Kecil)", 14.0),
+                    ("16 px (Sedang)", 16.0),
+                    ("18 px (Standar)", 18.0),
                 ] {
                     let is_sel = (icon_sz - size).abs() < 0.1;
                     let prefix = if is_sel { "✔ " } else { "   " };
@@ -1176,18 +1162,16 @@ fn settings_menu_items(
                         ui.close();
                     }
                 }
-            })
-        },
-    );
-    ui.separator();
-    ui.menu_button(
-        format!(
-            "{} ({})",
-            t!("topbar-unit", unit = state.current_unit.suffix()),
-            state.current_unit.suffix()
-        ),
-        |ui| {
-            crate::theme::glass_menu(ui, |ui| {
+            }),
+        );
+        ui.separator();
+        ui.menu_button(
+            format!(
+                "📏 {} ({})",
+                t!("topbar-unit", unit = state.current_unit.suffix()),
+                state.current_unit.suffix()
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
                 for unit in [
                     LengthUnit::Millimeters,
                     LengthUnit::Centimeters,
@@ -1197,31 +1181,29 @@ fn settings_menu_items(
                     let is_sel = state.current_unit == unit;
                     let prefix = if is_sel { "✔ " } else { "   " };
                     if ui
-                        .button(format!("{}{}", prefix, localized_unit_label(unit)))
+                        .button(format!("{}{}", prefix, unit.label()))
                         .clicked()
                     {
                         *event = Some(TopBarEvent::SetUnit(unit));
                         ui.close();
                     }
                 }
-            })
-        },
-    );
-    ui.separator();
-    let mode_lbl = state.touch_config.mode.label();
-    ui.menu_button(
-        format!(
-            "{} {}",
-            state.touch_config.mode.icon(),
-            t!("settings-touch-menu", mode = mode_lbl.as_str())
-        ),
-        |ui| {
-            crate::theme::glass_menu(ui, |ui| {
+            }),
+        );
+        ui.separator();
+        // Konfigurasi Touch Design (Apple Pencil vs Sentuhan Jari)
+        ui.menu_button(
+            format!(
+                "{} Mode Sentuh / Pencil ({})",
+                state.touch_config.mode.icon(),
+                state.touch_config.mode.label()
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
                 ui.label(
-                    RichText::new(t!("settings-touch-header"))
+                    RichText::new("Interaksi Layar Sentuh & Stylus:")
                         .strong()
-                        .size(TYPOGRAPHY.caption)
-                        .color(tok.text_secondary),
+                        .size(10.5)
+                        .color(TEXT_SECONDARY),
                 );
                 for m in [
                     TouchDesignMode::PencilAndFinger,
@@ -1239,13 +1221,14 @@ fn settings_menu_items(
                         ui.close();
                     }
                 }
-            })
-        },
-    );
+            }),
+        );
 }
 
 /// Tombol ikon kompak untuk header, dengan kartu tooltip hover berisi
-/// title + shortcut opsional + subtitle dan informasi AccessKit.
+/// title + shortcut opsional + subtitle. Meniru gaya & semantik parameter
+/// `square_btn` di `left_toolbar.rs` (custom_bg/custom_fg dipakai hanya saat
+/// `active`), tapi berukuran lebih pendek supaya muat di satu baris header.
 #[allow(clippy::too_many_arguments)]
 fn header_icon_btn(
     ui: &mut Ui,
@@ -1258,65 +1241,46 @@ fn header_icon_btn(
     active_bg: Option<Color32>,
     active_fg: Option<Color32>,
 ) -> egui::Response {
-    let tok = ThemeTokens::from_ui(ui);
     let (bg, icon_color) = if active {
         (
-            active_bg.unwrap_or(tok.accent_primary),
+            active_bg.unwrap_or(ACCENT_BLUE),
             active_fg.unwrap_or(Color32::WHITE),
         )
     } else {
-        (Color32::TRANSPARENT, active_fg.unwrap_or(tok.text_primary))
+        (Color32::TRANSPARENT, active_fg.unwrap_or(TEXT_PRIMARY))
     };
 
     let btn = egui::Button::new(RichText::new(icon).size(icon_size).color(icon_color))
         .fill(bg)
-        .corner_radius(CornerRadius::same(RADIUS.xs))
+        .corner_radius(CornerRadius::same(5))
         .min_size(Vec2::new(icon_size + 8.0, icon_size + 6.0));
     let response = ui.add(btn);
 
-    let a11y_label = match shortcut.filter(|s| !s.is_empty()) {
-        Some(sc) => format!("{title} ({sc})"),
-        None => title.to_string(),
-    };
-    response.widget_info(move || {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, a11y_label.clone())
-    });
-
     response.on_hover_ui(|ui| {
-        let tok = ThemeTokens::from_ui(ui);
         ui.spacing_mut().item_spacing = Vec2::new(6.0, 2.0);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(title)
                     .strong()
-                    .size(TYPOGRAPHY.body)
-                    .color(tok.text_primary),
+                    .size(12.0)
+                    .color(Color32::WHITE),
             );
             if let Some(sc) = shortcut {
                 if !sc.is_empty() {
                     Frame::NONE
-                        .fill(tok.bg_card)
-                        .corner_radius(CornerRadius::same(RADIUS.xs))
-                        .inner_margin(Margin::symmetric(5, 1))
-                        .stroke(Stroke::new(0.5, tok.border_subtle))
+                        .fill(Color32::from_rgba_premultiplied(50, 54, 65, 230))
+                        .corner_radius(CornerRadius::same(4))
+                        .inner_margin(Margin::symmetric(4, 1))
+                        .stroke(Stroke::new(0.5, BORDER_SUBTLE))
                         .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(sc)
-                                    .size(TYPOGRAPHY.caption)
-                                    .strong()
-                                    .color(tok.text_primary),
-                            );
+                            ui.label(RichText::new(sc).size(9.5).strong().color(TEXT_PRIMARY));
                         });
                 }
             }
         });
         if let Some(sub) = subtitle {
             if !sub.is_empty() {
-                ui.label(
-                    RichText::new(sub)
-                        .size(TYPOGRAPHY.caption)
-                        .color(tok.text_secondary),
-                );
+                ui.label(RichText::new(sub).size(10.0).color(TEXT_SECONDARY));
             }
         }
     })
@@ -1375,9 +1339,6 @@ mod tests {
             bridge_clients: None,
             checks_panel_open: false,
             chat_open: false,
-            show_toolbar_labels: true,
-            reduce_motion: false,
-            ui_scale: 1.0,
         }
     }
 

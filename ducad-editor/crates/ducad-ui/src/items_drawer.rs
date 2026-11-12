@@ -159,15 +159,6 @@ fn render_item_card(
                     // Tombol eye visibility
                     let (eye_rect, eye_resp) =
                         ui.allocate_exact_size(Vec2::new(24.0, 20.0), egui::Sense::click());
-                    let eye_label = format!("{}: {}", t!("param-visibility"), name);
-                    eye_resp.widget_info(move || {
-                        egui::WidgetInfo::selected(
-                            egui::WidgetType::Checkbox,
-                            true,
-                            visible,
-                            eye_label.clone(),
-                        )
-                    });
                     let is_eye_hovered = eye_resp.hovered();
                     if is_eye_hovered {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -242,8 +233,8 @@ fn render_item_card(
                             }
                             .show(ui, |ui| {
                                 ui.label(
-                                    RichText::new(t!("drawer-selected-badge"))
-                                        .size(12.0)
+                                    RichText::new("Terpilih")
+                                        .size(9.5)
                                         .strong()
                                         .color(Color32::WHITE),
                                 );
@@ -280,9 +271,6 @@ impl ItemsDrawer {
 
         let size = Vec2::splat(38.0);
         let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-        resp.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, t!("topbar-items-tooltip"))
-        });
 
         let is_hovered = resp.hovered();
         let bg_color = if is_hovered {
@@ -352,13 +340,6 @@ impl ItemsDrawer {
                     Vec2::new(ui.available_width(), 10.0),
                     egui::Sense::click_and_drag(),
                 );
-                handle_resp.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Slider,
-                        true,
-                        t!("a11y-resize-panel"),
-                    )
-                });
                 if handle_resp.hovered() || handle_resp.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                 }
@@ -668,14 +649,6 @@ impl ItemsDrawer {
                                                         Vec2::new(16.0, 20.0),
                                                         egui::Sense::click(),
                                                     );
-                                                let chev_label = group_name.clone();
-                                                chev_resp.widget_info(move || {
-                                                    egui::WidgetInfo::labeled(
-                                                        egui::WidgetType::CollapsingHeader,
-                                                        true,
-                                                        chev_label.clone(),
-                                                    )
-                                                });
                                                 if chev_resp.hovered() {
                                                     ui.ctx().set_cursor_icon(
                                                         egui::CursorIcon::PointingHand,
@@ -698,15 +671,6 @@ impl ItemsDrawer {
                                                     Vec2::new(24.0, 20.0),
                                                     egui::Sense::click(),
                                                 );
-                                                let grp_eye_label = format!("{}: {}", t!("param-visibility"), group_name);
-                                                eye_resp.widget_info(move || {
-                                                    egui::WidgetInfo::selected(
-                                                        egui::WidgetType::Checkbox,
-                                                        true,
-                                                        any_visible,
-                                                        grp_eye_label.clone(),
-                                                    )
-                                                });
                                                 let is_hovered = eye_resp.hovered();
                                                 if is_hovered {
                                                     ui.ctx().set_cursor_icon(

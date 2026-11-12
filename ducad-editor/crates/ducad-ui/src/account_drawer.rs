@@ -2,7 +2,6 @@
 
 use ducad_cloud::{AuthStatus, DucadAccount, FileList, OAuthProvider};
 use ducad_core::{Feature, LicenseTier};
-use ducad_i18n::t;
 use egui::{
     Align, Align2, Area, Color32, CornerRadius, Frame, Layout, Margin, Order, Pos2, Rect,
     RichText, Sense, Stroke, TextureHandle, Ui, Vec2,
@@ -14,7 +13,8 @@ use egui_icons::icons::{
 };
 
 use crate::theme::{
-    ThemeTokens, ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, AVATAR_FILL, TYPOGRAPHY,
+    ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, AVATAR_FILL, BG_CARD_DARK, BG_POPUP_DARK,
+    BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 
 /// Menggambar avatar bulat di `rect`: foto profil akun login bila sudah
@@ -142,11 +142,10 @@ impl AccountDrawer {
             .order(Order::Foreground)
             .fixed_pos(popup_pos)
             .show(ctx, |ui| {
-                let tokens = ThemeTokens::for_ui(ui);
                 Frame::popup(ui.style())
-                    .fill(tokens.bg_popup)
+                    .fill(BG_POPUP_DARK)
                     .corner_radius(CornerRadius::same(12))
-                    .stroke(Stroke::new(1.0, tokens.border_subtle))
+                    .stroke(Stroke::new(1.0, BORDER_SUBTLE))
                     .shadow(egui::epaint::Shadow {
                         offset: [0, 8],
                         blur: 24,
@@ -160,27 +159,20 @@ impl AccountDrawer {
                         // Header popup
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new(format!("{} {}", ICON_CLOUD.codepoint, t!("topbar-account-title")))
-                                    .size(TYPOGRAPHY.subheading)
+                                RichText::new(format!("{} Akun DUCAD", ICON_CLOUD.codepoint))
+                                    .size(15.0)
                                     .strong()
-                                    .color(tokens.text_primary),
+                                    .color(TEXT_PRIMARY),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 let close_btn = ui.add(
                                     egui::Button::new(
                                         RichText::new(ICON_CLOSE.codepoint)
                                             .size(14.0)
-                                            .color(tokens.text_secondary),
+                                            .color(TEXT_SECONDARY),
                                     )
                                     .frame(false),
                                 );
-                                close_btn.widget_info(|| {
-                                    egui::WidgetInfo::labeled(
-                                        egui::WidgetType::Button,
-                                        true,
-                                        t!("param-close"),
-                                    )
-                                });
                                 if close_btn.clicked() {
                                     event = Some(AccountDrawerEvent::Close);
                                 }
@@ -225,7 +217,6 @@ impl AccountDrawer {
         cloud: CloudView<'_>,
         event: &mut Option<AccountDrawerEvent>,
     ) {
-        let tokens = ThemeTokens::for_ui(ui);
         // Unggah foto hanya ditawarkan bila akun memang tidak punya foto
         // (mis. Apple) atau foto provider gagal dimuat — bukan selagi diunduh.
         let can_upload = avatar.photo.is_none() && !avatar.loading && !avatar.uploading;
@@ -234,14 +225,6 @@ impl AccountDrawer {
         ui.horizontal(|ui| {
             let sense = if can_upload { Sense::click() } else { Sense::hover() };
             let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), sense);
-            let avatar_label = if can_upload {
-                t!("account-upload-photo")
-            } else {
-                account.display_title().to_string()
-            };
-            resp.widget_info(move || {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, can_upload, avatar_label.clone())
-            });
             paint_avatar(
                 ui,
                 rect,
@@ -253,15 +236,15 @@ impl AccountDrawer {
                 // Lencana kamera kecil di pojok: avatar bisa diklik untuk unggah.
                 let badge = rect.right_bottom() - Vec2::splat(6.0);
                 ui.painter().circle_filled(badge, 8.0, ACCENT_BLUE);
-                ui.painter().circle_stroke(badge, 8.0, Stroke::new(1.5, tokens.bg_popup));
+                ui.painter().circle_stroke(badge, 8.0, Stroke::new(1.5, BG_POPUP_DARK));
                 ui.painter().text(
                     badge,
                     Align2::CENTER_CENTER,
                     ICON_ADD_A_PHOTO.codepoint,
-                    egui::FontId::proportional(TYPOGRAPHY.caption),
+                    egui::FontId::proportional(10.0),
                     Color32::WHITE,
                 );
-                if resp.on_hover_text(t!("account-upload-photo")).clicked() {
+                if resp.on_hover_text("Unggah foto profil").clicked() {
                     *event = Some(AccountDrawerEvent::UploadPhoto);
                 }
             }
@@ -270,14 +253,14 @@ impl AccountDrawer {
             ui.vertical(|ui| {
                 ui.label(
                     RichText::new(account.display_title())
-                        .size(TYPOGRAPHY.heading)
+                        .size(14.0)
                         .strong()
-                        .color(tokens.text_primary),
+                        .color(TEXT_PRIMARY),
                 );
                 ui.label(
                     RichText::new(&account.email)
-                        .size(TYPOGRAPHY.caption)
-                        .color(tokens.text_secondary),
+                        .size(11.0)
+                        .color(TEXT_SECONDARY),
                 );
             });
         });
@@ -287,12 +270,12 @@ impl AccountDrawer {
             let upload_btn = ui.add_sized(
                 [ui.available_width(), 28.0],
                 egui::Button::new(
-                    RichText::new(format!("{}  {}", ICON_ADD_A_PHOTO.codepoint, t!("account-upload-photo")))
-                        .size(TYPOGRAPHY.caption)
-                        .color(tokens.text_primary),
+                    RichText::new(format!("{}  Unggah foto profil", ICON_ADD_A_PHOTO.codepoint))
+                        .size(12.0)
+                        .color(TEXT_PRIMARY),
                 )
-                .fill(tokens.bg_card)
-                .stroke(Stroke::new(1.0, tokens.border_subtle))
+                .fill(BG_CARD_DARK)
+                .stroke(Stroke::new(1.0, BORDER_SUBTLE))
                 .corner_radius(CornerRadius::same(6)),
             );
             if upload_btn.clicked() {
@@ -301,14 +284,14 @@ impl AccountDrawer {
         } else if avatar.uploading {
             ui.add_space(8.0);
             ui.label(
-                RichText::new(format!("{}  {}", ICON_SYNC.codepoint, t!("account-uploading-photo")))
-                    .size(TYPOGRAPHY.caption)
-                    .color(tokens.text_secondary),
+                RichText::new(format!("{}  Mengunggah foto profil…", ICON_SYNC.codepoint))
+                    .size(11.5)
+                    .color(TEXT_SECONDARY),
             );
         }
         if let Some(err) = avatar.error {
             ui.add_space(4.0);
-            ui.label(RichText::new(err).size(TYPOGRAPHY.caption).color(ACCENT_RED));
+            ui.label(RichText::new(err).size(11.0).color(ACCENT_RED));
         }
 
         ui.add_space(10.0);
@@ -322,8 +305,8 @@ impl AccountDrawer {
         let logout_btn = ui.add_sized(
             [ui.available_width(), 30.0],
             egui::Button::new(
-                RichText::new(format!("{} {}", ICON_LOGOUT.codepoint, t!("account-logout")))
-                    .size(TYPOGRAPHY.body)
+                RichText::new(format!("{} Keluar dari Akun", ICON_LOGOUT.codepoint))
+                    .size(12.5)
                     .strong()
                     .color(ACCENT_RED),
             )
@@ -347,32 +330,29 @@ impl AccountDrawer {
                     ui.set_width(ui.available_width());
                     ui.label(
                         RichText::new(format!(
-                            "{}  {}",
-                            ICON_WARNING.codepoint,
-                            t!("account-delete-confirm-title", email = account.email.as_str())
+                            "{}  Hapus permanen akun {}?",
+                            ICON_WARNING.codepoint, account.email
                         ))
-                        .size(TYPOGRAPHY.caption)
+                        .size(11.5)
                         .strong()
-                        .color(tokens.text_primary),
+                        .color(TEXT_PRIMARY),
                     );
                     ui.label(
-                        RichText::new(t!("account-delete-confirm-desc"))
-                            .size(TYPOGRAPHY.caption)
-                            .color(tokens.text_secondary),
+                        RichText::new(
+                            "Seluruh profil, sesi perangkat, berkas Cloud Sync, dan preferensi di server akan dihapus dan tidak dapat dipulihkan.",
+                        )
+                        .size(10.5)
+                        .color(TEXT_SECONDARY),
                     );
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         let yes = ui.add_enabled(
                             !cloud.busy,
                             egui::Button::new(
-                                RichText::new(format!(
-                                    "{} {}",
-                                    ICON_DELETE.codepoint,
-                                    t!("account-delete-confirm-yes")
-                                ))
-                                .size(TYPOGRAPHY.caption)
-                                .strong()
-                                .color(ACCENT_RED),
+                                RichText::new(format!("{} Ya, Hapus Akun", ICON_DELETE.codepoint))
+                                    .size(11.5)
+                                    .strong()
+                                    .color(ACCENT_RED),
                             )
                             .fill(ACCENT_RED.gamma_multiply(0.18))
                             .stroke(Stroke::new(1.0, ACCENT_RED.gamma_multiply(0.6)))
@@ -381,14 +361,7 @@ impl AccountDrawer {
                         if yes.clicked() {
                             *event = Some(AccountDrawerEvent::ConfirmDeleteAccount);
                         }
-                        if ui
-                            .button(
-                                RichText::new(t!("account-cancel"))
-                                    .size(TYPOGRAPHY.caption)
-                                    .color(tokens.text_secondary),
-                            )
-                            .clicked()
-                        {
+                        if ui.button(RichText::new("Batal").size(11.5).color(TEXT_SECONDARY)).clicked() {
                             *event = Some(AccountDrawerEvent::CancelDeleteAccount);
                         }
                     });
@@ -397,12 +370,12 @@ impl AccountDrawer {
             let del_btn = ui.add_enabled(
                 !cloud.busy,
                 egui::Button::new(
-                    RichText::new(format!("{} {}", ICON_DELETE.codepoint, t!("account-delete-permanent")))
-                        .size(TYPOGRAPHY.caption)
-                        .color(tokens.text_secondary),
+                    RichText::new(format!("{} Hapus Akun Permanen", ICON_DELETE.codepoint))
+                        .size(11.5)
+                        .color(TEXT_SECONDARY),
                 )
-                .fill(tokens.bg_card)
-                .stroke(Stroke::new(1.0, tokens.border_subtle))
+                .fill(BG_CARD_DARK)
+                .stroke(Stroke::new(1.0, BORDER_SUBTLE))
                 .corner_radius(CornerRadius::same(6))
                 .min_size(Vec2::new(ui.available_width(), 28.0)),
             );
@@ -416,7 +389,6 @@ impl AccountDrawer {
     /// Tidak ada ajakan membeli di sini: build App Store hanya boleh menjual
     /// lewat In-App Purchase (Guideline 3.1.1), dan pembayaran belum ada.
     fn render_tier(ui: &mut Ui, tier: LicenseTier) {
-        let tokens = ThemeTokens::for_ui(ui);
         let pro = tier == LicenseTier::Pro;
         let accent = if pro { ACCENT_GREEN } else { ACCENT_BLUE };
         // Tint dibuat dengan `gamma_multiply` dari warna opak (hasilnya
@@ -432,28 +404,28 @@ impl AccountDrawer {
                 ui.set_width(ui.available_width());
                 ui.label(
                     RichText::new(format!("{}  DUCAD {}", ICON_WORKSPACE_PREMIUM.codepoint, tier.as_str()))
-                        .size(TYPOGRAPHY.caption)
+                        .size(12.0)
                         .strong()
-                        .color(tokens.text_primary),
+                        .color(TEXT_PRIMARY),
                 );
                 ui.add_space(2.0);
                 for feature in Feature::ALL {
                     let (icon, color) = if tier.allows(feature) {
                         (ICON_CHECK.codepoint, ACCENT_GREEN)
                     } else {
-                        (ICON_LOCK.codepoint, tokens.text_secondary)
+                        (ICON_LOCK.codepoint, TEXT_SECONDARY)
                     };
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(icon).size(TYPOGRAPHY.caption).color(color));
-                        ui.label(RichText::new(feature.label()).size(TYPOGRAPHY.caption).color(tokens.text_primary));
+                        ui.label(RichText::new(icon).size(11.0).color(color));
+                        ui.label(RichText::new(feature.label()).size(10.5).color(TEXT_PRIMARY));
                     });
                 }
                 if !pro {
                     ui.add_space(2.0);
                     ui.label(
-                        RichText::new(t!("account-pro-locked-note"))
-                            .size(TYPOGRAPHY.caption)
-                            .color(tokens.text_secondary),
+                        RichText::new("Fitur bertanda gembok tersedia di DUCAD Pro.")
+                            .size(10.5)
+                            .color(TEXT_SECONDARY),
                     );
                 }
             });
@@ -462,21 +434,20 @@ impl AccountDrawer {
     /// Bagian Cloud Sync: kuota, daftar berkas, unggah dokumen aktif, dan
     /// penyelesaian konflik.
     fn render_cloud(ui: &mut Ui, cloud: CloudView<'_>, event: &mut Option<AccountDrawerEvent>) {
-        let tokens = ThemeTokens::for_ui(ui);
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("{}  {}", ICON_CLOUD.codepoint, t!("account-cloud-title")))
-                    .size(TYPOGRAPHY.caption)
+                RichText::new(format!("{}  Cloud Sync (Eksperimental)", ICON_CLOUD.codepoint))
+                    .size(12.0)
                     .strong()
-                    .color(tokens.text_primary),
+                    .color(TEXT_PRIMARY),
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let refresh = ui.add_enabled(
                     !cloud.busy,
-                    egui::Button::new(RichText::new(ICON_REFRESH.codepoint).size(13.0).color(tokens.text_secondary))
+                    egui::Button::new(RichText::new(ICON_REFRESH.codepoint).size(13.0).color(TEXT_SECONDARY))
                         .frame(false),
                 );
-                if refresh.on_hover_text(t!("account-cloud-refresh")).clicked() {
+                if refresh.on_hover_text("Muat ulang").clicked() {
                     *event = Some(AccountDrawerEvent::CloudRefresh);
                 }
                 if cloud.busy {
@@ -486,18 +457,16 @@ impl AccountDrawer {
         });
 
         if let Some(list) = cloud.files {
-            let used_s = human_bytes(list.used_bytes);
-            let quota_s = human_bytes(list.quota_bytes);
             ui.label(
-                RichText::new(t!(
-                    "account-cloud-quota",
-                    used = used_s.as_str(),
-                    quota = quota_s.as_str(),
-                    count = list.files.len(),
-                    max = list.max_files
+                RichText::new(format!(
+                    "{} dari {} - {} / {} berkas",
+                    human_bytes(list.used_bytes),
+                    human_bytes(list.quota_bytes),
+                    list.files.len(),
+                    list.max_files
                 ))
-                .size(TYPOGRAPHY.caption)
-                .color(tokens.text_secondary),
+                .size(10.5)
+                .color(TEXT_SECONDARY),
             );
             let frac = if list.quota_bytes == 0 {
                 0.0
@@ -509,15 +478,15 @@ impl AccountDrawer {
 
         ui.add_space(6.0);
         let upload_label = match cloud.current_document {
-            Some(name) => format!("{}  {}", ICON_CLOUD_UPLOAD.codepoint, t!("account-cloud-upload-doc", name = name)),
-            None => format!("{}  {}", ICON_CLOUD_UPLOAD.codepoint, t!("account-cloud-save-first")),
+            Some(name) => format!("{}  Unggah {}", ICON_CLOUD_UPLOAD.codepoint, name),
+            None => format!("{}  Simpan dokumen dulu untuk mengunggah", ICON_CLOUD_UPLOAD.codepoint),
         };
         let upload = ui.add_enabled(
             cloud.current_document.is_some() && !cloud.busy,
-            egui::Button::new(RichText::new(upload_label).size(TYPOGRAPHY.caption).color(tokens.text_primary))
+            egui::Button::new(RichText::new(upload_label).size(11.5).color(TEXT_PRIMARY))
                 .truncate()
-                .fill(tokens.bg_card)
-                .stroke(Stroke::new(1.0, tokens.border_subtle))
+                .fill(BG_CARD_DARK)
+                .stroke(Stroke::new(1.0, BORDER_SUBTLE))
                 .corner_radius(CornerRadius::same(6))
                 .min_size(Vec2::new(ui.available_width(), 26.0)),
         );
@@ -535,21 +504,20 @@ impl AccountDrawer {
                     ui.set_width(ui.available_width());
                     ui.label(
                         RichText::new(format!(
-                            "{}  {}",
-                            ICON_WARNING.codepoint,
-                            t!("account-cloud-conflict", name = name)
+                            "{}  {} di cloud diubah dari perangkat lain.",
+                            ICON_WARNING.codepoint, name
                         ))
-                        .size(TYPOGRAPHY.caption)
-                        .color(tokens.text_primary),
+                        .size(11.0)
+                        .color(TEXT_PRIMARY),
                     );
                     ui.horizontal_wrapped(|ui| {
-                        if ui.small_button(t!("account-cloud-overwrite")).clicked() {
+                        if ui.small_button("Timpa versi cloud").clicked() {
                             *event = Some(AccountDrawerEvent::CloudConflictOverwrite);
                         }
-                        if ui.small_button(t!("account-cloud-save-copy")).clicked() {
+                        if ui.small_button("Simpan sebagai salinan").clicked() {
                             *event = Some(AccountDrawerEvent::CloudConflictSaveCopy);
                         }
-                        if ui.small_button(t!("account-cancel")).clicked() {
+                        if ui.small_button("Batal").clicked() {
                             *event = Some(AccountDrawerEvent::CloudConflictDismiss);
                         }
                     });
@@ -558,8 +526,8 @@ impl AccountDrawer {
 
         if let Some(msg) = cloud.status {
             ui.add_space(4.0);
-            let color = if cloud.status_is_error { ACCENT_RED } else { tokens.text_secondary };
-            ui.label(RichText::new(msg).size(TYPOGRAPHY.caption).color(color));
+            let color = if cloud.status_is_error { ACCENT_RED } else { TEXT_SECONDARY };
+            ui.label(RichText::new(msg).size(10.5).color(color));
         }
 
         let Some(list) = cloud.files else {
@@ -568,9 +536,9 @@ impl AccountDrawer {
         ui.add_space(6.0);
         if list.files.is_empty() {
             ui.label(
-                RichText::new(t!("account-cloud-empty"))
-                    .size(TYPOGRAPHY.caption)
-                    .color(tokens.text_secondary),
+                RichText::new("Belum ada berkas di cloud.")
+                    .size(10.5)
+                    .color(TEXT_SECONDARY),
             );
             return;
         }
@@ -585,7 +553,7 @@ impl AccountDrawer {
                             ui.set_width((ui.available_width() - 56.0).max(80.0));
                             ui.add(
                                 egui::Label::new(
-                                    RichText::new(&file.name).size(TYPOGRAPHY.caption).color(tokens.text_primary),
+                                    RichText::new(&file.name).size(11.0).color(TEXT_PRIMARY),
                                 )
                                 .truncate(),
                             );
@@ -595,8 +563,8 @@ impl AccountDrawer {
                                     human_bytes(file.size),
                                     short_timestamp(&file.updated_at)
                                 ))
-                                .size(TYPOGRAPHY.caption)
-                                .color(tokens.text_secondary),
+                                .size(9.5)
+                                .color(TEXT_SECONDARY),
                             );
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -608,7 +576,7 @@ impl AccountDrawer {
                                 egui::Button::new(RichText::new(ICON_DELETE.codepoint).size(13.0).color(ACCENT_RED))
                                     .frame(false),
                             );
-                            if del.on_hover_text(t!("account-cloud-delete-tip")).clicked() {
+                            if del.on_hover_text("Hapus dari cloud").clicked() {
                                 *event = Some(AccountDrawerEvent::CloudDelete(file.id.clone()));
                             }
                             let open = ui.add_enabled(
@@ -616,18 +584,18 @@ impl AccountDrawer {
                                 egui::Button::new(RichText::new(ICON_CLOUD_DOWNLOAD.codepoint).size(13.0).color(ACCENT_BLUE))
                                     .frame(false),
                             );
-                            if open.on_hover_text(t!("account-cloud-open-tip")).clicked() {
+                            if open.on_hover_text("Unduh dan buka").clicked() {
                                 *event = Some(AccountDrawerEvent::CloudOpen(file.id.clone()));
                             }
                         });
                     });
                     if confirming {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(t!("account-cloud-delete-ask")).size(TYPOGRAPHY.caption).color(ACCENT_RED));
-                            if ui.small_button(t!("account-cloud-delete-btn")).clicked() {
+                            ui.label(RichText::new("Hapus permanen?").size(10.5).color(ACCENT_RED));
+                            if ui.small_button("Hapus").clicked() {
                                 *event = Some(AccountDrawerEvent::CloudDeleteConfirm);
                             }
-                            if ui.small_button(t!("account-cancel")).clicked() {
+                            if ui.small_button("Batal").clicked() {
                                 *event = Some(AccountDrawerEvent::CloudDeleteCancel);
                             }
                         });
@@ -638,11 +606,10 @@ impl AccountDrawer {
     }
 
     fn render_logged_out(ui: &mut Ui, event: &mut Option<AccountDrawerEvent>) {
-        let tokens = ThemeTokens::for_ui(ui);
         ui.label(
-            RichText::new(t!("account-logged-out-desc"))
-                .size(TYPOGRAPHY.caption)
-                .color(tokens.text_secondary),
+            RichText::new("Masuk untuk menyinkronkan berkas .ducad dan preferensi antar perangkat (Mac, iPad, Windows, Linux) dan memakai fitur DUCAD Pro bila akun Anda Pro.")
+                .size(12.0)
+                .color(TEXT_SECONDARY),
         );
 
         ui.add_space(14.0);
@@ -666,31 +633,30 @@ impl AccountDrawer {
     /// tiga gaya yang diizinkan Apple), biru Google, dan permukaan gelap
     /// DUCAD untuk GitHub.
     fn render_login_button(ui: &mut Ui, provider: OAuthProvider) -> egui::Response {
-        let tokens = ThemeTokens::for_ui(ui);
         let (icon, label, fill, stroke) = match provider {
             OAuthProvider::Apple => (
                 ICON_APPLE.codepoint,
-                t!("account-login-apple"),
+                "Masuk dengan Apple",
                 Color32::BLACK,
-                Some(Stroke::new(1.0, tokens.border_subtle)),
+                Some(Stroke::new(1.0, BORDER_SUBTLE)),
             ),
             OAuthProvider::Google => (
                 ICON_GOOGLE.codepoint,
-                t!("account-login-google"),
+                "Masuk dengan Google",
                 Color32::from_rgb(37, 99, 235),
                 None,
             ),
             OAuthProvider::GitHub => (
                 ICON_GITHUB.codepoint,
-                t!("account-login-github"),
-                Color32::from_rgb(28, 30, 36),
-                Some(Stroke::new(1.0, tokens.border_subtle)),
+                "Masuk dengan GitHub",
+                BG_CARD_DARK,
+                Some(Stroke::new(1.0, BORDER_SUBTLE)),
             ),
         };
 
         let mut button = egui::Button::new(
             RichText::new(format!("{}  {}", icon, label))
-                .size(TYPOGRAPHY.body)
+                .size(13.0)
                 .strong()
                 .color(Color32::WHITE),
         )
@@ -709,7 +675,6 @@ impl AccountDrawer {
         provider: OAuthProvider,
         event: &mut Option<AccountDrawerEvent>,
     ) {
-        let tokens = ThemeTokens::for_ui(ui);
         ui.vertical_centered(|ui| {
             ui.add_space(8.0);
             ui.label(
@@ -719,23 +684,23 @@ impl AccountDrawer {
             );
             ui.add_space(4.0);
             ui.label(
-                RichText::new(t!("account-auth-waiting", provider = provider.label()))
-                    .size(TYPOGRAPHY.body)
+                RichText::new(format!("Menunggu login via {}...", provider.label()))
+                    .size(13.0)
                     .strong()
-                    .color(tokens.text_primary),
+                    .color(TEXT_PRIMARY),
             );
             ui.add_space(4.0);
             ui.label(
-                RichText::new(t!("account-auth-browser-note"))
-                    .size(TYPOGRAPHY.caption)
-                    .color(tokens.text_secondary),
+                RichText::new("Silakan selesaikan otentikasi di jendela browser yang terbuka.")
+                    .size(11.0)
+                    .color(TEXT_SECONDARY),
             );
 
             ui.add_space(14.0);
 
             let cancel_btn = ui.add_sized(
                 [120.0, 28.0],
-                egui::Button::new(RichText::new(t!("account-cancel")).size(TYPOGRAPHY.caption).color(tokens.text_secondary))
+                egui::Button::new(RichText::new("Batal").size(12.0).color(TEXT_SECONDARY))
                     .corner_radius(CornerRadius::same(6)),
             );
 

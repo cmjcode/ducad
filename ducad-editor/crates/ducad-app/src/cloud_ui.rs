@@ -35,14 +35,6 @@ pub struct UserPrefs {
     pub language: Option<ducad_i18n::Language>,
     pub unit: Option<LengthUnit>,
     pub icon_size: Option<f32>,
-    pub theme: Option<ducad_ui::ThemeMode>,
-    pub liquid_glass: Option<bool>,
-    pub reduce_transparency: Option<bool>,
-    pub show_toolbar_labels: Option<bool>,
-    pub ui_scale: Option<f32>,
-    pub reduce_motion: Option<bool>,
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub keybindings: std::collections::BTreeMap<String, String>,
 }
 
 /// Isi `prefs.json`.
@@ -456,13 +448,6 @@ impl DuCADApp {
             language: Some(self.language),
             unit: Some(self.unit),
             icon_size: Some(self.icon_size),
-            theme: Some(self.theme),
-            liquid_glass: Some(self.liquid_glass),
-            reduce_transparency: Some(self.reduce_transparency),
-            show_toolbar_labels: Some(self.left_toolbar.show_labels),
-            ui_scale: Some(self.ui_scale),
-            reduce_motion: Some(self.reduce_motion),
-            keybindings: self.commands.export_user_map(),
         }
     }
 
@@ -479,27 +464,6 @@ impl DuCADApp {
         if let Some(sz) = p.icon_size.filter(|s| s.is_finite() && *s > 0.0) {
             self.icon_size = sz;
             self.left_toolbar.icon_size = sz;
-        }
-        if let Some(theme) = p.theme {
-            self.theme = theme;
-        }
-        if let Some(lg) = p.liquid_glass {
-            self.liquid_glass = lg;
-        }
-        if let Some(rt) = p.reduce_transparency {
-            self.reduce_transparency = rt;
-        }
-        if let Some(labels) = p.show_toolbar_labels {
-            self.left_toolbar.show_labels = labels;
-        }
-        if let Some(scale) = p.ui_scale.filter(|s| s.is_finite() && *s >= 0.75 && *s <= 1.75) {
-            self.ui_scale = scale;
-        }
-        if let Some(rm) = p.reduce_motion {
-            self.reduce_motion = rm;
-        }
-        if !p.keybindings.is_empty() {
-            self.commands.apply_user_map(&p.keybindings);
         }
     }
 
@@ -541,7 +505,6 @@ impl DuCADApp {
         if let Some(done) = self.cloud.prefs_job.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.cloud.prefs_job = None;
             self.cloud_finish(done);
-            self.apply_theme_options(ctx);
             if std::mem::take(&mut self.cloud.prefs_push_queued) {
                 self.queue_prefs_push();
             }
@@ -704,7 +667,6 @@ mod tests {
                 language: Some(ducad_i18n::Language::default()),
                 unit: Some(LengthUnit::Millimeters),
                 icon_size: Some(24.0),
-                ..Default::default()
             },
             synced_revision: 3,
             dirty: true,

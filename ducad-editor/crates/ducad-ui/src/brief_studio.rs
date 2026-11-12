@@ -692,13 +692,6 @@ impl BriefStudio {
                     // melebar dan mendorong kolom revisi keluar layar.
                     let avail = Vec2::new(center_w, ui.available_height().max(120.0));
                     let (rect, response) = ui.allocate_exact_size(avail, Sense::click());
-                    response.widget_info(|| {
-                        egui::WidgetInfo::labeled(
-                            egui::WidgetType::Button,
-                            true,
-                            t!("brief-mark-hint"),
-                        )
-                    });
                     if let Some(scene) = &data.scene {
                         let view = SceneView::fit(scene, rect.shrink(4.0));
                         view.paint(ui, scene);

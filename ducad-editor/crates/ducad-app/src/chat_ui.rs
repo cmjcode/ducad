@@ -739,6 +739,9 @@ mod tests {
         let mut app = DuCADApp::new_for_test();
         app.chat.history = Some(ChatHistory::in_memory());
         app.chat.loaded = true;
+        // Bawaan kini aman (`confirm_writes = true`); tes ini menguji jalur
+        // penerapan langsung, jadi pilih secara eksplisit.
+        app.chat.settings.confirm_writes = false;
         let ctx = egui::Context::default();
         let model = ScriptedModel::new([
             ModelTurn {

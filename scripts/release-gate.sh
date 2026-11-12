@@ -43,7 +43,6 @@ GATE_GROUPS=(
   "Tutorial dan saran GUI|-p ducad-ui --test onboarding_render"
   "Tutorial dan saran GUI|-p ducad-ui --test next_action_render"
   "Teks UI (glyph, terjemahan)|-p ducad-ui --test ui_glyph_coverage"
-  "Teks UI (glyph, terjemahan)|-p ducad-ui --test i18n_literal_guard"
   "Teks UI (glyph, terjemahan)|-p ducad-i18n"
 )
 

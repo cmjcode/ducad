@@ -49,15 +49,6 @@ impl SwatchManager {
         ui.horizontal_wrapped(|ui| {
             for &color in swatches {
                 let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-                let hex_label = format!(
-                    "#{:02X}{:02X}{:02X}",
-                    (color.0[0] * 255.0) as u8,
-                    (color.0[1] * 255.0) as u8,
-                    (color.0[2] * 255.0) as u8
-                );
-                response.widget_info(move || {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, hex_label.clone())
-                });
                 let egui_col = egui::Color32::from_rgba_unmultiplied(
                     (color.0[0] * 255.0) as u8,
                     (color.0[1] * 255.0) as u8,
