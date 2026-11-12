@@ -59,7 +59,7 @@ jobs:
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: ver
         run: |
           CARGO_VER=$(awk -F'"' '/^\[/ { s = ($0 == "[workspace.package]") } s && /^version[ \t]*=/ { print $2; exit }' Cargo.toml)
@@ -79,7 +79,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Pasang dependensi sistem Linux
         working-directory: .
         run: |
@@ -123,7 +123,7 @@ jobs:
             exe: ".exe"
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Pasang dependensi sistem Linux
         if: runner.os == 'Linux'
@@ -227,7 +227,7 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "msiexec /x gagal: $($p.ExitCode)" }
           if (Test-Path (Join-Path $dir "ducad.exe")) { throw "copot tidak membersihkan folder instalasi" }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ducad-${{ matrix.platform }}
           if-no-files-found: error
@@ -248,7 +248,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
