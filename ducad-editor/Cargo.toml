@@ -57,7 +57,7 @@ criterion = "0.5"
 proptest = "1"
 i_overlay = "9.0"
 
-glam = { version = "0.33", features = ["bytemuck", "serde"] }
+glam = { version = "0.34", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }
 # `default-features = false` + daftar ulang manual: fitur default eframe
 # TERMASUK "glow" (backend OpenGL lewat egui_glow/glutin) walau kita HANYA
@@ -96,7 +96,7 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Server MCP `ducad-mcp` (P3): gambar PNG di hasil tool.
-base64 = "0.22"
+base64 = "0.23"
 # CLI `ducad-cli` (P2.1).
 clap = { version = "4", features = ["derive"] }
 # JSON Schema kontrak `Op` (ducad-engine, P1.2) untuk CLI/MCP.
@@ -121,18 +121,18 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 # langsung, bukan `rand`: yang dibutuhkan hanya mengisi 16 byte dari CSPRNG
 # sistem, dan versi ini sudah ada di pohon dependensi — menarik `rand` akan
 # menambah salinan ketiganya (0.9 dan 0.10 sudah masuk lewat dependensi lain).
-getrandom = "0.3"
+getrandom = "0.4"
 hex = "0.4"
 # Pembaruan otomatis (`ducad-update`): checksum SHA-256 paket rilis, verifikasi
 # tanda tangan Ed25519/Minisign pada manifest `.sha256`, dan ekstraksi .zip
 # rilis Windows (Linux memakai `tar` sistem, macOS `hdiutil`). Semuanya sudah
 # ada di pohon dependensi lewat crate lain.
-sha2 = "0.10"
+sha2 = "0.11"
 ring = "0.17"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
 # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).
-rfd = "0.17"
+rfd = "0.18"
 # 0.40 menyamakan `libsqlite3-sys` dengan yang dipakai pustaka MNEMONIC
 # (P11.5): hanya satu paket boleh menautkan pustaka native `sqlite3`.
 rusqlite = { version = "0.40", features = ["bundled"] }
