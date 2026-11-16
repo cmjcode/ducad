@@ -1885,7 +1885,7 @@ dependencies = [
  "bytemuck",
  "egui",
  "egui-wgpu",
- "pollster 0.4.0",
+ "pollster 1.0.1",
 ]
 
 [[package]]
