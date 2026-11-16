@@ -15,4 +15,4 @@ bytemuck = { workspace = true }
 
 [dev-dependencies]
 # Hanya untuk tes pipeline GPU (meminta adapter wgpu secara sinkron).
-pollster = "0.4"
+pollster = "1.0"
