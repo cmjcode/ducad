@@ -53,7 +53,7 @@ kurbo = "0.13"
 rstar = "0.12"
 lyon_tessellation = "1.0"
 lyon_path = "1.0"
-criterion = "0.5"
+criterion = "0.8"
 proptest = "1"
 i_overlay = "9.0"
 
