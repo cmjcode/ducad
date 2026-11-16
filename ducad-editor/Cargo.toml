@@ -100,7 +100,7 @@ base64 = "0.23"
 # CLI `ducad-cli` (P2.1).
 clap = { version = "4", features = ["derive"] }
 # JSON Schema kontrak `Op` (ducad-engine, P1.2) untuk CLI/MCP.
-schemars = "0.8"
+schemars = "1.2"
 # "serde" di sini mengaktifkan Serialize/Deserialize otomatis untuk tipe key
 # hasil `slotmap::new_key_type!` (EntityId, BodyId) DAN untuk `SlotMap<K, V>`
 # itu sendiri (indeks+versi internal ikut ter-serialize, jadi key yang sama
